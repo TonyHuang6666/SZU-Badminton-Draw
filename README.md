@@ -1,0 +1,71 @@
+# 深大羽协抽签工具
+
+这是一个面向 Windows 电脑的开源羽毛球比赛抽签工具，来源于深大羽协曾经使用的 `BFSZU.cpp` 控制台程序。新版本的目标是让非技术干事也能完成比赛抽签，同时让全校同学可以公开查看抽签原理。
+
+## 当前状态
+
+仓库已经改造成分层的 Windows 图形化工具：
+
+- `src/BadmintonDraw.Core`：抽签核心算法，不依赖界面和 Excel。
+- `src/BadmintonDraw.Excel`：参赛名单 Excel 导入、结果 Excel 导出、名单模板生成。
+- `src/BadmintonDraw.App`：Windows WPF 图形界面。
+- `tests/BadmintonDraw.Tests`：不依赖测试框架的基础算法测试。
+- `docs`：算法、公平性和使用说明。
+
+## 最终使用方式
+
+1. 打开 `BadmintonDraw.App.exe`。
+2. 点击“生成名单模板”，填写参赛名单。
+3. 回到软件，选择参赛名单 Excel。
+4. 选择比赛模式、项目类型、小组数、算法版本和随机种子。
+5. 点击“预览抽签”检查结果。
+6. 点击“导出结果 Excel”，得到 `抽签结果.xlsx`。
+
+导出的结果文件会包含：
+
+- 总分组结果
+- 第一轮对阵名单
+- 轮空或直接晋级名单
+- Excel 排表格式
+- 抽签设置与审计信息
+- 原始名单
+
+## 公平性设计
+
+新版使用公开随机种子。只要参赛名单、设置、算法版本和随机种子完全一致，任何人在本地重新运行都可以得到同样的抽签结果。
+
+结果文件会写入：
+
+- 算法版本
+- 随机种子
+- 输入哈希
+- 生成时间
+- 参赛数量、种子数量、小组数量
+
+## 开发环境
+
+建议使用 Windows 电脑和 Visual Studio 2022：
+
+- .NET 8 SDK
+- Visual Studio 2022 的“.NET 桌面开发”工作负载
+
+命令行构建：
+
+```powershell
+dotnet restore
+dotnet build
+dotnet run --project tests/BadmintonDraw.Tests
+dotnet run --project src/BadmintonDraw.App
+```
+
+macOS/Linux 可以查看和测试核心代码，但 WPF 图形界面只能在 Windows 上构建和运行。
+
+详细构建和发布命令见 [docs/build.md](docs/build.md)。
+
+## 历史来源
+
+原始 C++ 控制台程序已经从当前工程中移除，避免干事误用旧入口。需要追溯历史实现时，可以通过 Git 历史或 GitHub 原仓库查看。
+
+## 开源许可
+
+本项目使用 MIT License，便于深大校内社团、学院和其他组织自由使用、审计和二次开发。
