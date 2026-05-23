@@ -1,0 +1,142 @@
+<Window x:Class="BadmintonDraw.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="深大羽协抽签工具" Height="720" Width="1040" MinHeight="640" MinWidth="920"
+        Background="#F6F7F9" FontFamily="Microsoft YaHei UI, Segoe UI">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="16" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="16" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.Row="0" LastChildFill="True">
+            <StackPanel DockPanel.Dock="Left">
+                <TextBlock Text="深大羽协抽签工具" FontSize="24" FontWeight="SemiBold" Foreground="#111827" />
+                <TextBlock Text="导入 Excel 名单，设置项目和随机种子，导出可审计的抽签结果。" Margin="0,6,0,0" Foreground="#4B5563" />
+            </StackPanel>
+            <Button DockPanel.Dock="Right" Width="128" Margin="16,0,0,0" Click="CreateTemplate_Click">生成名单模板</Button>
+        </DockPanel>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="340" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="White" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="8" Padding="18">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="抽签设置" FontSize="18" FontWeight="SemiBold" Foreground="#111827" />
+
+                        <Label Content="参赛名单 Excel" Margin="0,18,0,4" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="InputPathBox" IsReadOnly="True" />
+                            <Button Grid.Column="2" Width="84" Click="BrowseInput_Click">选择</Button>
+                        </Grid>
+
+                        <Label Content="比赛模式" Margin="0,14,0,4" />
+                        <ComboBox x:Name="CompetitionModeBox" SelectionChanged="CompetitionModeBox_SelectionChanged">
+                            <ComboBoxItem Content="单项赛（淘汰赛）" Tag="SinglesKnockout" IsSelected="True" />
+                            <ComboBoxItem Content="单项赛（循环赛）" Tag="SinglesRoundRobin" />
+                            <ComboBoxItem Content="团体赛（淘汰赛）" Tag="TeamKnockout" />
+                            <ComboBoxItem Content="团体赛（循环赛）" Tag="TeamRoundRobin" />
+                        </ComboBox>
+
+                        <Label Content="项目类型" Margin="0,14,0,4" />
+                        <ComboBox x:Name="EventKindBox">
+                            <ComboBoxItem Content="单打" Tag="Singles" IsSelected="True" />
+                            <ComboBoxItem Content="双打" Tag="Doubles" />
+                            <ComboBoxItem Content="团体" Tag="Team" />
+                        </ComboBox>
+
+                        <Label Content="小组数" Margin="0,14,0,4" />
+                        <TextBox x:Name="GroupCountBox" Text="4" />
+
+                        <Label Content="算法版本" Margin="0,14,0,4" />
+                        <ComboBox x:Name="AlgorithmBox">
+                            <ComboBoxItem Content="公开规则算法 v2（推荐）" Tag="PerGroupPowerOfTwoV2" IsSelected="True" />
+                            <ComboBoxItem Content="历史 BFSZU 算法 v1" Tag="LegacyBfszuV1" />
+                        </ComboBox>
+
+                        <Label Content="随机种子" Margin="0,14,0,4" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="SeedBox" />
+                            <Button Grid.Column="2" Width="84" Click="GenerateSeed_Click">生成</Button>
+                        </Grid>
+
+                        <Button Margin="0,22,0,0" Height="42" Click="Preview_Click" Background="#111827" Foreground="White">预览抽签</Button>
+                        <Button Margin="0,10,0,0" Height="42" Click="Export_Click">导出结果 Excel</Button>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <Border Grid.Column="2" Background="White" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="8" Padding="18">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="12" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <DockPanel Grid.Row="0">
+                        <StackPanel DockPanel.Dock="Left">
+                            <TextBlock Text="预览结果" FontSize="18" FontWeight="SemiBold" Foreground="#111827" />
+                            <TextBlock x:Name="SummaryText" Text="尚未导入名单。" Margin="0,6,0,0" Foreground="#4B5563" />
+                        </StackPanel>
+                    </DockPanel>
+
+                    <TabControl Grid.Row="2">
+                        <TabItem Header="总分组">
+                            <DataGrid x:Name="GroupsGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="组别" Binding="{Binding GroupName}" Width="100" />
+                                    <DataGridTextColumn Header="组内序号" Binding="{Binding Order}" Width="90" />
+                                    <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*" />
+                                    <DataGridTextColumn Header="种子" Binding="{Binding SeedLabel}" Width="90" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </TabItem>
+                        <TabItem Header="第一轮">
+                            <DataGrid x:Name="RoundOneGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="组别" Binding="{Binding GroupName}" Width="100" />
+                                    <DataGridTextColumn Header="组内序号" Binding="{Binding Order}" Width="90" />
+                                    <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*" />
+                                    <DataGridTextColumn Header="种子" Binding="{Binding SeedLabel}" Width="90" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </TabItem>
+                        <TabItem Header="轮空/晋级">
+                            <DataGrid x:Name="ByeGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="组别" Binding="{Binding GroupName}" Width="100" />
+                                    <DataGridTextColumn Header="组内序号" Binding="{Binding Order}" Width="90" />
+                                    <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*" />
+                                    <DataGridTextColumn Header="种子" Binding="{Binding SeedLabel}" Width="90" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </TabItem>
+                    </TabControl>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="4" Background="#EEF2FF" BorderBrush="#C7D2FE" BorderThickness="1" CornerRadius="8" Padding="12">
+            <TextBlock x:Name="StatusText" Text="准备就绪。" Foreground="#3730A3" TextWrapping="Wrap" />
+        </Border>
+    </Grid>
+</Window>
