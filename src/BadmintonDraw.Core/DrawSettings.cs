@@ -5,7 +5,7 @@ public sealed record DrawSettings(
     EventKind EventKind,
     int GroupCount,
     string RandomSeed,
-    DrawAlgorithmVersion AlgorithmVersion = DrawAlgorithmVersion.PerGroupPowerOfTwoV2)
+    DrawAlgorithmVersion AlgorithmVersion = DrawAlgorithmVersion.PerGroupPowerOfTwo)
 {
     public bool IsKnockout =>
         CompetitionMode is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout;

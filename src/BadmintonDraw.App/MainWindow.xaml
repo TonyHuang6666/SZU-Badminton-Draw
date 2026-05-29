@@ -61,12 +61,6 @@
                         <Label Content="小组数" Margin="0,14,0,4" />
                         <TextBox x:Name="GroupCountBox" Text="4" />
 
-                        <Label Content="算法版本" Margin="0,14,0,4" />
-                        <ComboBox x:Name="AlgorithmBox">
-                            <ComboBoxItem Content="公开规则算法 v2（推荐）" Tag="PerGroupPowerOfTwoV2" IsSelected="True" />
-                            <ComboBoxItem Content="历史 BFSZU 算法 v1" Tag="LegacyBfszuV1" />
-                        </ComboBox>
-
                         <Label Content="随机种子" Margin="0,14,0,4" />
                         <Grid>
                             <Grid.ColumnDefinitions>

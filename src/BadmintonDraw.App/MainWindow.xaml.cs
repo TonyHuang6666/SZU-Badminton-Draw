@@ -151,8 +151,7 @@ public partial class MainWindow : Window
                 GetCompetitionMode(),
                 GetEventKind(),
                 groupCount,
-                SeedBox.Text,
-                GetAlgorithmVersion());
+                SeedBox.Text);
 
             _participants = _reader.ReadParticipants(InputPathBox.Text, settings.EventKind);
             _latestResult = _drawService.Generate(_participants, settings);
@@ -179,11 +178,6 @@ public partial class MainWindow : Window
     private EventKind GetEventKind()
     {
         return Enum.Parse<EventKind>(GetSelectedTag(EventKindBox));
-    }
-
-    private DrawAlgorithmVersion GetAlgorithmVersion()
-    {
-        return Enum.Parse<DrawAlgorithmVersion>(GetSelectedTag(AlgorithmBox));
     }
 
     private static string GetSelectedTag(ComboBox comboBox)

@@ -19,6 +19,7 @@ public sealed class DrawResultExcelWriter
     private static readonly XLColor PlayInWinnerFill = XLColor.FromHtml("#FFF2CC");
     private static readonly XLColor ByeFill = XLColor.FromHtml("#E2F0D9");
     private static readonly XLColor FutureFill = XLColor.FromHtml("#E7E6E6");
+    private static readonly XLColor QualifiedFill = XLColor.FromHtml("#00B050");
     private static readonly XLColor GroupFill = XLColor.FromHtml("#D9EAF7");
     private static readonly XLColor NoteFill = XLColor.FromHtml("#EEF2FF");
 
@@ -44,21 +45,40 @@ public sealed class DrawResultExcelWriter
 
     private static void WriteUnifiedBracketSheet(XLWorkbook workbook, DrawResult result)
     {
-        var sheet = workbook.Worksheets.Add(BuildBracketSheetName(result.Settings.EventKind));
+        var sheet = workbook.Worksheets.Add("对阵表");
         var bracketSlots = BuildBracketSlots(result);
         var mainSlotCount = bracketSlots.Count;
-        var roundColumns = BuildRoundColumns(mainSlotCount);
+        var isQualifierBracket = !IsPowerOfTwo(result.Groups.Count);
+        var qualifierHeaders = isQualifierBracket
+            ? BuildQualifierRoundHeaders(result, bracketSlots)
+            : null;
+        var roundColumns = qualifierHeaders is not null
+            ? BuildRoundColumnsByCount(qualifierHeaders.Count)
+            : BuildRoundColumns(mainSlotCount);
         var lastColumn = roundColumns.Count > 0
             ? roundColumns[^1] + MergedCellWidth - 1
             : MainDrawFirstColumn + MergedCellWidth - 1;
         var noteRow = BracketStartRow + mainSlotCount * SlotRowGap + 2;
 
         ConfigureBracketSheet(sheet, lastColumn, noteRow);
-        WriteBracketTitle(sheet, result, mainSlotCount, bracketSlots.Count(slot => slot.IsPlayIn), lastColumn);
-        WriteBracketHeaders(sheet, roundColumns, mainSlotCount);
-        WriteGroupBands(sheet, result, bracketSlots);
+        WriteBracketTitle(
+            sheet,
+            result,
+            mainSlotCount,
+            bracketSlots.Count(slot => slot.IsPlayIn),
+            lastColumn,
+            isQualifierBracket ? result.Groups.Count : null);
+        WriteBracketHeaders(sheet, roundColumns, mainSlotCount, qualifierHeaders);
+        WriteGroupBands(sheet, result, bracketSlots, lastColumn);
         WriteFirstRoundSlots(sheet, bracketSlots, roundColumns[0]);
-        WriteFutureRoundSlots(sheet, mainSlotCount, roundColumns);
+        if (isQualifierBracket)
+        {
+            WriteQualifierRoundSlots(sheet, result, bracketSlots, roundColumns);
+        }
+        else
+        {
+            WriteFutureRoundSlots(sheet, mainSlotCount, roundColumns);
+        }
         WriteBracketNote(sheet, noteRow, lastColumn);
 
         sheet.SheetView.FreezeRows(4);
@@ -68,16 +88,6 @@ public sealed class DrawResultExcelWriter
         sheet.PageSetup.FitToPages(1, 0);
         sheet.PageSetup.SetRowsToRepeatAtTop(1, 4);
         sheet.PageSetup.PrintAreas.Add($"A1:{sheet.Cell(noteRow, lastColumn).Address.ToStringRelative()}");
-    }
-
-    private static string BuildBracketSheetName(EventKind eventKind)
-    {
-        return eventKind switch
-        {
-            EventKind.Doubles => "深大双打",
-            EventKind.Team => "深大团体",
-            _ => "深大男单"
-        };
     }
 
     private static List<BracketSlot> BuildBracketSlots(DrawResult result)
@@ -113,8 +123,13 @@ public sealed class DrawResultExcelWriter
 
     private static List<int> BuildRoundColumns(int mainSlotCount)
     {
-        var columns = new List<int>();
         var roundCount = Math.Max(1, (int)Math.Ceiling(Math.Log2(Math.Max(mainSlotCount, 1))) + 1);
+        return BuildRoundColumnsByCount(roundCount);
+    }
+
+    private static List<int> BuildRoundColumnsByCount(int roundCount)
+    {
+        var columns = new List<int>();
 
         for (var i = 0; i < roundCount; i++)
         {
@@ -122,6 +137,29 @@ public sealed class DrawResultExcelWriter
         }
 
         return columns;
+    }
+
+    private static List<string> BuildQualifierRoundHeaders(
+        DrawResult result,
+        IReadOnlyList<BracketSlot> bracketSlots)
+    {
+        var groupSlotCounts = result.Groups
+            .Select(group => bracketSlots.Count(slot => slot.GroupNumber == group.Number))
+            .ToList();
+        var headers = new List<string>();
+
+        while (groupSlotCounts.Any(count => count > 1))
+        {
+            var from = groupSlotCounts.Sum();
+            groupSlotCounts = groupSlotCounts
+                .Select(count => count > 1 ? count / 2 : 1)
+                .ToList();
+            var to = groupSlotCounts.Sum();
+            headers.Add($"{from}进{to}");
+        }
+
+        headers.Add("出线");
+        return headers;
     }
 
     private static void ConfigureBracketSheet(IXLWorksheet sheet, int lastColumn, int noteRow)
@@ -148,7 +186,8 @@ public sealed class DrawResultExcelWriter
         DrawResult result,
         int mainSlotCount,
         int playInCount,
-        int lastColumn)
+        int lastColumn,
+        int? qualifierCount = null)
     {
         var participantLabel = result.Settings.EventKind switch
         {
@@ -163,7 +202,7 @@ public sealed class DrawResultExcelWriter
             1,
             1,
             lastColumn,
-            $"深大羽协{EventKindText(result.Settings.EventKind)}{result.Audit.ParticipantCount}{participantLabel}大表格对阵表",
+            $"{result.Audit.ParticipantCount}{participantLabel}对阵表",
             TitleFill,
             XLColor.White,
             isBold: true,
@@ -175,13 +214,19 @@ public sealed class DrawResultExcelWriter
             1,
             2,
             lastColumn,
-            $"共{result.Audit.ParticipantCount}{participantLabel}：{playInCount}场附加赛 + {mainSlotCount}{participantLabel}主签。附加赛胜者直接进入同一行的主签位置。",
+            qualifierCount.HasValue
+                ? $"共{result.Audit.ParticipantCount}{participantLabel}：{playInCount}场附加赛；附加赛后{mainSlotCount}{participantLabel}进入正赛，最终决出{qualifierCount.Value}个小组出线名额。"
+                : $"共{result.Audit.ParticipantCount}{participantLabel}：{playInCount}场附加赛；附加赛后{mainSlotCount}{participantLabel}进入正赛。附加赛胜者直接进入同一行的正赛位置。",
             NoteFill,
             XLColor.FromHtml("#1F2937"),
             fontSize: 11);
     }
 
-    private static void WriteBracketHeaders(IXLWorksheet sheet, IReadOnlyList<int> roundColumns, int mainSlotCount)
+    private static void WriteBracketHeaders(
+        IXLWorksheet sheet,
+        IReadOnlyList<int> roundColumns,
+        int mainSlotCount,
+        IReadOnlyList<string>? customHeaders = null)
     {
         WriteMergedCell(
             sheet,
@@ -196,9 +241,11 @@ public sealed class DrawResultExcelWriter
 
         for (var i = 0; i < roundColumns.Count; i++)
         {
-            var header = i == roundColumns.Count - 1
-                ? "冠军"
-                : BuildRoundHeader(mainSlotCount, i);
+            var header = customHeaders is not null
+                ? customHeaders[i]
+                : i == roundColumns.Count - 1
+                    ? "冠军"
+                    : BuildRoundHeader(mainSlotCount, i);
 
             WriteMergedCell(
                 sheet,
@@ -233,7 +280,8 @@ public sealed class DrawResultExcelWriter
     private static void WriteGroupBands(
         IXLWorksheet sheet,
         DrawResult result,
-        IReadOnlyList<BracketSlot> bracketSlots)
+        IReadOnlyList<BracketSlot> bracketSlots,
+        int lastColumn)
     {
         foreach (var group in result.Groups)
         {
@@ -252,12 +300,91 @@ public sealed class DrawResultExcelWriter
                 row,
                 1,
                 row,
-                24,
-                $"第{group.Number}组：{group.Participants.Count}人，{playInCount}场附加赛，{mainSlotCount}人主签",
+                lastColumn,
+                $"第{group.Number}组：{group.Participants.Count}人，{playInCount}场附加赛，附加赛后{mainSlotCount}人进入正赛",
                 GroupFill,
                 XLColor.FromHtml("#1F2937"),
                 isBold: true);
         }
+    }
+
+    private static void WriteQualifierRoundSlots(
+        IXLWorksheet sheet,
+        DrawResult result,
+        IReadOnlyList<BracketSlot> bracketSlots,
+        IReadOnlyList<int> roundColumns)
+    {
+        var finalColumn = roundColumns[^1];
+
+        foreach (var group in result.Groups)
+        {
+            var firstIndex = bracketSlots.ToList().FindIndex(slot => slot.GroupNumber == group.Number);
+            if (firstIndex < 0)
+            {
+                continue;
+            }
+
+            var initialCount = bracketSlots.Count(slot => slot.GroupNumber == group.Number);
+            var roundCount = (int)Math.Log2(initialCount);
+            var groupStartRow = BracketStartRow + firstIndex * SlotRowGap;
+
+            for (var roundIndex = 1; roundIndex <= roundCount; roundIndex++)
+            {
+                var column = roundColumns[Math.Min(roundIndex, roundColumns.Count - 1)];
+                var survivorCount = Math.Max(1, initialCount / (int)Math.Pow(2, roundIndex));
+                var step = SlotRowGap * (int)Math.Pow(2, roundIndex);
+                var offset = Math.Max(1, step / 2 - SlotRowGap / 2);
+                var isGroupFinal = survivorCount == 1;
+
+                for (var matchIndex = 0; matchIndex < survivorCount; matchIndex++)
+                {
+                    if (isGroupFinal && column != finalColumn)
+                    {
+                        continue;
+                    }
+
+                    var row = groupStartRow + matchIndex * step + offset;
+                    var value = isGroupFinal
+                        ? $"第{group.Number}组出线"
+                        : $"胜者{matchIndex + 1}";
+                    var fill = isGroupFinal ? QualifiedFill : FutureFill;
+                    var fontColor = isGroupFinal ? XLColor.White : null;
+
+                    WriteMergedCell(
+                        sheet,
+                        row,
+                        column,
+                        row,
+                        column + 1,
+                        value,
+                        fill,
+                        fontColor,
+                        isBold: isGroupFinal);
+                }
+            }
+
+            if (roundCount < roundColumns.Count - 1)
+            {
+                var finalRow = GetGroupCenterRow(groupStartRow, initialCount);
+                WriteMergedCell(
+                    sheet,
+                    finalRow,
+                    finalColumn,
+                    finalRow,
+                    finalColumn + 1,
+                    $"第{group.Number}组出线",
+                    QualifiedFill,
+                    XLColor.White,
+                    isBold: true);
+            }
+        }
+    }
+
+    private static int GetGroupCenterRow(int groupStartRow, int groupSlotCount)
+    {
+        var step = SlotRowGap * groupSlotCount;
+        var offset = Math.Max(1, step / 2 - SlotRowGap / 2);
+        return groupStartRow + offset;
     }
 
     private static void WriteFirstRoundSlots(
@@ -275,7 +402,7 @@ public sealed class DrawResultExcelWriter
                 WriteMergedCell(sheet, row, PlayInFirstColumn, row, PlayInFirstColumn + 1, slot.PlayInFirstName, PlayInFill);
                 WriteMergedCell(sheet, row + 1, PlayInFirstColumn, row + 1, PlayInFirstColumn + 1, "vs", PlayInFill, fontSize: 9);
                 WriteMergedCell(sheet, row + 2, PlayInFirstColumn, row + 2, PlayInFirstColumn + 1, slot.PlayInSecondName, PlayInFill);
-                WriteMergedCell(sheet, row, PlayInWinnerColumn, row + 2, PlayInWinnerColumn + 1, "胜者入主签", PlayInWinnerFill, fontSize: 9);
+                WriteMergedCell(sheet, row, PlayInWinnerColumn, row + 2, PlayInWinnerColumn + 1, "胜者入正赛", PlayInWinnerFill, fontSize: 9);
                 WriteMergedCell(sheet, row, firstRoundColumn, row, firstRoundColumn + 1, slot.MainDrawName, PlayInWinnerFill);
             }
             else
@@ -328,7 +455,7 @@ public sealed class DrawResultExcelWriter
             1,
             noteRow,
             lastColumn,
-            "填写说明：左侧附加赛完成后，将胜者姓名填入黄色主签位；绿色为直接进入主签的选手；灰色格用于逐轮填写胜者。",
+            "填写说明：左侧附加赛完成后，将胜者姓名填入黄色正赛位置；绿色为直接进入正赛的选手；灰色格用于逐轮填写胜者。",
             NoteFill,
             XLColor.FromHtml("#1F2937"));
     }
@@ -376,6 +503,11 @@ public sealed class DrawResultExcelWriter
         };
     }
 
+    private static bool IsPowerOfTwo(int value)
+    {
+        return value > 0 && (value & (value - 1)) == 0;
+    }
+
     private static void WriteGroupSheet(XLWorkbook workbook, string sheetName, IReadOnlyList<DrawGroup> groups)
     {
         var sheet = workbook.Worksheets.Add(sheetName);
@@ -417,7 +549,6 @@ public sealed class DrawResultExcelWriter
         {
             ("比赛模式", result.Settings.CompetitionMode.ToString()),
             ("项目类型", result.Settings.EventKind.ToString()),
-            ("算法版本", result.Audit.AlgorithmVersion.ToString()),
             ("随机种子", result.Audit.RandomSeed),
             ("输入哈希", result.Audit.InputHash),
             ("生成时间 UTC", result.Audit.GeneratedAtUtc.ToString("yyyy-MM-dd HH:mm:ss zzz")),
@@ -441,7 +572,7 @@ public sealed class DrawResultExcelWriter
     private static void WriteRosterSheet(XLWorkbook workbook, string sheetName, IReadOnlyList<DrawParticipant> participants)
     {
         var sheet = workbook.Worksheets.Add(sheetName);
-        var headers = new[] { "名称", "姓名", "搭档", "队伍", "是否种子", "种子序号", "备注" };
+        var headers = new[] { "姓名", "搭档", "队伍", "是否种子", "种子序号", "备注" };
 
         WriteHeader(sheet, headers);
 
@@ -449,13 +580,12 @@ public sealed class DrawResultExcelWriter
         {
             var row = i + 2;
             var participant = participants[i];
-            sheet.Cell(row, 1).Value = participant.DisplayName;
-            sheet.Cell(row, 2).Value = participant.PrimaryName ?? "";
-            sheet.Cell(row, 3).Value = participant.PartnerName ?? "";
-            sheet.Cell(row, 4).Value = participant.TeamName ?? "";
-            sheet.Cell(row, 5).Value = participant.IsSeed ? "是" : "";
-            sheet.Cell(row, 6).Value = participant.SeedRank.HasValue ? participant.SeedRank.Value : "";
-            sheet.Cell(row, 7).Value = participant.Note ?? "";
+            sheet.Cell(row, 1).Value = participant.PrimaryName ?? participant.DisplayName;
+            sheet.Cell(row, 2).Value = participant.PartnerName ?? "";
+            sheet.Cell(row, 3).Value = participant.TeamName ?? "";
+            sheet.Cell(row, 4).Value = participant.IsSeed ? "是" : "";
+            sheet.Cell(row, 5).Value = participant.SeedRank.HasValue ? participant.SeedRank.Value : "";
+            sheet.Cell(row, 6).Value = participant.Note ?? "";
         }
 
         ApplyTableStyle(sheet, headers.Length, participants.Count + 1);

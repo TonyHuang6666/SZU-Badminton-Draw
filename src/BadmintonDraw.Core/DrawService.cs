@@ -19,12 +19,7 @@ public sealed class DrawService
             return new DrawResult(numberedGroups, Array.Empty<DrawGroup>(), Array.Empty<DrawGroup>(), settings, audit);
         }
 
-        var knockout = settings.AlgorithmVersion switch
-        {
-            DrawAlgorithmVersion.LegacyBfszuV1 => SplitLegacyFirstRound(groups),
-            DrawAlgorithmVersion.PerGroupPowerOfTwoV2 => SplitPerGroupPowerOfTwo(groups),
-            _ => throw new DrawValidationException("未知的抽签算法版本。")
-        };
+        var knockout = SplitPerGroupPowerOfTwo(groups);
 
         return new DrawResult(
             ToDrawGroups(knockout.Groups),
@@ -121,83 +116,6 @@ public sealed class DrawService
         }
 
         return 2 * (groupSize - power);
-    }
-
-    private static KnockoutSplit SplitLegacyFirstRound(IReadOnlyList<List<DrawParticipant>> groups)
-    {
-        var oddGroup = 0;
-        var oddGroupNum = 0;
-        var evenGroup = 0;
-        var evenGroupNum = 0;
-
-        foreach (var group in groups)
-        {
-            if (group.Count % 2 != 0)
-            {
-                oddGroup++;
-                oddGroupNum = group.Count;
-            }
-            else
-            {
-                evenGroup++;
-                evenGroupNum = group.Count;
-            }
-        }
-
-        var i = 0;
-        while (Math.Pow(2, i) <= evenGroupNum)
-        {
-            i++;
-        }
-
-        var gap = evenGroupNum - (int)Math.Pow(2, i - 1);
-        var roundOneNumber = gap != 0
-            ? oddGroupNum < evenGroupNum
-                ? gap * 2 * evenGroup + (gap - 1) * 2 * oddGroup
-                : gap * 2 * evenGroup + (gap + 1) * 2 * oddGroup
-            : oddGroupNum < evenGroupNum
-                ? 2 * oddGroup * (oddGroupNum - (int)Math.Pow(2, i - 2))
-                : oddGroup * 2;
-
-        roundOneNumber = Math.Clamp(roundOneNumber, 0, groups.Sum(group => group.Count));
-        var byeNumber = groups.Sum(group => group.Count) - roundOneNumber;
-        var byeGroups = SelectEvenly(groups, byeNumber);
-        var roundOneGroups = SubtractGroups(groups, byeGroups);
-        var finalGroups = roundOneGroups.Zip(byeGroups, (roundOne, bye) => roundOne.Concat(bye).ToList()).ToList();
-
-        return new KnockoutSplit(finalGroups, roundOneGroups, byeGroups);
-    }
-
-    private static List<List<DrawParticipant>> SelectEvenly(
-        IReadOnlyList<List<DrawParticipant>> groups,
-        int count)
-    {
-        var result = new List<List<DrawParticipant>>();
-        var baseCount = count / groups.Count;
-        var remainder = count % groups.Count;
-
-        for (var i = 0; i < groups.Count; i++)
-        {
-            var take = baseCount + (i < remainder ? 1 : 0);
-            result.Add(groups[i].Take(Math.Min(take, groups[i].Count)).ToList());
-        }
-
-        return result;
-    }
-
-    private static List<List<DrawParticipant>> SubtractGroups(
-        IReadOnlyList<List<DrawParticipant>> groups,
-        IReadOnlyList<List<DrawParticipant>> selectedGroups)
-    {
-        var result = new List<List<DrawParticipant>>();
-
-        for (var i = 0; i < groups.Count; i++)
-        {
-            var selected = selectedGroups[i].ToHashSet();
-            result.Add(groups[i].Where(participant => !selected.Contains(participant)).ToList());
-        }
-
-        return result;
     }
 
     private static IReadOnlyList<DrawGroup> ToDrawGroups(IReadOnlyList<List<DrawParticipant>> groups)

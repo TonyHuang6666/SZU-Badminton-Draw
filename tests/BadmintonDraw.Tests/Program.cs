@@ -5,7 +5,7 @@ var tests = new (string Name, Action Run)[]
     ("same seed creates same result", SameSeedCreatesSameResult),
     ("groups stay balanced", GroupsStayBalanced),
     ("seeds are distributed when possible", SeedsAreDistributedWhenPossible),
-    ("v2 knockout uses per-group power of two rule", V2KnockoutUsesPerGroupRule)
+    ("knockout uses per-group power of two rule", KnockoutUsesPerGroupRule)
 };
 
 foreach (var test in tests)
@@ -49,13 +49,12 @@ static void SeedsAreDistributedWhenPossible()
         "each group should receive one seed when seed count equals group count");
 }
 
-static void V2KnockoutUsesPerGroupRule()
+static void KnockoutUsesPerGroupRule()
 {
     var participants = CreateParticipants(7);
     var result = new DrawService().Generate(participants, CreateSettings(
         groupCount: 2,
-        mode: CompetitionMode.SinglesKnockout,
-        algorithm: DrawAlgorithmVersion.PerGroupPowerOfTwoV2));
+        mode: CompetitionMode.SinglesKnockout));
 
     var roundOneCounts = result.RoundOneGroups.Select(group => group.Count).Order().ToArray();
     var byeCounts = result.ByeGroups.Select(group => group.Count).Order().ToArray();
@@ -74,10 +73,9 @@ static IReadOnlyList<DrawParticipant> CreateParticipants(int count)
 static DrawSettings CreateSettings(
     int groupCount,
     string seed = "test-seed",
-    CompetitionMode mode = CompetitionMode.SinglesRoundRobin,
-    DrawAlgorithmVersion algorithm = DrawAlgorithmVersion.PerGroupPowerOfTwoV2)
+    CompetitionMode mode = CompetitionMode.SinglesRoundRobin)
 {
-    return new DrawSettings(mode, EventKind.Singles, groupCount, seed, algorithm);
+    return new DrawSettings(mode, EventKind.Singles, groupCount, seed);
 }
 
 static string Signature(IReadOnlyList<DrawGroup> groups)

@@ -17,6 +17,5 @@ public enum EventKind
 
 public enum DrawAlgorithmVersion
 {
-    LegacyBfszuV1 = 1,
-    PerGroupPowerOfTwoV2 = 2
+    PerGroupPowerOfTwo = 1
 }
