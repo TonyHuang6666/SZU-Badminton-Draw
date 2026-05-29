@@ -1,21 +1,35 @@
-MIT License
+深大羽协抽签工具双许可证
 
-Copyright (c) 2026 Tony Huang
+版权所有 (c) 2026 Tony Huang
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+本项目采用双许可证模式。除非作者另行书面说明，本 LICENSE 文件所在版本及其后续版本适用以下条款。
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+一、高校羽毛球社团免费许可
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+大学、高校羽毛球社团可以免费使用、复制、修改和分发本软件，用于非商业性质的校园羽毛球赛事、社团内部管理、学生比赛、教学展示、学生组织活动及相关公益交流。
+
+前述免费许可也包括合理的成本分摊场景，例如按照学校规定收取报名费，或分摊场地、用球、物料等成本，但活动本身不得以商业盈利为目的。
+
+在免费许可下分发本软件或其修改版本时，必须保留本版权声明和本许可证文件。
+
+二、商业授权
+
+任何商业使用均须事先取得 Tony Huang 的书面授权。
+
+需要商业授权的场景包括但不限于：
+
+- 羽毛球培训机构、教练或课程服务方用于付费培训、招生、运营或赛事服务；
+- 赛事公司、体育运营公司、第三方服务商用于组织、承接、执行或支持赛事；
+- 商业活动、赞助活动、付费赛事服务、盈利性比赛或营利性运营；
+- 将本软件作为收费产品、付费服务、SaaS、托管服务、内部商业工具或客户交付物的一部分；
+- 对本软件进行商业化打包、销售、出租、转授权、分发或二次开发交付。
+
+拟在上述或其他商业场景中使用本项目的组织或个人，应在使用前联系 Tony Huang 并取得书面许可。
+
+三、免责声明
+
+本软件按“现状”提供，不作任何明示或默示担保，包括但不限于适销性、特定用途适用性和不侵权担保。因本软件或本软件的使用产生的任何索赔、损害或其他责任，版权持有人不承担责任。
+
+四、历史版本
+
+本项目历史上已经按照其他许可证发布的特定版本，仍以该特定版本发布时附带的许可证为准。本许可证不追溯改变已经按旧许可证取得的历史版本授权。
