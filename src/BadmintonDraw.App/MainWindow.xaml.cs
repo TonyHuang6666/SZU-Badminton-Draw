@@ -117,13 +117,13 @@ public partial class MainWindow : Window
     {
         try
         {
-            var switchedToDoubles = TrySwitchToDoublesForPartnerList();
+            var detectedEventKind = TryApplyDetectedEventKind();
             _participants = _reader.ReadParticipants(InputPathBox.Text, GetEventKind());
             SummaryText.Text = $"已导入 {_participants.Count} 个参赛单位";
             PreviewStateText.Text = "待预览";
             UpdatePreviewBadges();
-            SetStatus(switchedToDoubles
-                ? "检测到名单中有搭档，已自动切换为双打并导入成功。"
+            SetStatus(detectedEventKind.HasValue
+                ? $"检测到名单类型为{GetEventKindDisplay(detectedEventKind.Value)}，已自动切换并导入成功。"
                 : "名单导入成功。");
             return true;
         }
@@ -148,7 +148,7 @@ public partial class MainWindow : Window
                 return false;
             }
 
-            var switchedToDoubles = TrySwitchToDoublesForPartnerList();
+            var detectedEventKind = TryApplyDetectedEventKind();
             if (!int.TryParse(GroupCountBox.Text.Trim(), out var groupCount))
             {
                 throw new DrawValidationException("小组数必须是数字。");
@@ -172,8 +172,8 @@ public partial class MainWindow : Window
             GroupCountStatText.Text = groupCount.ToString();
             PreviewStateText.Text = "已预览";
             UpdatePreviewBadges(_latestResult);
-            SetStatus(switchedToDoubles
-                ? "检测到名单中有搭档，已自动切换为双打并生成预览。"
+            SetStatus(detectedEventKind.HasValue
+                ? $"检测到名单类型为{GetEventKindDisplay(detectedEventKind.Value)}，已自动切换并生成预览。"
                 : "抽签预览已生成，可继续切换轮次或导出 Excel。");
             return true;
         }
@@ -194,18 +194,56 @@ public partial class MainWindow : Window
         return Enum.Parse<EventKind>(GetSelectedTag(EventKindBox));
     }
 
-    private bool TrySwitchToDoublesForPartnerList()
+    private EventKind? TryApplyDetectedEventKind()
     {
-        if (GetCompetitionMode() is CompetitionMode.TeamKnockout or CompetitionMode.TeamRoundRobin
-            || GetEventKind() == EventKind.Doubles
-            || string.IsNullOrWhiteSpace(InputPathBox.Text)
-            || !_reader.HasPartnerData(InputPathBox.Text))
+        if (string.IsNullOrWhiteSpace(InputPathBox.Text))
         {
-            return false;
+            return null;
         }
 
-        SelectEventKind(EventKind.Doubles);
-        return true;
+        var originalMode = GetCompetitionMode();
+        var originalEventKind = GetEventKind();
+        var detectedEventKind = _reader.DetectEventKind(InputPathBox.Text);
+
+        if (detectedEventKind == EventKind.Team)
+        {
+            SelectCompetitionMode(originalMode switch
+            {
+                CompetitionMode.SinglesRoundRobin => CompetitionMode.TeamRoundRobin,
+                CompetitionMode.TeamRoundRobin => CompetitionMode.TeamRoundRobin,
+                _ => CompetitionMode.TeamKnockout
+            });
+            UpdateEventKindForMode();
+        }
+        else
+        {
+            SelectCompetitionMode(originalMode switch
+            {
+                CompetitionMode.TeamRoundRobin => CompetitionMode.SinglesRoundRobin,
+                CompetitionMode.SinglesRoundRobin => CompetitionMode.SinglesRoundRobin,
+                _ => CompetitionMode.SinglesKnockout
+            });
+            UpdateEventKindForMode();
+            SelectEventKind(detectedEventKind);
+        }
+
+        return originalMode != GetCompetitionMode() || originalEventKind != GetEventKind()
+            ? detectedEventKind
+            : null;
+    }
+
+    private void SelectCompetitionMode(CompetitionMode competitionMode)
+    {
+        foreach (ComboBoxItem item in CompetitionModeBox.Items)
+        {
+            if (string.Equals(item.Tag?.ToString(), competitionMode.ToString(), StringComparison.Ordinal))
+            {
+                CompetitionModeBox.SelectedItem = item;
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("缺少比赛模式选项配置。");
     }
 
     private void SelectEventKind(EventKind eventKind)

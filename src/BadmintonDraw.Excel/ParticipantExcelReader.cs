@@ -7,7 +7,7 @@ public sealed class ParticipantExcelReader
 {
     private static readonly string[] SeedTrueValues = ["是", "种子", "true", "yes", "y", "1"];
 
-    public bool HasPartnerData(string filePath)
+    public EventKind DetectEventKind(string filePath)
     {
         if (!File.Exists(filePath))
         {
@@ -22,22 +22,39 @@ public sealed class ParticipantExcelReader
         var lastRow = worksheet.LastRowUsed()
             ?? throw new ExcelImportException("参赛名单文件为空。");
         var headerMap = BuildHeaderMap(headerRow);
-
-        if (!headerMap.TryGetValue("搭档", out var partnerColumn))
-        {
-            return false;
-        }
+        var hasPrimaryName = false;
+        var hasPartnerName = false;
+        var hasTeamName = false;
 
         for (var rowNumber = headerRow.RowNumber() + 1; rowNumber <= lastRow.RowNumber(); rowNumber++)
         {
             var row = worksheet.Row(rowNumber);
-            if (!IsBlankRow(row, headerMap.Values) && !string.IsNullOrWhiteSpace(row.Cell(partnerColumn).GetString()))
+            if (IsBlankRow(row, headerMap.Values))
             {
-                return true;
+                continue;
             }
+
+            hasPrimaryName |= !string.IsNullOrWhiteSpace(GetCell(row, headerMap, "姓名"));
+            hasPartnerName |= !string.IsNullOrWhiteSpace(GetCell(row, headerMap, "搭档"));
+            hasTeamName |= !string.IsNullOrWhiteSpace(GetCell(row, headerMap, "队伍"));
         }
 
-        return false;
+        if (hasPartnerName)
+        {
+            return EventKind.Doubles;
+        }
+
+        if (hasPrimaryName)
+        {
+            return EventKind.Singles;
+        }
+
+        return hasTeamName ? EventKind.Team : EventKind.Singles;
+    }
+
+    public bool HasPartnerData(string filePath)
+    {
+        return DetectEventKind(filePath) == EventKind.Doubles;
     }
 
     public IReadOnlyList<DrawParticipant> ReadParticipants(string filePath, EventKind eventKind)

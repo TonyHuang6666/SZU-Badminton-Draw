@@ -11,7 +11,7 @@ var tests = new (string Name, Action Run)[]
     ("power-of-two bracket splits group header around winner cells", PowerOfTwoBracketSplitsGroupHeaderAroundWinnerCells),
     ("seed players are highlighted in exported workbook", SeedPlayersAreHighlightedInExportedWorkbook),
     ("participant template header is readable", ParticipantTemplateHeaderIsReadable),
-    ("reader detects partner data", ReaderDetectsPartnerData)
+    ("reader detects participant event kind", ReaderDetectsPartnerData)
 };
 
 foreach (var test in tests)
@@ -172,30 +172,48 @@ static void ParticipantTemplateHeaderIsReadable()
 
 static void ReaderDetectsPartnerData()
 {
-    var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-partner-detect-{Guid.NewGuid():N}.xlsx");
+    var doublesPath = Path.Combine(Path.GetTempPath(), $"badminton-doubles-detect-{Guid.NewGuid():N}.xlsx");
+    var singlesPath = Path.Combine(Path.GetTempPath(), $"badminton-singles-detect-{Guid.NewGuid():N}.xlsx");
+    var teamPath = Path.Combine(Path.GetTempPath(), $"badminton-team-detect-{Guid.NewGuid():N}.xlsx");
 
     try
     {
-        using (var workbook = new XLWorkbook())
-        {
-            var sheet = workbook.AddWorksheet("参赛名单");
-            sheet.Cell(1, 1).Value = "姓名";
-            sheet.Cell(1, 2).Value = "搭档";
-            sheet.Cell(1, 3).Value = "队伍";
-            sheet.Cell(2, 1).Value = "张三";
-            sheet.Cell(2, 2).Value = "李四";
-            workbook.SaveAs(outputPath);
-        }
+        WriteParticipantDetectionWorkbook(doublesPath, primaryName: "张三", partnerName: "李四", teamName: "计算机与软件学院");
+        WriteParticipantDetectionWorkbook(singlesPath, primaryName: "王五", partnerName: "", teamName: "管理学院");
+        WriteParticipantDetectionWorkbook(teamPath, primaryName: "", partnerName: "", teamName: "经济学院");
 
-        Assert(new ParticipantExcelReader().HasPartnerData(outputPath), "reader should detect non-empty partner cells");
+        var reader = new ParticipantExcelReader();
+        AssertEqual(EventKind.Doubles.ToString(), reader.DetectEventKind(doublesPath).ToString(),
+            "reader should classify rows with partner data as doubles");
+        Assert(reader.HasPartnerData(doublesPath), "reader should detect non-empty partner cells");
+        AssertEqual(EventKind.Singles.ToString(), reader.DetectEventKind(singlesPath).ToString(),
+            "reader should classify rows with names and no partner as singles");
+        AssertEqual(EventKind.Team.ToString(), reader.DetectEventKind(teamPath).ToString(),
+            "reader should classify rows with only teams as team event");
     }
     finally
     {
-        if (File.Exists(outputPath))
+        foreach (var path in new[] { doublesPath, singlesPath, teamPath })
         {
-            File.Delete(outputPath);
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
         }
     }
+}
+
+static void WriteParticipantDetectionWorkbook(string outputPath, string primaryName, string partnerName, string teamName)
+{
+    using var workbook = new XLWorkbook();
+    var sheet = workbook.AddWorksheet("参赛名单");
+    sheet.Cell(1, 1).Value = "姓名";
+    sheet.Cell(1, 2).Value = "搭档";
+    sheet.Cell(1, 3).Value = "队伍";
+    sheet.Cell(2, 1).Value = primaryName;
+    sheet.Cell(2, 2).Value = partnerName;
+    sheet.Cell(2, 3).Value = teamName;
+    workbook.SaveAs(outputPath);
 }
 
 static IReadOnlyList<DrawParticipant> CreateParticipants(int count)
