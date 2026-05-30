@@ -15,7 +15,7 @@
 ```powershell
 dotnet restore
 dotnet build
-dotnet run --project tests/BadmintonDraw.Tests
+dotnet test
 dotnet run --project src/BadmintonDraw.App
 ```
 

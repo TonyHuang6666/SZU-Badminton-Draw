@@ -42,14 +42,14 @@ public sealed class DrawService
             .ToList();
 
         rng.Shuffle(regularParticipants);
-        rng.Shuffle(seededParticipants);
 
         var groups = DivideEvenly(regularParticipants, groupCount);
         groups.Sort((left, right) => left.Count.CompareTo(right.Count));
+        var seedGroupOrder = BuildProtectedSeedGroupOrder(groupCount);
 
         for (var i = 0; i < seededParticipants.Count; i++)
         {
-            groups[i % groupCount].Add(seededParticipants[i]);
+            groups[seedGroupOrder[i % groupCount]].Add(seededParticipants[i]);
         }
 
         foreach (var group in groups)
@@ -57,8 +57,48 @@ public sealed class DrawService
             rng.Shuffle(group);
         }
 
-        groups.Sort((left, right) => left.Count.CompareTo(right.Count));
         return groups;
+    }
+
+    private static IReadOnlyList<int> BuildProtectedSeedGroupOrder(int groupCount)
+    {
+        var order = new List<int>(groupCount);
+        AddProtectedSeedPositions(order, 0, groupCount - 1);
+        return order;
+    }
+
+    private static void AddProtectedSeedPositions(ICollection<int> order, int first, int last)
+    {
+        if (first > last)
+        {
+            return;
+        }
+
+        if (order.Count == 0)
+        {
+            AddSeedPosition(order, first);
+            AddSeedPosition(order, last);
+        }
+
+        if (last - first <= 1)
+        {
+            return;
+        }
+
+        var middleLeft = (first + last) / 2;
+        var middleRight = middleLeft + 1;
+        AddSeedPosition(order, middleLeft);
+        AddSeedPosition(order, middleRight);
+        AddProtectedSeedPositions(order, first, middleLeft);
+        AddProtectedSeedPositions(order, middleRight, last);
+    }
+
+    private static void AddSeedPosition(ICollection<int> order, int position)
+    {
+        if (!order.Contains(position))
+        {
+            order.Add(position);
+        }
     }
 
     private static List<List<DrawParticipant>> DivideEvenly(
@@ -91,8 +131,26 @@ public sealed class DrawService
         foreach (var group in groups)
         {
             var roundOneCount = CalculateRoundOneCount(group.Count);
-            var roundOne = group.Take(roundOneCount).ToList();
-            var bye = group.Skip(roundOneCount).ToList();
+            var byeCount = group.Count - roundOneCount;
+            var seededParticipants = group
+                .Where(participant => participant.IsSeed)
+                .OrderBy(participant => participant.SeedRank ?? int.MaxValue)
+                .ThenBy(participant => participant.NormalizedDisplayName, StringComparer.Ordinal)
+                .ToList();
+            var regularParticipants = group
+                .Where(participant => !participant.IsSeed)
+                .ToList();
+            var protectedSeeds = seededParticipants.Take(byeCount).ToList();
+            var playInSeeds = seededParticipants.Skip(byeCount).ToList();
+            var regularRoundOneCount = roundOneCount - playInSeeds.Count;
+            var roundOne = BuildPlayInOrder(
+                playInSeeds,
+                regularParticipants.Take(regularRoundOneCount).ToList(),
+                roundOneCount / 2);
+            var bye = ArrangeParticipantsBySeedProtection(regularParticipants
+                .Skip(regularRoundOneCount)
+                .Concat(protectedSeeds)
+                .ToList());
 
             roundOneGroups.Add(roundOne);
             byeGroups.Add(bye);
@@ -100,6 +158,61 @@ public sealed class DrawService
         }
 
         return new KnockoutSplit(finalGroups, roundOneGroups, byeGroups);
+    }
+
+    private static List<DrawParticipant> BuildPlayInOrder(
+        IReadOnlyList<DrawParticipant> playInSeeds,
+        IReadOnlyList<DrawParticipant> regularParticipants,
+        int matchCount)
+    {
+        if (matchCount == 0)
+        {
+            return [];
+        }
+
+        var matches = Enumerable.Range(0, matchCount)
+            .Select(_ => new List<DrawParticipant>(capacity: 2))
+            .ToList();
+
+        for (var i = 0; i < playInSeeds.Count; i++)
+        {
+            matches[i % matchCount].Add(playInSeeds[i]);
+        }
+
+        foreach (var participant in regularParticipants)
+        {
+            var seededMatch = matches.FirstOrDefault(match => match.Count == 1 && match[0].IsSeed);
+            var target = seededMatch
+                ?? matches.FirstOrDefault(match => match.Count == 0)
+                ?? matches.First(match => match.Count < 2);
+            target.Add(participant);
+        }
+
+        return matches.SelectMany(match => match).ToList();
+    }
+
+    private static List<DrawParticipant> ArrangeParticipantsBySeedProtection(IReadOnlyList<DrawParticipant> participants)
+    {
+        var arranged = new DrawParticipant?[participants.Count];
+        var protectedPositions = BuildProtectedSeedGroupOrder(participants.Count);
+        var seededParticipants = participants
+            .Where(participant => participant.IsSeed)
+            .OrderBy(participant => participant.SeedRank ?? int.MaxValue)
+            .ThenBy(participant => participant.NormalizedDisplayName, StringComparer.Ordinal)
+            .ToList();
+        var regularParticipants = new Queue<DrawParticipant>(participants.Where(participant => !participant.IsSeed));
+
+        for (var i = 0; i < seededParticipants.Count; i++)
+        {
+            arranged[protectedPositions[i % protectedPositions.Count]] = seededParticipants[i];
+        }
+
+        for (var i = 0; i < arranged.Length; i++)
+        {
+            arranged[i] ??= regularParticipants.Dequeue();
+        }
+
+        return arranged.Cast<DrawParticipant>().ToList();
     }
 
     private static int CalculateRoundOneCount(int groupSize)

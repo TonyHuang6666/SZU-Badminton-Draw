@@ -7,7 +7,7 @@ public sealed class ParticipantExcelReader
 {
     private static readonly string[] SeedTrueValues = ["是", "种子", "true", "yes", "y", "1"];
 
-    public EventKind DetectEventKind(string filePath)
+    public EventKind DetectEventKind(string filePath, EventKind? preferredEventKind = null)
     {
         if (!File.Exists(filePath))
         {
@@ -42,6 +42,11 @@ public sealed class ParticipantExcelReader
         if (hasPartnerName)
         {
             return EventKind.Doubles;
+        }
+
+        if (hasTeamName && hasPrimaryName)
+        {
+            return preferredEventKind == EventKind.Team ? EventKind.Team : EventKind.Singles;
         }
 
         if (hasPrimaryName)

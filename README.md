@@ -9,7 +9,7 @@
 - `src/BadmintonDraw.Core`：抽签核心算法，不依赖界面和 Excel。
 - `src/BadmintonDraw.Excel`：参赛名单 Excel 导入、结果 Excel 导出、名单模板生成。
 - `src/BadmintonDraw.App`：Windows WPF 图形界面。
-- `tests/BadmintonDraw.Tests`：不依赖测试框架的基础算法测试。
+- `tests/BadmintonDraw.Tests`：基于 xUnit 的基础算法和 Excel 导入导出测试。
 - `docs`：算法、公平性和使用说明。
 
 ## 最终使用方式
@@ -54,7 +54,7 @@
 ```powershell
 dotnet restore
 dotnet build
-dotnet run --project tests/BadmintonDraw.Tests
+dotnet test
 dotnet run --project src/BadmintonDraw.App
 ```
 
@@ -72,5 +72,7 @@ macOS/Linux 可以查看和测试核心代码，但 WPF 图形界面只能在 Wi
 
 - 大学、高校羽毛球社团可免费用于非商业校园赛事、社团管理、学生比赛和相关教育或学生组织活动。
 - 培训机构、赛事公司、商业活动、付费赛事服务、商业分发或作为付费产品/服务的一部分使用前，必须先取得作者书面授权。
+
+本项目属于源代码公开的双许可证软件，并不是 OSI 标准开源许可证下的“完全开源”项目。对外介绍时请优先使用“源代码公开”“高校社团非商业免费使用”等表述。
 
 详细条款见 [LICENSE](LICENSE)。历史上已经按其他许可证发布的版本，仍以对应历史版本发布时的许可证为准。

@@ -203,7 +203,7 @@ public partial class MainWindow : Window
 
         var originalMode = GetCompetitionMode();
         var originalEventKind = GetEventKind();
-        var detectedEventKind = _reader.DetectEventKind(InputPathBox.Text);
+        var detectedEventKind = _reader.DetectEventKind(InputPathBox.Text, originalEventKind);
 
         if (detectedEventKind == EventKind.Team)
         {

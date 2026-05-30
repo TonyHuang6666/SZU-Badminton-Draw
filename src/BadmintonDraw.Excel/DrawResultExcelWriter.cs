@@ -105,24 +105,116 @@ public sealed class DrawResultExcelWriter
             for (var i = 0; i + 1 < roundOneParticipants.Count; i += 2)
             {
                 var matchNumber = i / 2 + 1;
+                var first = roundOneParticipants[i];
+                var second = roundOneParticipants[i + 1];
                 slots.Add(new BracketSlot(
                     group.Number,
                     $"第{group.Number}组附加赛{matchNumber}胜者",
                     false,
+                    MinSeedRank(first, second),
                     true,
-                    roundOneParticipants[i].DisplayName,
-                    roundOneParticipants[i].IsSeed,
-                    roundOneParticipants[i + 1].DisplayName,
-                    roundOneParticipants[i + 1].IsSeed));
+                    first.DisplayName,
+                    first.IsSeed,
+                    second.DisplayName,
+                    second.IsSeed));
             }
 
             foreach (var participant in byeParticipants)
             {
-                slots.Add(new BracketSlot(group.Number, participant.DisplayName, participant.IsSeed, false, "", false, "", false));
+                slots.Add(new BracketSlot(
+                    group.Number,
+                    participant.DisplayName,
+                    participant.IsSeed,
+                    participant.SeedRank,
+                    false,
+                    "",
+                    false,
+                    "",
+                    false));
             }
         }
 
-        return slots;
+        return slots
+            .GroupBy(slot => slot.GroupNumber)
+            .SelectMany(group => ArrangeBracketSlotsBySeedProtection(group.ToList()))
+            .ToList();
+    }
+
+    private static int? MinSeedRank(DrawParticipant first, DrawParticipant second)
+    {
+        return new[] { first.SeedRank, second.SeedRank }
+            .Where(rank => rank.HasValue)
+            .Min();
+    }
+
+    private static IReadOnlyList<BracketSlot> ArrangeBracketSlotsBySeedProtection(IReadOnlyList<BracketSlot> slots)
+    {
+        if (slots.Count == 0)
+        {
+            return slots;
+        }
+
+        var arranged = new BracketSlot?[slots.Count];
+        var protectedPositions = BuildProtectedSlotOrder(slots.Count);
+        var seededSlots = slots
+            .Where(slot => slot.ProtectedSeedRank.HasValue)
+            .OrderBy(slot => slot.ProtectedSeedRank!.Value)
+            .ThenBy(slot => slot.MainDrawName, StringComparer.Ordinal)
+            .ToList();
+        var regularSlots = new Queue<BracketSlot>(slots.Where(slot => !slot.ProtectedSeedRank.HasValue));
+
+        for (var i = 0; i < seededSlots.Count; i++)
+        {
+            arranged[protectedPositions[i % protectedPositions.Count]] = seededSlots[i];
+        }
+
+        for (var i = 0; i < arranged.Length; i++)
+        {
+            arranged[i] ??= regularSlots.Dequeue();
+        }
+
+        return arranged.Cast<BracketSlot>().ToList();
+    }
+
+    private static IReadOnlyList<int> BuildProtectedSlotOrder(int slotCount)
+    {
+        var order = new List<int>(slotCount);
+        AddProtectedSlotPositions(order, 0, slotCount - 1);
+        return order;
+    }
+
+    private static void AddProtectedSlotPositions(ICollection<int> order, int first, int last)
+    {
+        if (first > last)
+        {
+            return;
+        }
+
+        if (order.Count == 0)
+        {
+            AddSlotPosition(order, first);
+            AddSlotPosition(order, last);
+        }
+
+        if (last - first <= 1)
+        {
+            return;
+        }
+
+        var middleLeft = (first + last) / 2;
+        var middleRight = middleLeft + 1;
+        AddSlotPosition(order, middleLeft);
+        AddSlotPosition(order, middleRight);
+        AddProtectedSlotPositions(order, first, middleLeft);
+        AddProtectedSlotPositions(order, middleRight, last);
+    }
+
+    private static void AddSlotPosition(ICollection<int> order, int position)
+    {
+        if (!order.Contains(position))
+        {
+            order.Add(position);
+        }
     }
 
     private static List<int> BuildRoundColumns(int mainSlotCount)
@@ -762,6 +854,7 @@ public sealed class DrawResultExcelWriter
         int GroupNumber,
         string MainDrawName,
         bool MainDrawIsSeed,
+        int? ProtectedSeedRank,
         bool IsPlayIn,
         string PlayInFirstName,
         bool PlayInFirstIsSeed,
