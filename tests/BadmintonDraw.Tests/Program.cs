@@ -1,11 +1,17 @@
 using BadmintonDraw.Core;
+using BadmintonDraw.Excel;
+using ClosedXML.Excel;
 
 var tests = new (string Name, Action Run)[]
 {
     ("same seed creates same result", SameSeedCreatesSameResult),
     ("groups stay balanced", GroupsStayBalanced),
     ("seeds are distributed when possible", SeedsAreDistributedWhenPossible),
-    ("knockout uses per-group power of two rule", KnockoutUsesPerGroupRule)
+    ("knockout uses per-group power of two rule", KnockoutUsesPerGroupRule),
+    ("power-of-two bracket splits group header around winner cells", PowerOfTwoBracketSplitsGroupHeaderAroundWinnerCells),
+    ("seed players are highlighted in exported workbook", SeedPlayersAreHighlightedInExportedWorkbook),
+    ("participant template header is readable", ParticipantTemplateHeaderIsReadable),
+    ("reader detects partner data", ReaderDetectsPartnerData)
 };
 
 foreach (var test in tests)
@@ -63,6 +69,135 @@ static void KnockoutUsesPerGroupRule()
     AssertEqual("1,4", string.Join(',', byeCounts), "groups of 3 and 4 should have 1 and 4 byes/direct entrants");
 }
 
+static void PowerOfTwoBracketSplitsGroupHeaderAroundWinnerCells()
+{
+    var participants = CreateParticipants(157);
+    var settings = CreateSettings(groupCount: 8, mode: CompetitionMode.SinglesKnockout);
+    var result = new DrawService().Generate(participants, settings);
+    var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-draw-bracket-{Guid.NewGuid():N}.xlsx");
+
+    try
+    {
+        new DrawResultExcelWriter().Write(outputPath, result, participants);
+
+        using var workbook = new XLWorkbook(outputPath);
+        var sheet = workbook.Worksheet("对阵表");
+        var mergedRanges = sheet.MergedRanges
+            .Select(range => range.RangeAddress.ToStringRelative())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var row in new[] { 69, 197, 325, 453 })
+        {
+            Assert(mergedRanges.Contains($"A{row}:X{row}"), $"group header row {row} should be merged before the winner cell");
+            Assert(mergedRanges.Contains($"Y{row}:Z{row}"), $"winner cell row {row} should stay independent");
+            Assert(mergedRanges.Contains($"AA{row}:AH{row}"), $"group header row {row} should be merged after the winner cell");
+            Assert(!mergedRanges.Contains($"A{row}:AH{row}"), $"group header row {row} should not cover the winner cell");
+        }
+    }
+    finally
+    {
+        if (File.Exists(outputPath))
+        {
+            File.Delete(outputPath);
+        }
+    }
+}
+
+static void SeedPlayersAreHighlightedInExportedWorkbook()
+{
+    var participants = new List<DrawParticipant>
+    {
+        new("种子选手", IsSeed: true, SeedRank: 1),
+        new("普通选手1"),
+        new("普通选手2"),
+        new("普通选手3")
+    };
+    var settings = CreateSettings(groupCount: 1, mode: CompetitionMode.SinglesKnockout);
+    var result = new DrawService().Generate(participants, settings);
+    var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-draw-seed-style-{Guid.NewGuid():N}.xlsx");
+
+    try
+    {
+        new DrawResultExcelWriter().Write(outputPath, result, participants);
+
+        using var workbook = new XLWorkbook(outputPath);
+        var bracketSeedCell = workbook.Worksheet("对阵表")
+            .CellsUsed()
+            .FirstOrDefault(cell => cell.GetString() == "种子选手");
+        Assert(bracketSeedCell is not null, "seed player should appear in bracket sheet");
+        Assert(IsSeedFont(bracketSeedCell!), "seed player should be highlighted in bracket sheet");
+
+        var rosterSeedRow = workbook.Worksheet("原始名单").Row(2);
+        Assert(rosterSeedRow.Cell(1).GetString() == "种子选手", "seed player should stay in first roster row");
+        Assert(IsSeedFont(rosterSeedRow.Cell(1)), "seed row should be highlighted in roster sheet");
+    }
+    finally
+    {
+        if (File.Exists(outputPath))
+        {
+            File.Delete(outputPath);
+        }
+    }
+}
+
+static void ParticipantTemplateHeaderIsReadable()
+{
+    var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-template-{Guid.NewGuid():N}.xlsx");
+
+    try
+    {
+        new ParticipantTemplateWriter().Write(outputPath);
+
+        using var workbook = new XLWorkbook(outputPath);
+        var sheet = workbook.Worksheet("参赛名单");
+        Assert(sheet.Row(1).Height >= 24, "template header row should be tall enough for table filter buttons");
+        Assert(sheet.Row(2).Height >= 40, "template example rows should be tall enough for wrapped text");
+        Assert(sheet.Column(4).Width >= 12, "seed flag column should not clip its header");
+        Assert(sheet.Column(5).Width >= 12, "seed rank column should not clip its header");
+
+        foreach (var cell in sheet.Range("A1:F4").Cells())
+        {
+            Assert(cell.Style.Alignment.WrapText, $"template cell {cell.Address} should wrap text");
+            Assert(cell.Style.Alignment.Vertical == XLAlignmentVerticalValues.Center, $"template cell {cell.Address} should be vertically centered");
+        }
+    }
+    finally
+    {
+        if (File.Exists(outputPath))
+        {
+            File.Delete(outputPath);
+        }
+    }
+}
+
+static void ReaderDetectsPartnerData()
+{
+    var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-partner-detect-{Guid.NewGuid():N}.xlsx");
+
+    try
+    {
+        using (var workbook = new XLWorkbook())
+        {
+            var sheet = workbook.AddWorksheet("参赛名单");
+            sheet.Cell(1, 1).Value = "姓名";
+            sheet.Cell(1, 2).Value = "搭档";
+            sheet.Cell(1, 3).Value = "队伍";
+            sheet.Cell(2, 1).Value = "张三";
+            sheet.Cell(2, 2).Value = "李四";
+            workbook.SaveAs(outputPath);
+        }
+
+        Assert(new ParticipantExcelReader().HasPartnerData(outputPath), "reader should detect non-empty partner cells");
+    }
+    finally
+    {
+        if (File.Exists(outputPath))
+        {
+            File.Delete(outputPath);
+        }
+    }
+}
+
 static IReadOnlyList<DrawParticipant> CreateParticipants(int count)
 {
     return Enumerable.Range(1, count)
@@ -97,4 +232,10 @@ static void AssertEqual(string expected, string actual, string message)
     {
         throw new InvalidOperationException($"{message}. Expected '{expected}', actual '{actual}'.");
     }
+}
+
+static bool IsSeedFont(IXLCell cell)
+{
+    return cell.Style.Font.Bold
+        && cell.Style.Font.FontColor.Color.ToArgb() == XLColor.FromHtml("#C00000").Color.ToArgb();
 }

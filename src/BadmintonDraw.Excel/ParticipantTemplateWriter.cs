@@ -31,8 +31,23 @@ public sealed class ParticipantTemplateWriter
         var range = sheet.Range(1, 1, 4, headers.Length);
         var table = range.CreateTable();
         table.Theme = XLTableTheme.TableStyleMedium2;
+
+        sheet.Columns(1, headers.Length).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        sheet.Columns(1, headers.Length).Style.Alignment.WrapText = true;
+        range.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        range.Style.Alignment.WrapText = true;
+        sheet.Row(1).Height = 24;
+        sheet.Rows(2, 4).Height = 40;
+        sheet.Row(1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+        sheet.Column(1).Width = 10;
+        sheet.Column(2).Width = 10;
+        sheet.Column(3).Width = 18;
+        sheet.Column(4).Width = 12;
+        sheet.Column(5).Width = 12;
+        sheet.Column(6).Width = 16;
+
         sheet.SheetView.FreezeRows(1);
-        sheet.Columns().AdjustToContents();
         workbook.SaveAs(filePath);
     }
 }

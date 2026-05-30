@@ -3,7 +3,7 @@ namespace BadmintonDraw.Core;
 public sealed record DrawAuditInfo(
     DrawAlgorithmVersion AlgorithmVersion,
     string RandomSeed,
-    DateTimeOffset GeneratedAtUtc,
+    DateTimeOffset GeneratedAt,
     string InputHash,
     int ParticipantCount,
     int SeedCount,

@@ -7,6 +7,39 @@ public sealed class ParticipantExcelReader
 {
     private static readonly string[] SeedTrueValues = ["是", "种子", "true", "yes", "y", "1"];
 
+    public bool HasPartnerData(string filePath)
+    {
+        if (!File.Exists(filePath))
+        {
+            throw new ExcelImportException("找不到参赛名单文件。");
+        }
+
+        using var workbook = new XLWorkbook(filePath);
+        var worksheet = workbook.Worksheets.FirstOrDefault()
+            ?? throw new ExcelImportException("参赛名单文件中没有工作表。");
+        var headerRow = worksheet.FirstRowUsed()
+            ?? throw new ExcelImportException("参赛名单文件为空。");
+        var lastRow = worksheet.LastRowUsed()
+            ?? throw new ExcelImportException("参赛名单文件为空。");
+        var headerMap = BuildHeaderMap(headerRow);
+
+        if (!headerMap.TryGetValue("搭档", out var partnerColumn))
+        {
+            return false;
+        }
+
+        for (var rowNumber = headerRow.RowNumber() + 1; rowNumber <= lastRow.RowNumber(); rowNumber++)
+        {
+            var row = worksheet.Row(rowNumber);
+            if (!IsBlankRow(row, headerMap.Values) && !string.IsNullOrWhiteSpace(row.Cell(partnerColumn).GetString()))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public IReadOnlyList<DrawParticipant> ReadParticipants(string filePath, EventKind eventKind)
     {
         if (!File.Exists(filePath))

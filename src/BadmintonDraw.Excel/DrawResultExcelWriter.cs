@@ -22,6 +22,7 @@ public sealed class DrawResultExcelWriter
     private static readonly XLColor QualifiedFill = XLColor.FromHtml("#00B050");
     private static readonly XLColor GroupFill = XLColor.FromHtml("#D9EAF7");
     private static readonly XLColor NoteFill = XLColor.FromHtml("#EEF2FF");
+    private static readonly XLColor SeedFontColor = XLColor.FromHtml("#C00000");
 
     public void Write(string outputPath, DrawResult result, IReadOnlyList<DrawParticipant> sourceParticipants)
     {
@@ -69,7 +70,7 @@ public sealed class DrawResultExcelWriter
             lastColumn,
             isQualifierBracket ? result.Groups.Count : null);
         WriteBracketHeaders(sheet, roundColumns, mainSlotCount, qualifierHeaders);
-        WriteGroupBands(sheet, result, bracketSlots, lastColumn);
+        WriteGroupBands(sheet, result, bracketSlots, lastColumn, isQualifierBracket, roundColumns);
         WriteFirstRoundSlots(sheet, bracketSlots, roundColumns[0]);
         if (isQualifierBracket)
         {
@@ -107,14 +108,17 @@ public sealed class DrawResultExcelWriter
                 slots.Add(new BracketSlot(
                     group.Number,
                     $"第{group.Number}组附加赛{matchNumber}胜者",
+                    false,
                     true,
                     roundOneParticipants[i].DisplayName,
-                    roundOneParticipants[i + 1].DisplayName));
+                    roundOneParticipants[i].IsSeed,
+                    roundOneParticipants[i + 1].DisplayName,
+                    roundOneParticipants[i + 1].IsSeed));
             }
 
             foreach (var participant in byeParticipants)
             {
-                slots.Add(new BracketSlot(group.Number, participant.DisplayName, false, "", ""));
+                slots.Add(new BracketSlot(group.Number, participant.DisplayName, participant.IsSeed, false, "", false, "", false));
             }
         }
 
@@ -281,8 +285,12 @@ public sealed class DrawResultExcelWriter
         IXLWorksheet sheet,
         DrawResult result,
         IReadOnlyList<BracketSlot> bracketSlots,
-        int lastColumn)
+        int lastColumn,
+        bool isQualifierBracket,
+        IReadOnlyList<int> roundColumns)
     {
+        var totalMainSlotCount = bracketSlots.Count;
+
         foreach (var group in result.Groups)
         {
             var firstIndex = bracketSlots.ToList().FindIndex(slot => slot.GroupNumber == group.Number);
@@ -294,6 +302,17 @@ public sealed class DrawResultExcelWriter
             var playInCount = bracketSlots.Count(slot => slot.GroupNumber == group.Number && slot.IsPlayIn);
             var mainSlotCount = bracketSlots.Count(slot => slot.GroupNumber == group.Number);
             var row = BracketStartRow + firstIndex * SlotRowGap - 1;
+            var title = $"第{group.Number}组：{group.Participants.Count}人，{playInCount}场附加赛，附加赛后{mainSlotCount}人进入正赛";
+
+            if (!isQualifierBracket)
+            {
+                var blockedSpans = GetFutureRoundColumnSpansForRow(row, totalMainSlotCount, roundColumns);
+                if (blockedSpans.Count > 0)
+                {
+                    WriteSegmentedGroupBand(sheet, row, lastColumn, title, blockedSpans);
+                    continue;
+                }
+            }
 
             WriteMergedCell(
                 sheet,
@@ -301,11 +320,103 @@ public sealed class DrawResultExcelWriter
                 1,
                 row,
                 lastColumn,
-                $"第{group.Number}组：{group.Participants.Count}人，{playInCount}场附加赛，附加赛后{mainSlotCount}人进入正赛",
+                title,
                 GroupFill,
                 XLColor.FromHtml("#1F2937"),
                 isBold: true);
         }
+    }
+
+    private static List<ColumnSpan> GetFutureRoundColumnSpansForRow(
+        int row,
+        int mainSlotCount,
+        IReadOnlyList<int> roundColumns)
+    {
+        var spans = new List<ColumnSpan>();
+
+        for (var roundIndex = 1; roundIndex < roundColumns.Count; roundIndex++)
+        {
+            var matchCount = Math.Max(1, (int)Math.Ceiling(mainSlotCount / Math.Pow(2, roundIndex)));
+            var step = SlotRowGap * (int)Math.Pow(2, roundIndex);
+            var offset = Math.Max(1, step / 2 - SlotRowGap / 2);
+
+            for (var matchIndex = 0; matchIndex < matchCount; matchIndex++)
+            {
+                var futureRow = BracketStartRow + matchIndex * step + offset;
+                if (BuildRoundHeader(mainSlotCount, roundIndex) == "半决赛")
+                {
+                    futureRow++;
+                }
+
+                if (futureRow == row)
+                {
+                    spans.Add(new ColumnSpan(roundColumns[roundIndex], roundColumns[roundIndex] + MergedCellWidth - 1));
+                }
+            }
+        }
+
+        return spans
+            .OrderBy(span => span.FirstColumn)
+            .ToList();
+    }
+
+    private static void WriteSegmentedGroupBand(
+        IXLWorksheet sheet,
+        int row,
+        int lastColumn,
+        string title,
+        IReadOnlyList<ColumnSpan> blockedSpans)
+    {
+        var nextColumn = 1;
+        var wroteTitle = false;
+
+        foreach (var blockedSpan in blockedSpans)
+        {
+            if (nextColumn < blockedSpan.FirstColumn)
+            {
+                WriteGroupBandSegment(
+                    sheet,
+                    row,
+                    nextColumn,
+                    blockedSpan.FirstColumn - 1,
+                    wroteTitle ? "" : title,
+                    !wroteTitle);
+                wroteTitle = true;
+            }
+
+            nextColumn = Math.Max(nextColumn, blockedSpan.LastColumn + 1);
+        }
+
+        if (nextColumn <= lastColumn)
+        {
+            WriteGroupBandSegment(
+                sheet,
+                row,
+                nextColumn,
+                lastColumn,
+                wroteTitle ? "" : title,
+                !wroteTitle);
+        }
+    }
+
+    private static void WriteGroupBandSegment(
+        IXLWorksheet sheet,
+        int row,
+        int firstColumn,
+        int lastColumn,
+        string value,
+        bool isTitleSegment)
+    {
+        WriteMergedCell(
+            sheet,
+            row,
+            firstColumn,
+            row,
+            lastColumn,
+            value,
+            GroupFill,
+            XLColor.FromHtml("#1F2937"),
+            isBold: isTitleSegment);
     }
 
     private static void WriteQualifierRoundSlots(
@@ -399,15 +510,15 @@ public sealed class DrawResultExcelWriter
 
             if (slot.IsPlayIn)
             {
-                WriteMergedCell(sheet, row, PlayInFirstColumn, row, PlayInFirstColumn + 1, slot.PlayInFirstName, PlayInFill);
+                WriteSeedAwareMergedCell(sheet, row, PlayInFirstColumn, row, PlayInFirstColumn + 1, slot.PlayInFirstName, PlayInFill, slot.PlayInFirstIsSeed);
                 WriteMergedCell(sheet, row + 1, PlayInFirstColumn, row + 1, PlayInFirstColumn + 1, "vs", PlayInFill, fontSize: 9);
-                WriteMergedCell(sheet, row + 2, PlayInFirstColumn, row + 2, PlayInFirstColumn + 1, slot.PlayInSecondName, PlayInFill);
+                WriteSeedAwareMergedCell(sheet, row + 2, PlayInFirstColumn, row + 2, PlayInFirstColumn + 1, slot.PlayInSecondName, PlayInFill, slot.PlayInSecondIsSeed);
                 WriteMergedCell(sheet, row, PlayInWinnerColumn, row + 2, PlayInWinnerColumn + 1, "胜者入正赛", PlayInWinnerFill, fontSize: 9);
                 WriteMergedCell(sheet, row, firstRoundColumn, row, firstRoundColumn + 1, slot.MainDrawName, PlayInWinnerFill);
             }
             else
             {
-                WriteMergedCell(sheet, row, firstRoundColumn, row, firstRoundColumn + 1, slot.MainDrawName, ByeFill);
+                WriteSeedAwareMergedCell(sheet, row, firstRoundColumn, row, firstRoundColumn + 1, slot.MainDrawName, ByeFill, slot.MainDrawIsSeed);
             }
         }
     }
@@ -455,9 +566,31 @@ public sealed class DrawResultExcelWriter
             1,
             noteRow,
             lastColumn,
-            "填写说明：左侧附加赛完成后，将胜者姓名填入黄色正赛位置；绿色为直接进入正赛的选手；灰色格用于逐轮填写胜者。",
+            "填写说明：左侧附加赛完成后，将胜者姓名填入黄色正赛位置；绿色为直接进入正赛的选手；灰色格用于逐轮填写胜者；红色加粗姓名为种子选手。",
             NoteFill,
             XLColor.FromHtml("#1F2937"));
+    }
+
+    private static void WriteSeedAwareMergedCell(
+        IXLWorksheet sheet,
+        int firstRow,
+        int firstColumn,
+        int lastRow,
+        int lastColumn,
+        string value,
+        XLColor fill,
+        bool isSeed)
+    {
+        WriteMergedCell(
+            sheet,
+            firstRow,
+            firstColumn,
+            lastRow,
+            lastColumn,
+            value,
+            fill,
+            isSeed ? SeedFontColor : null,
+            isBold: isSeed);
     }
 
     private static void WriteMergedCell(
@@ -540,6 +673,7 @@ public sealed class DrawResultExcelWriter
         }
 
         ApplyTableStyle(sheet, headers.Length, row - 1);
+        HighlightSeedRows(sheet, headers.Length, row - 1);
     }
 
     private static void WriteAuditSheet(XLWorkbook workbook, string sheetName, DrawResult result)
@@ -551,7 +685,7 @@ public sealed class DrawResultExcelWriter
             ("项目类型", result.Settings.EventKind.ToString()),
             ("随机种子", result.Audit.RandomSeed),
             ("输入哈希", result.Audit.InputHash),
-            ("生成时间 UTC", result.Audit.GeneratedAtUtc.ToString("yyyy-MM-dd HH:mm:ss zzz")),
+            ("生成时间", result.Audit.GeneratedAt.ToString("yyyy-MM-dd HH:mm:ss zzz")),
             ("参赛数量", result.Audit.ParticipantCount.ToString()),
             ("种子数量", result.Audit.SeedCount.ToString()),
             ("小组数量", result.Audit.GroupCount.ToString())
@@ -589,6 +723,7 @@ public sealed class DrawResultExcelWriter
         }
 
         ApplyTableStyle(sheet, headers.Length, participants.Count + 1);
+        HighlightSeedRows(sheet, headers.Length, participants.Count + 1);
     }
 
     private static void WriteHeader(IXLWorksheet sheet, IReadOnlyList<string> headers)
@@ -608,10 +743,30 @@ public sealed class DrawResultExcelWriter
         sheet.Columns().AdjustToContents();
     }
 
+    private static void HighlightSeedRows(IXLWorksheet sheet, int columnCount, int lastRow)
+    {
+        for (var row = 2; row <= lastRow; row++)
+        {
+            if (sheet.Cell(row, 4).GetString() != "是")
+            {
+                continue;
+            }
+
+            var range = sheet.Range(row, 1, row, columnCount);
+            range.Style.Font.FontColor = SeedFontColor;
+            range.Style.Font.Bold = true;
+        }
+    }
+
     private sealed record BracketSlot(
         int GroupNumber,
         string MainDrawName,
+        bool MainDrawIsSeed,
         bool IsPlayIn,
         string PlayInFirstName,
-        string PlayInSecondName);
+        bool PlayInFirstIsSeed,
+        string PlayInSecondName,
+        bool PlayInSecondIsSeed);
+
+    private sealed record ColumnSpan(int FirstColumn, int LastColumn);
 }

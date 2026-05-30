@@ -130,7 +130,7 @@ public sealed class DrawService
         return new DrawAuditInfo(
             settings.AlgorithmVersion,
             settings.RandomSeed.Trim(),
-            DateTimeOffset.UtcNow,
+            DateTimeOffset.Now,
             ComputeInputHash(participants, settings),
             participants.Count,
             participants.Count(participant => participant.IsSeed),

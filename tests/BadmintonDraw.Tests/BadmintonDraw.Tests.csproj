@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/BadmintonDraw.Core/BadmintonDraw.Core.csproj" />
+    <ProjectReference Include="../../src/BadmintonDraw.Excel/BadmintonDraw.Excel.csproj" />
   </ItemGroup>
 </Project>

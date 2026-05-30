@@ -22,6 +22,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         SeedBox.Text = GenerateSeed();
         UpdateEventKindForMode();
+        UpdatePreviewBadges();
     }
 
     private void BrowseInput_Click(object sender, RoutedEventArgs e)
@@ -116,9 +117,14 @@ public partial class MainWindow : Window
     {
         try
         {
+            var switchedToDoubles = TrySwitchToDoublesForPartnerList();
             _participants = _reader.ReadParticipants(InputPathBox.Text, GetEventKind());
-            SummaryText.Text = $"已导入 {_participants.Count} 个参赛单位，其中 {_participants.Count(participant => participant.IsSeed)} 个种子。";
-            SetStatus("名单导入成功，可以预览或导出。");
+            SummaryText.Text = $"已导入 {_participants.Count} 个参赛单位";
+            PreviewStateText.Text = "待预览";
+            UpdatePreviewBadges();
+            SetStatus(switchedToDoubles
+                ? "检测到名单中有搭档，已自动切换为双打并导入成功。"
+                : "名单导入成功。");
             return true;
         }
         catch (Exception ex) when (ex is ExcelImportException or DrawValidationException or IOException)
@@ -142,6 +148,7 @@ public partial class MainWindow : Window
                 return false;
             }
 
+            var switchedToDoubles = TrySwitchToDoublesForPartnerList();
             if (!int.TryParse(GroupCountBox.Text.Trim(), out var groupCount))
             {
                 throw new DrawValidationException("小组数必须是数字。");
@@ -159,8 +166,15 @@ public partial class MainWindow : Window
             GroupsGrid.ItemsSource = ToRows(_latestResult.Groups);
             RoundOneGrid.ItemsSource = ToRows(_latestResult.RoundOneGroups);
             ByeGrid.ItemsSource = ToRows(_latestResult.ByeGroups);
-            SummaryText.Text = $"已生成 {_latestResult.Groups.Count} 个小组，参赛单位 {_latestResult.Audit.ParticipantCount} 个，随机种子：{_latestResult.Audit.RandomSeed}";
-            SetStatus("抽签预览已生成。");
+            SummaryText.Text = $"已生成 {_latestResult.Groups.Count} 个小组";
+            ParticipantCountText.Text = _latestResult.Audit.ParticipantCount.ToString();
+            EventKindStatText.Text = GetEventKindDisplay(settings.EventKind);
+            GroupCountStatText.Text = groupCount.ToString();
+            PreviewStateText.Text = "已预览";
+            UpdatePreviewBadges(_latestResult);
+            SetStatus(switchedToDoubles
+                ? "检测到名单中有搭档，已自动切换为双打并生成预览。"
+                : "抽签预览已生成，可继续切换轮次或导出 Excel。");
             return true;
         }
         catch (Exception ex) when (ex is ExcelImportException or DrawValidationException or IOException or InvalidOperationException)
@@ -178,6 +192,34 @@ public partial class MainWindow : Window
     private EventKind GetEventKind()
     {
         return Enum.Parse<EventKind>(GetSelectedTag(EventKindBox));
+    }
+
+    private bool TrySwitchToDoublesForPartnerList()
+    {
+        if (GetCompetitionMode() is CompetitionMode.TeamKnockout or CompetitionMode.TeamRoundRobin
+            || GetEventKind() == EventKind.Doubles
+            || string.IsNullOrWhiteSpace(InputPathBox.Text)
+            || !_reader.HasPartnerData(InputPathBox.Text))
+        {
+            return false;
+        }
+
+        SelectEventKind(EventKind.Doubles);
+        return true;
+    }
+
+    private void SelectEventKind(EventKind eventKind)
+    {
+        foreach (ComboBoxItem item in EventKindBox.Items)
+        {
+            if (string.Equals(item.Tag?.ToString(), eventKind.ToString(), StringComparison.Ordinal))
+            {
+                EventKindBox.SelectedItem = item;
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("缺少项目类型选项配置。");
     }
 
     private static string GetSelectedTag(ComboBox comboBox)
@@ -211,12 +253,38 @@ public partial class MainWindow : Window
         return $"SZUBA-{DateTime.Now:yyyyMMdd-HHmmss}-{Random.Shared.Next(1000, 9999)}";
     }
 
+    private void UpdatePreviewBadges(DrawResult? result = null)
+    {
+        var participantCount = result?.Audit.ParticipantCount ?? _participants.Count;
+        var groupCountText = result?.Groups.Count.ToString() ?? GroupCountBox.Text.Trim();
+
+        ParticipantPillText.Text = $"参赛单位 {participantCount} 个";
+        SeedPillText.Text = $"随机种子：{SeedBox.Text}";
+        ParticipantCountText.Text = participantCount.ToString();
+        EventKindStatText.Text = GetEventKindDisplay(GetEventKind());
+        GroupCountStatText.Text = string.IsNullOrWhiteSpace(groupCountText) ? "-" : groupCountText;
+    }
+
+    private static string GetEventKindDisplay(EventKind eventKind)
+    {
+        return eventKind switch
+        {
+            EventKind.Singles => "单打",
+            EventKind.Doubles => "双打",
+            EventKind.Team => "团体",
+            _ => eventKind.ToString()
+        };
+    }
+
     private void SetStatus(string message, bool isError = false)
     {
         StatusText.Text = message;
         StatusText.Foreground = isError
             ? System.Windows.Media.Brushes.DarkRed
-            : System.Windows.Media.Brushes.DarkSlateBlue;
+            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(90, 75, 126));
+        StatusDot.Fill = isError
+            ? System.Windows.Media.Brushes.IndianRed
+            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(25, 183, 122));
     }
 
     private sealed record ResultRow(string GroupName, int Order, string Name, string SeedLabel);

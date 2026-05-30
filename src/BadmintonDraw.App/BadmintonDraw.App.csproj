@@ -12,4 +12,7 @@
     <ProjectReference Include="../BadmintonDraw.Core/BadmintonDraw.Core.csproj" />
     <ProjectReference Include="../BadmintonDraw.Excel/BadmintonDraw.Excel.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\*.png" />
+  </ItemGroup>
 </Project>
