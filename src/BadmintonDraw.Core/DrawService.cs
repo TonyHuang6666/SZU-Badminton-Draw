@@ -265,7 +265,8 @@ public sealed class DrawService
                 .Append(participant.SeedRank?.ToString() ?? string.Empty).Append('|')
                 .Append(participant.PrimaryName ?? string.Empty).Append('|')
                 .Append(participant.PartnerName ?? string.Empty).Append('|')
-                .Append(participant.TeamName ?? string.Empty).AppendLine();
+                .Append(participant.TeamName ?? string.Empty).Append('|')
+                .Append(participant.PartnerTeamName ?? string.Empty).AppendLine();
         }
 
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
@@ -299,13 +300,34 @@ public sealed class DrawService
             throw new DrawValidationException("参赛名单中存在空名称。");
         }
 
-        var duplicate = participants
-            .GroupBy(participant => participant.NormalizedDisplayName, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault(group => group.Count() > 1);
+        ValidateSeedRanks(participants);
+    }
 
-        if (duplicate is not null)
+    private static void ValidateSeedRanks(IReadOnlyList<DrawParticipant> participants)
+    {
+        var invalidSeedRank = participants.FirstOrDefault(participant => participant.SeedRank.HasValue
+            && participant.SeedRank.Value <= 0);
+        if (invalidSeedRank is not null)
         {
-            throw new DrawValidationException($"参赛名单中存在重复名称：{duplicate.Key}");
+            throw new DrawValidationException($"种子序号必须大于 0：{invalidSeedRank.DisplayName}");
+        }
+
+        var overflowSeedRank = participants.FirstOrDefault(participant => participant.SeedRank.HasValue
+            && participant.SeedRank.Value > participants.Count);
+        if (overflowSeedRank is not null)
+        {
+            throw new DrawValidationException(
+                $"种子序号不能大于参赛人数或队伍数：{overflowSeedRank.DisplayName} 的种子序号为 {overflowSeedRank.SeedRank}");
+        }
+
+        var duplicateSeedRank = participants
+            .Where(participant => participant.SeedRank.HasValue)
+            .GroupBy(participant => participant.SeedRank!.Value)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateSeedRank is not null)
+        {
+            var duplicateNames = string.Join("、", duplicateSeedRank.Select(participant => participant.DisplayName));
+            throw new DrawValidationException($"参赛名单中存在重复种子序号 {duplicateSeedRank.Key}：{duplicateNames}");
         }
     }
 

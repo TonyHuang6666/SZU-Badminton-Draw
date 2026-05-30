@@ -15,6 +15,8 @@ public partial class MainWindow : Window
     private readonly DrawResultExcelWriter _writer = new();
     private readonly ParticipantTemplateWriter _templateWriter = new();
     private IReadOnlyList<DrawParticipant> _participants = Array.Empty<DrawParticipant>();
+    private IReadOnlyList<ParticipantImportWarning> _importWarnings = Array.Empty<ParticipantImportWarning>();
+    private string? _loadedInputPath;
     private DrawResult? _latestResult;
 
     public MainWindow()
@@ -29,7 +31,9 @@ public partial class MainWindow : Window
     {
         var dialog = new OpenFileDialog
         {
-            Filter = "Excel 文件 (*.xlsx)|*.xlsx|所有文件 (*.*)|*.*",
+            Filter = "Excel 文件 (*.xlsx)|*.xlsx",
+            DefaultExt = ".xlsx",
+            CheckFileExists = true,
             Title = "选择参赛名单"
         };
 
@@ -118,17 +122,21 @@ public partial class MainWindow : Window
         try
         {
             var detectedEventKind = TryApplyDetectedEventKind();
-            _participants = _reader.ReadParticipants(InputPathBox.Text, GetEventKind());
+            ApplyImportResult(_reader.ReadParticipantsWithWarnings(InputPathBox.Text, GetEventKind()));
             SummaryText.Text = $"已导入 {_participants.Count} 个参赛单位";
             PreviewStateText.Text = "待预览";
             UpdatePreviewBadges();
+            ShowImportWarningsIfNeeded(_importWarnings);
             SetStatus(detectedEventKind.HasValue
                 ? $"检测到名单类型为{GetEventKindDisplay(detectedEventKind.Value)}，已自动切换并导入成功。"
-                : "名单导入成功。");
+                : "名单导入成功。",
+                _importWarnings.Count > 0 ? StatusKind.Warning : StatusKind.Normal,
+                _importWarnings);
             return true;
         }
         catch (Exception ex) when (ex is ExcelImportException or DrawValidationException or IOException)
         {
+            ResetLoadedData();
             SetStatus(ex.Message, isError: true);
             return false;
         }
@@ -143,7 +151,7 @@ public partial class MainWindow : Window
                 throw new DrawValidationException("请先选择参赛名单 Excel。");
             }
 
-            if (_participants.Count == 0 && !TryLoadParticipants())
+            if ((_participants.Count == 0 || !IsCurrentInputLoaded()) && !TryLoadParticipants())
             {
                 return false;
             }
@@ -160,7 +168,7 @@ public partial class MainWindow : Window
                 groupCount,
                 SeedBox.Text);
 
-            _participants = _reader.ReadParticipants(InputPathBox.Text, settings.EventKind);
+            ApplyImportResult(_reader.ReadParticipantsWithWarnings(InputPathBox.Text, settings.EventKind));
             _latestResult = _drawService.Generate(_participants, settings);
 
             GroupsGrid.ItemsSource = ToRows(_latestResult.Groups);
@@ -174,14 +182,87 @@ public partial class MainWindow : Window
             UpdatePreviewBadges(_latestResult);
             SetStatus(detectedEventKind.HasValue
                 ? $"检测到名单类型为{GetEventKindDisplay(detectedEventKind.Value)}，已自动切换并生成预览。"
-                : "抽签预览已生成，可继续切换轮次或导出 Excel。");
+                : "抽签预览已生成，可继续切换轮次或导出 Excel。",
+                _importWarnings.Count > 0 ? StatusKind.Warning : StatusKind.Normal,
+                _importWarnings);
             return true;
         }
-        catch (Exception ex) when (ex is ExcelImportException or DrawValidationException or IOException or InvalidOperationException)
+        catch (Exception ex) when (ex is ExcelImportException or IOException)
+        {
+            ResetLoadedData();
+            SetStatus(ex.Message, isError: true);
+            return false;
+        }
+        catch (Exception ex) when (ex is DrawValidationException or InvalidOperationException)
         {
             SetStatus(ex.Message, isError: true);
             return false;
         }
+    }
+
+    private bool IsCurrentInputLoaded()
+    {
+        return !string.IsNullOrWhiteSpace(_loadedInputPath)
+            && string.Equals(_loadedInputPath, InputPathBox.Text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ResetLoadedData()
+    {
+        _participants = Array.Empty<DrawParticipant>();
+        _importWarnings = Array.Empty<ParticipantImportWarning>();
+        _loadedInputPath = null;
+        _latestResult = null;
+        GroupsGrid.ItemsSource = null;
+        RoundOneGrid.ItemsSource = null;
+        ByeGrid.ItemsSource = null;
+        SummaryText.Text = "尚未导入名单。";
+        PreviewStateText.Text = "待导入";
+        UpdatePreviewBadges();
+    }
+
+    private void ApplyImportResult(ParticipantImportResult importResult)
+    {
+        _participants = importResult.Participants;
+        _importWarnings = importResult.Warnings;
+        _loadedInputPath = InputPathBox.Text;
+    }
+
+    private void ShowImportWarningsIfNeeded(IReadOnlyList<ParticipantImportWarning> warnings)
+    {
+        var duplicateWarnings = warnings
+            .Where(warning => warning.Kind == ParticipantImportWarningKind.DuplicatePlayerName)
+            .ToList();
+        var unrankedSeedWarnings = warnings
+            .Where(warning => warning.Kind == ParticipantImportWarningKind.UnrankedSeed)
+            .ToList();
+        var sections = new List<string>();
+
+        if (duplicateWarnings.Count >= 2)
+        {
+            sections.Add("发现多组同名选手：\n" + FormatWarningList(duplicateWarnings));
+        }
+
+        if (unrankedSeedWarnings.Count >= 2)
+        {
+            sections.Add("发现多个标记为种子但未填写种子序号的参赛单位：\n" + FormatWarningList(unrankedSeedWarnings));
+        }
+
+        if (sections.Count == 0)
+        {
+            return;
+        }
+
+        MessageBox.Show(
+            this,
+            string.Join("\n\n", sections) + "\n\n这些提醒不会阻止预览抽签，你可以继续手动点击预览。",
+            "名单提醒",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+    }
+
+    private static string FormatWarningList(IReadOnlyList<ParticipantImportWarning> warnings)
+    {
+        return string.Join("\n", warnings.Select((warning, index) => $"{index + 1}. {warning.Detail}"));
     }
 
     private CompetitionMode GetCompetitionMode()
@@ -314,16 +395,69 @@ public partial class MainWindow : Window
         };
     }
 
+    private void SetStatus(
+        string message,
+        StatusKind statusKind,
+        IReadOnlyList<ParticipantImportWarning>? warnings = null)
+    {
+        var statusMessage = warnings is { Count: > 0 }
+            ? $"{message} {BuildWarningStatusText(warnings)}"
+            : message;
+        StatusText.Text = statusMessage;
+
+        if (statusKind == StatusKind.Error)
+        {
+            StatusText.Foreground = System.Windows.Media.Brushes.DarkRed;
+            StatusDot.Fill = System.Windows.Media.Brushes.IndianRed;
+            return;
+        }
+
+        if (statusKind == StatusKind.Warning)
+        {
+            StatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(140, 91, 0));
+            StatusDot.Fill = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(245, 158, 11));
+            return;
+        }
+
+        StatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(90, 75, 126));
+        StatusDot.Fill = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(25, 183, 122));
+    }
+
+    private static string BuildWarningStatusText(IReadOnlyList<ParticipantImportWarning> warnings)
+    {
+        if (warnings.Count == 1)
+        {
+            return $"{warnings[0].Summary}，可继续预览抽签。";
+        }
+
+        var duplicateCount = warnings.Count(warning => warning.Kind == ParticipantImportWarningKind.DuplicatePlayerName);
+        var unrankedSeedCount = warnings.Count(warning => warning.Kind == ParticipantImportWarningKind.UnrankedSeed);
+        var parts = new List<string>();
+
+        if (duplicateCount > 0)
+        {
+            parts.Add($"同名选手 {duplicateCount} 组");
+        }
+
+        if (unrankedSeedCount > 0)
+        {
+            parts.Add($"种子未编号 {unrankedSeedCount} 个");
+        }
+
+        return $"发现名单提醒：{string.Join("，", parts)}，可继续预览抽签。";
+    }
+
     private void SetStatus(string message, bool isError = false)
     {
-        StatusText.Text = message;
-        StatusText.Foreground = isError
-            ? System.Windows.Media.Brushes.DarkRed
-            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(90, 75, 126));
-        StatusDot.Fill = isError
-            ? System.Windows.Media.Brushes.IndianRed
-            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(25, 183, 122));
+        SetStatus(message, isError ? StatusKind.Error : StatusKind.Normal);
     }
 
     private sealed record ResultRow(string GroupName, int Order, string Name, string SeedLabel);
+
+    private enum StatusKind
+    {
+        Normal,
+        Warning,
+        Error
+    }
 }
