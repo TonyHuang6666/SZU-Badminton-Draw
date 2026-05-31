@@ -24,7 +24,7 @@ dotnet run --project src/BadmintonDraw.App
 ## 发布单文件程序
 
 ```powershell
-dotnet publish src/BadmintonDraw.App -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+dotnet publish src\BadmintonDraw.App\BadmintonDraw.App.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
 ```
 
 生成文件位于：
@@ -34,3 +34,5 @@ src\BadmintonDraw.App\bin\Release\net8.0-windows\win-x64\publish
 ```
 
 把发布目录中的程序发给干事即可使用。
+
+正式发布到 GitHub Release 时，建议将发布目录压缩为类似 `SZU-Badminton-Draw_vX.Y.Z_win-x64_self-contained.zip` 的文件，并随版本标签一起上传。

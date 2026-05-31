@@ -5,6 +5,7 @@
     <UseWPF>true</UseWPF>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <ApplicationIcon>Assets\szuba-app-icon.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -15,5 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\*.png" />
+    <Resource Include="Assets\*.ico" />
   </ItemGroup>
 </Project>
