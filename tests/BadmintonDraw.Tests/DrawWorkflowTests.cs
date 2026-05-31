@@ -206,6 +206,36 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void ExportedBracketUsesBlankCellBordersAsConnectors()
+    {
+        var participants = CreateParticipants(8);
+        var settings = CreateSettings(groupCount: 1, mode: CompetitionMode.SinglesKnockout);
+        var result = new DrawService().Generate(participants, settings);
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-draw-connectors-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            new DrawResultExcelWriter().Write(outputPath, result, participants);
+
+            using var workbook = new XLWorkbook(outputPath);
+            var sheet = workbook.Worksheet("对阵表");
+
+            Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(6, 7).Style.Border.BottomBorder);
+            Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(10, 7).Style.Border.TopBorder);
+            Assert.Equal(XLBorderStyleValues.None, sheet.Cell(6, 8).Style.Border.RightBorder);
+            Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(7, 8).Style.Border.RightBorder);
+            Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(8, 8).Style.Border.RightBorder);
+            Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(9, 8).Style.Border.RightBorder);
+            Assert.Equal(XLBorderStyleValues.None, sheet.Cell(10, 8).Style.Border.RightBorder);
+            Assert.Equal(XLBorderStyleValues.None, sheet.Cell(9, 8).Style.Border.TopBorder);
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
     public void VisualWriterExportsImageAndPdfFormats()
     {
         var participants = CreateParticipants(8).ToList();
@@ -244,6 +274,45 @@ public sealed class DrawWorkflowTests
             {
                 DeleteIfExists(outputPath);
             }
+        }
+    }
+
+    [Fact]
+    public void VisualWriterKeepsBordersAboveAdjacentCellFills()
+    {
+        var workbookPath = Path.Combine(Path.GetTempPath(), $"badminton-border-source-{Guid.NewGuid():N}.xlsx");
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-border-{Guid.NewGuid():N}.png");
+
+        try
+        {
+            using (var workbook = new XLWorkbook())
+            {
+                var sheet = workbook.Worksheets.Add("对阵表");
+                sheet.Column(1).Width = 10;
+                sheet.Column(2).Width = 10;
+                sheet.Row(1).Height = 18;
+                sheet.Cell(1, 1).Style.Border.RightBorder = XLBorderStyleValues.Thin;
+                sheet.Cell(1, 1).Style.Border.RightBorderColor = XLColor.Black;
+                sheet.Cell(1, 2).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFCC00");
+                workbook.SaveAs(workbookPath);
+            }
+
+            new DrawResultVisualWriter().Write(outputPath, workbookPath, "对阵表", DrawResultVisualFormat.Png);
+
+            using var bitmap = SKBitmap.Decode(outputPath);
+            var logicalWidth = 18f * 2 + 10f * 8.3f * 2;
+            var scale = bitmap.Width / logicalWidth;
+            var sampleX = (int)Math.Round((18f + 10f * 8.3f) * scale);
+            var sampleY = (int)Math.Round((18f + 18f * (96f / 72f) / 2f) * scale);
+            var pixel = bitmap.GetPixel(sampleX, sampleY);
+
+            Assert.True(pixel.Alpha > 240);
+            Assert.True(pixel.Red < 32 && pixel.Green < 32 && pixel.Blue < 32);
+        }
+        finally
+        {
+            DeleteIfExists(workbookPath);
+            DeleteIfExists(outputPath);
         }
     }
 

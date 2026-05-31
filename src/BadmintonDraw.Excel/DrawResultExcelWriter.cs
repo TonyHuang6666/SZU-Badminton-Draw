@@ -75,10 +75,12 @@ public sealed class DrawResultExcelWriter
         if (isQualifierBracket)
         {
             WriteQualifierRoundSlots(sheet, result, bracketSlots, roundColumns);
+            WriteQualifierBracketConnectors(sheet, result, bracketSlots, roundColumns);
         }
         else
         {
             WriteFutureRoundSlots(sheet, mainSlotCount, roundColumns);
+            WriteFutureRoundConnectors(sheet, mainSlotCount, roundColumns);
         }
         WriteBracketNote(sheet, noteRow, lastColumn);
 
@@ -583,6 +585,60 @@ public sealed class DrawResultExcelWriter
         }
     }
 
+    private static void WriteQualifierBracketConnectors(
+        IXLWorksheet sheet,
+        DrawResult result,
+        IReadOnlyList<BracketSlot> bracketSlots,
+        IReadOnlyList<int> roundColumns)
+    {
+        var finalColumn = roundColumns[^1];
+
+        foreach (var group in result.Groups)
+        {
+            var firstIndex = bracketSlots.ToList().FindIndex(slot => slot.GroupNumber == group.Number);
+            if (firstIndex < 0)
+            {
+                continue;
+            }
+
+            var initialCount = bracketSlots.Count(slot => slot.GroupNumber == group.Number);
+            var roundCount = (int)Math.Log2(initialCount);
+            var groupStartRow = BracketStartRow + firstIndex * SlotRowGap;
+
+            for (var roundIndex = 1; roundIndex <= roundCount; roundIndex++)
+            {
+                var targetColumn = roundColumns[Math.Min(roundIndex, roundColumns.Count - 1)];
+                var survivorCount = Math.Max(1, initialCount / (int)Math.Pow(2, roundIndex));
+                var isGroupFinal = survivorCount == 1;
+
+                if (isGroupFinal && targetColumn != finalColumn)
+                {
+                    continue;
+                }
+
+                var sourceColumn = roundColumns[roundIndex - 1];
+
+                for (var matchIndex = 0; matchIndex < survivorCount; matchIndex++)
+                {
+                    var upperRow = GetGroupRoundRow(groupStartRow, roundIndex - 1, matchIndex * 2);
+                    var lowerRow = GetGroupRoundRow(groupStartRow, roundIndex - 1, matchIndex * 2 + 1);
+                    var targetRow = GetGroupRoundRow(groupStartRow, roundIndex, matchIndex);
+                    DrawMatchConnector(sheet, sourceColumn, targetColumn, upperRow, lowerRow, targetRow);
+                }
+            }
+
+            if (roundCount < roundColumns.Count - 1)
+            {
+                var sourceColumn = roundColumns[Math.Max(0, roundCount)];
+                var sourceRow = roundCount == 0
+                    ? groupStartRow
+                    : GetGroupRoundRow(groupStartRow, roundCount, 0);
+                var targetRow = GetGroupCenterRow(groupStartRow, initialCount);
+                DrawSingleConnector(sheet, sourceColumn, finalColumn, sourceRow, targetRow);
+            }
+        }
+    }
+
     private static int GetGroupCenterRow(int groupStartRow, int groupSlotCount)
     {
         var step = SlotRowGap * groupSlotCount;
@@ -647,6 +703,144 @@ public sealed class DrawResultExcelWriter
                     value,
                     FutureFill);
             }
+        }
+    }
+
+    private static void WriteFutureRoundConnectors(
+        IXLWorksheet sheet,
+        int mainSlotCount,
+        IReadOnlyList<int> roundColumns)
+    {
+        for (var roundIndex = 1; roundIndex < roundColumns.Count; roundIndex++)
+        {
+            var sourceColumn = roundColumns[roundIndex - 1];
+            var targetColumn = roundColumns[roundIndex];
+            var matchCount = Math.Max(1, (int)Math.Ceiling(mainSlotCount / Math.Pow(2, roundIndex)));
+
+            for (var matchIndex = 0; matchIndex < matchCount; matchIndex++)
+            {
+                var upperSourceIndex = matchIndex * 2;
+                var lowerSourceIndex = upperSourceIndex + 1;
+                var previousMatchCount = Math.Max(1, (int)Math.Ceiling(mainSlotCount / Math.Pow(2, roundIndex - 1)));
+
+                if (lowerSourceIndex >= previousMatchCount)
+                {
+                    continue;
+                }
+
+                var upperRow = roundIndex == 1
+                    ? BracketStartRow + upperSourceIndex * SlotRowGap
+                    : GetFutureRoundRow(mainSlotCount, roundIndex - 1, upperSourceIndex);
+                var lowerRow = roundIndex == 1
+                    ? BracketStartRow + lowerSourceIndex * SlotRowGap
+                    : GetFutureRoundRow(mainSlotCount, roundIndex - 1, lowerSourceIndex);
+                var targetRow = GetFutureRoundRow(mainSlotCount, roundIndex, matchIndex);
+
+                DrawMatchConnector(sheet, sourceColumn, targetColumn, upperRow, lowerRow, targetRow);
+            }
+        }
+    }
+
+    private static int GetFutureRoundRow(int mainSlotCount, int roundIndex, int matchIndex)
+    {
+        var step = SlotRowGap * (int)Math.Pow(2, roundIndex);
+        var offset = Math.Max(1, step / 2 - SlotRowGap / 2);
+        var row = BracketStartRow + matchIndex * step + offset;
+        if (BuildRoundHeader(mainSlotCount, roundIndex) == "半决赛")
+        {
+            row++;
+        }
+
+        return row;
+    }
+
+    private static int GetGroupRoundRow(int groupStartRow, int roundIndex, int matchIndex)
+    {
+        if (roundIndex == 0)
+        {
+            return groupStartRow + matchIndex * SlotRowGap;
+        }
+
+        var step = SlotRowGap * (int)Math.Pow(2, roundIndex);
+        var offset = Math.Max(1, step / 2 - SlotRowGap / 2);
+        return groupStartRow + matchIndex * step + offset;
+    }
+
+    private static void DrawMatchConnector(
+        IXLWorksheet sheet,
+        int sourceColumn,
+        int targetColumn,
+        int upperRow,
+        int lowerRow,
+        int targetRow)
+    {
+        if (targetColumn <= sourceColumn + MergedCellWidth)
+        {
+            return;
+        }
+
+        var firstGapColumn = sourceColumn + MergedCellWidth;
+        var trunkColumn = targetColumn - 1;
+        DrawHorizontalConnector(sheet, upperRow, firstGapColumn, trunkColumn, ConnectorBorderSide.Bottom);
+        DrawHorizontalConnector(sheet, lowerRow, firstGapColumn, trunkColumn, ConnectorBorderSide.Top);
+        DrawVerticalConnector(sheet, trunkColumn, Math.Min(upperRow, lowerRow), Math.Max(upperRow, lowerRow));
+    }
+
+    private static void DrawSingleConnector(
+        IXLWorksheet sheet,
+        int sourceColumn,
+        int targetColumn,
+        int sourceRow,
+        int targetRow)
+    {
+        if (targetColumn <= sourceColumn + MergedCellWidth)
+        {
+            return;
+        }
+
+        var firstGapColumn = sourceColumn + MergedCellWidth;
+        var lastGapColumn = targetColumn - 1;
+        var side = sourceRow <= targetRow ? ConnectorBorderSide.Bottom : ConnectorBorderSide.Top;
+        DrawHorizontalConnector(sheet, sourceRow, firstGapColumn, lastGapColumn, side);
+
+        if (sourceRow != targetRow)
+        {
+            DrawVerticalConnector(sheet, lastGapColumn, Math.Min(sourceRow, targetRow), Math.Max(sourceRow, targetRow));
+        }
+    }
+
+    private static void DrawHorizontalConnector(
+        IXLWorksheet sheet,
+        int row,
+        int firstColumn,
+        int lastColumn,
+        ConnectorBorderSide side)
+    {
+        for (var column = firstColumn; column <= lastColumn; column++)
+        {
+            var border = sheet.Cell(row, column).Style.Border;
+            if (side == ConnectorBorderSide.Top)
+            {
+                border.TopBorder = XLBorderStyleValues.Thin;
+                border.TopBorderColor = XLColor.FromHtml("#808080");
+            }
+            else
+            {
+                border.BottomBorder = XLBorderStyleValues.Thin;
+                border.BottomBorderColor = XLColor.FromHtml("#808080");
+            }
+        }
+    }
+
+    private static void DrawVerticalConnector(IXLWorksheet sheet, int column, int firstRow, int lastRow)
+    {
+        var firstConnectorRow = firstRow + 1;
+        var lastConnectorRow = lastRow - 1;
+        for (var row = firstConnectorRow; row <= lastConnectorRow; row++)
+        {
+            var border = sheet.Cell(row, column).Style.Border;
+            border.RightBorder = XLBorderStyleValues.Thin;
+            border.RightBorderColor = XLColor.FromHtml("#808080");
         }
     }
 
@@ -863,4 +1057,10 @@ public sealed class DrawResultExcelWriter
         bool PlayInSecondIsSeed);
 
     private sealed record ColumnSpan(int FirstColumn, int LastColumn);
+
+    private enum ConnectorBorderSide
+    {
+        Top,
+        Bottom
+    }
 }

@@ -282,14 +282,28 @@ public sealed class DrawResultVisualWriter
     private static void DrawLayout(SKCanvas canvas, WorksheetLayout layout, SKColor background)
     {
         canvas.Clear(background);
+        var orderedCells = layout.Cells
+            .OrderBy(cell => cell.Bounds.Top)
+            .ThenBy(cell => cell.Bounds.Left)
+            .ToList();
 
-        foreach (var cell in layout.Cells.OrderBy(cell => cell.Bounds.Top).ThenBy(cell => cell.Bounds.Left))
+        foreach (var cell in orderedCells)
         {
-            DrawCell(canvas, cell);
+            DrawCellFill(canvas, cell);
+        }
+
+        foreach (var cell in orderedCells)
+        {
+            DrawText(canvas, cell);
+        }
+
+        foreach (var cell in orderedCells)
+        {
+            DrawBorders(canvas, cell);
         }
     }
 
-    private static void DrawCell(SKCanvas canvas, VisualCell cell)
+    private static void DrawCellFill(SKCanvas canvas, VisualCell cell)
     {
         using var fillPaint = new SKPaint
         {
@@ -298,8 +312,6 @@ public sealed class DrawResultVisualWriter
             Style = SKPaintStyle.Fill
         };
         canvas.DrawRect(cell.Bounds, fillPaint);
-        DrawText(canvas, cell);
-        DrawBorders(canvas, cell);
     }
 
     private static void DrawBorders(SKCanvas canvas, VisualCell cell)
@@ -322,7 +334,8 @@ public sealed class DrawResultVisualWriter
             Color = border.Color,
             IsAntialias = false,
             Style = SKPaintStyle.Stroke,
-            StrokeWidth = border.Width
+            StrokeWidth = border.Width,
+            StrokeCap = SKStrokeCap.Square
         };
         canvas.DrawLine(x1, y1, x2, y2, paint);
     }
