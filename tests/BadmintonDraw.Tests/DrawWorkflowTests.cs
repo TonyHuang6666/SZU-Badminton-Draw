@@ -318,6 +318,51 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void VisualWriterKeepsMergedRoundRobinTitleRightBorder()
+    {
+        var participants = CreateParticipants(29).ToList();
+        var settings = CreateSettings(
+            groupCount: 4,
+            mode: CompetitionMode.TeamRoundRobin,
+            eventKind: EventKind.Team);
+        var result = new DrawService().Generate(participants, settings);
+        var workbookPath = Path.Combine(Path.GetTempPath(), $"badminton-round-robin-border-source-{Guid.NewGuid():N}.xlsx");
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-round-robin-border-{Guid.NewGuid():N}.png");
+
+        try
+        {
+            new DrawResultExcelWriter().Write(workbookPath, result, participants);
+            new DrawResultVisualWriter().Write(outputPath, workbookPath, DrawResultVisualFormat.Png);
+
+            using var workbook = new XLWorkbook(workbookPath);
+            var sheet = workbook.Worksheets.First();
+            var usedRange = sheet.RangeUsed(XLCellsUsedOptions.All)!;
+            var lastColumn = usedRange.RangeAddress.LastAddress.ColumnNumber;
+            var logicalWidth = 18f * 2 + Enumerable.Range(1, lastColumn)
+                .Sum(column => (float)sheet.Column(column).Width * 8.3f);
+            var titleMiddleY = 18f + (float)((sheet.Row(1).Height + sheet.Row(2).Height) * (96d / 72d) / 2d);
+
+            using var bitmap = SKBitmap.Decode(outputPath);
+            var scale = bitmap.Width / logicalWidth;
+            var sampleX = Math.Clamp((int)Math.Round((logicalWidth - 18f) * scale), 0, bitmap.Width - 1);
+            var sampleY = Math.Clamp((int)Math.Round(titleMiddleY * scale), 0, bitmap.Height - 1);
+            var borderPixels = Enumerable.Range(-3, 7)
+                .Select(offset => bitmap.GetPixel(Math.Clamp(sampleX + offset, 0, bitmap.Width - 1), sampleY));
+
+            Assert.Contains(borderPixels, pixel =>
+                pixel.Alpha > 240
+                && pixel.Red < 180
+                && pixel.Green < 180
+                && pixel.Blue < 180);
+        }
+        finally
+        {
+            DeleteIfExists(workbookPath);
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
     public void RoundRobinExportCreatesMatrixBracketSheet()
     {
         var participants = CreateParticipants(6).ToList();

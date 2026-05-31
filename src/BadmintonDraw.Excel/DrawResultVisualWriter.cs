@@ -100,7 +100,8 @@ public sealed class DrawResultVisualWriter
             var cellLastColumn = Math.Min(last.ColumnNumber, lastColumn);
             var cell = mergedRange.FirstCell();
 
-            cells.Add(CreateVisualCell(
+            cells.Add(CreateMergedVisualCell(
+                mergedRange,
                 cell,
                 metrics.GetRect(cellFirstRow, cellFirstColumn, cellLastRow, cellLastColumn)));
 
@@ -243,7 +244,54 @@ public sealed class DrawResultVisualWriter
             .All(column => string.IsNullOrWhiteSpace(sheet.Cell(row, column).GetString()));
     }
 
+    private static VisualCell CreateMergedVisualCell(IXLRange mergedRange, IXLCell cell, SKRect bounds)
+    {
+        var rangeBorder = mergedRange.Style.Border;
+        var topLeftBorder = mergedRange.FirstCell().Style.Border;
+        var topRightBorder = mergedRange.Cell(1, mergedRange.ColumnCount()).Style.Border;
+        var bottomLeftBorder = mergedRange.Cell(mergedRange.RowCount(), 1).Style.Border;
+        var bottomRightBorder = mergedRange.LastCell().Style.Border;
+
+        return CreateVisualCell(
+            cell,
+            bounds,
+            FirstVisibleBorder(
+                GetBorder(rangeBorder.TopBorder, rangeBorder.TopBorderColor),
+                GetBorder(topLeftBorder.TopBorder, topLeftBorder.TopBorderColor),
+                GetBorder(topRightBorder.TopBorder, topRightBorder.TopBorderColor)),
+            FirstVisibleBorder(
+                GetBorder(rangeBorder.RightBorder, rangeBorder.RightBorderColor),
+                GetBorder(topRightBorder.RightBorder, topRightBorder.RightBorderColor),
+                GetBorder(bottomRightBorder.RightBorder, bottomRightBorder.RightBorderColor)),
+            FirstVisibleBorder(
+                GetBorder(rangeBorder.BottomBorder, rangeBorder.BottomBorderColor),
+                GetBorder(bottomLeftBorder.BottomBorder, bottomLeftBorder.BottomBorderColor),
+                GetBorder(bottomRightBorder.BottomBorder, bottomRightBorder.BottomBorderColor)),
+            FirstVisibleBorder(
+                GetBorder(rangeBorder.LeftBorder, rangeBorder.LeftBorderColor),
+                GetBorder(topLeftBorder.LeftBorder, topLeftBorder.LeftBorderColor),
+                GetBorder(bottomLeftBorder.LeftBorder, bottomLeftBorder.LeftBorderColor)));
+    }
+
     private static VisualCell CreateVisualCell(IXLCell cell, SKRect bounds)
+    {
+        var border = cell.Style.Border;
+        return CreateVisualCell(
+            cell,
+            bounds,
+            GetBorder(border.TopBorder, border.TopBorderColor),
+            GetBorder(border.RightBorder, border.RightBorderColor),
+            GetBorder(border.BottomBorder, border.BottomBorderColor),
+            GetBorder(border.LeftBorder, border.LeftBorderColor));
+    }
+
+    private static VisualCell CreateVisualCell(
+        IXLCell cell,
+        SKRect bounds,
+        CellBorder topBorder,
+        CellBorder rightBorder,
+        CellBorder bottomBorder,
+        CellBorder leftBorder)
     {
         var style = cell.Style;
         var text = cell.GetFormattedString();
@@ -259,10 +307,10 @@ public sealed class DrawResultVisualWriter
             text,
             fill,
             fontColor,
-            GetBorder(style.Border.TopBorder, style.Border.TopBorderColor),
-            GetBorder(style.Border.RightBorder, style.Border.RightBorderColor),
-            GetBorder(style.Border.BottomBorder, style.Border.BottomBorderColor),
-            GetBorder(style.Border.LeftBorder, style.Border.LeftBorderColor),
+            topBorder,
+            rightBorder,
+            bottomBorder,
+            leftBorder,
             fontName,
             style.Font.Bold,
             fontSize,
@@ -279,6 +327,11 @@ public sealed class DrawResultVisualWriter
         }
 
         return new CellBorder(ToSkColor(color, DefaultBorder), GetBorderWidth(style));
+    }
+
+    private static CellBorder FirstVisibleBorder(params CellBorder[] borders)
+    {
+        return borders.FirstOrDefault(border => border.Width > 0) ?? CellBorder.None;
     }
 
     private static float GetBorderWidth(XLBorderStyleValues style)
