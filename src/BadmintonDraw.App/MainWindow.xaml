@@ -272,7 +272,15 @@
                             </ComboBox>
 
                             <Label Content="小组数" Margin="0,18,0,8" />
-                            <TextBox x:Name="GroupCountBox" Text="4" />
+                            <TextBox x:Name="GroupCountBox" Text="4" TextChanged="GroupCountBox_TextChanged" />
+
+                            <StackPanel x:Name="KnockoutGoalPanel">
+                                <Label Content="淘汰赛目标" Margin="0,18,0,8" />
+                                <ComboBox x:Name="KnockoutGoalBox">
+                                    <ComboBoxItem Content="每组出线" Tag="OneQualifierPerGroup" IsSelected="True" />
+                                    <ComboBoxItem Content="决出冠军" Tag="Champion" />
+                                </ComboBox>
+                            </StackPanel>
 
                             <Label Content="随机种子" Margin="0,18,0,8" />
                             <Grid>

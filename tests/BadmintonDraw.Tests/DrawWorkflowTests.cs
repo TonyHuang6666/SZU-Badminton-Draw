@@ -140,12 +140,16 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
-    public void PowerOfTwoBracketSplitsGroupHeaderAroundWinnerCells()
+    public void PowerOfTwoChampionGoalExportsGroupedChampionBracket()
     {
-        var participants = CreateParticipants(157);
-        var settings = CreateSettings(groupCount: 8, mode: CompetitionMode.SinglesKnockout);
+        var participants = CreateParticipants(29);
+        var settings = CreateSettings(
+            groupCount: 8,
+            mode: CompetitionMode.TeamKnockout,
+            eventKind: EventKind.Team,
+            knockoutGoal: KnockoutGoal.Champion);
         var result = new DrawService().Generate(participants, settings);
-        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-draw-bracket-{Guid.NewGuid():N}.xlsx");
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-draw-grouped-champion-{Guid.NewGuid():N}.xlsx");
 
         try
         {
@@ -153,17 +157,104 @@ public sealed class DrawWorkflowTests
 
             using var workbook = new XLWorkbook(outputPath);
             var sheet = workbook.Worksheet("对阵表");
-            var mergedRanges = sheet.MergedRanges
-                .Select(range => range.RangeAddress.ToStringRelative())
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var headerValues = sheet.Row(4)
+                .Cells(1, sheet.LastColumnUsed()!.ColumnNumber())
+                .Select(cell => cell.GetString())
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .ToArray();
+            var usedTexts = sheet.CellsUsed()
+                .Select(cell => cell.GetString())
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .ToArray();
 
-            foreach (var row in new[] { 69, 197, 325, 453 })
-            {
-                Assert.Contains($"A{row}:X{row}", mergedRanges);
-                Assert.Contains($"Y{row}:Z{row}", mergedRanges);
-                Assert.Contains($"AA{row}:AH{row}", mergedRanges);
-                Assert.DoesNotContain($"A{row}:AH{row}", mergedRanges);
-            }
+            Assert.Contains("出线", headerValues);
+            Assert.Contains("8进4", headerValues);
+            Assert.Contains("冠军", headerValues);
+            Assert.DoesNotContain("26进13", headerValues);
+            Assert.DoesNotContain("3进1", headerValues);
+            Assert.Equal(8, usedTexts.Count(text => Regex.IsMatch(text, @"^第\d+组出线$")));
+            Assert.Contains(usedTexts, text => text == "冠军");
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public void PowerOfTwoGroupCountCanStillExportOneQualifierPerGroup()
+    {
+        var participants = CreateParticipants(29);
+        var settings = CreateSettings(
+            groupCount: 8,
+            mode: CompetitionMode.TeamKnockout,
+            eventKind: EventKind.Team,
+            knockoutGoal: KnockoutGoal.OneQualifierPerGroup);
+        var result = new DrawService().Generate(participants, settings);
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-draw-qualifiers-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            new DrawResultExcelWriter().Write(outputPath, result, participants);
+
+            using var workbook = new XLWorkbook(outputPath);
+            var sheet = workbook.Worksheet("对阵表");
+            var headerValues = sheet.Row(4)
+                .Cells(1, sheet.LastColumnUsed()!.ColumnNumber())
+                .Select(cell => cell.GetString())
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .ToArray();
+            var usedTexts = sheet.CellsUsed()
+                .Select(cell => cell.GetString())
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .ToArray();
+
+            Assert.Contains("4进2", headerValues);
+            Assert.Contains("2进1", headerValues);
+            Assert.Contains("出线", headerValues);
+            Assert.DoesNotContain("冠军", headerValues);
+            Assert.DoesNotContain("3进1", headerValues);
+            Assert.Equal(8, usedTexts.Count(text => Regex.IsMatch(text, @"^第\d+组出线$")));
+            Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(6, 7).Style.Border.BottomBorder);
+            Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(10, 7).Style.Border.TopBorder);
+            Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(7, 12).Style.Border.RightBorder);
+            Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(8, 12).Style.Border.RightBorder);
+            Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(9, 12).Style.Border.RightBorder);
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public void NonPowerOfTwoChampionGoalFallsBackToOneQualifierPerGroup()
+    {
+        var participants = CreateParticipants(29);
+        var settings = CreateSettings(
+            groupCount: 5,
+            mode: CompetitionMode.TeamKnockout,
+            eventKind: EventKind.Team,
+            knockoutGoal: KnockoutGoal.Champion);
+        var result = new DrawService().Generate(participants, settings);
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-draw-non-power-qualifiers-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            Assert.Equal(KnockoutGoal.OneQualifierPerGroup, result.Settings.KnockoutGoal);
+
+            new DrawResultExcelWriter().Write(outputPath, result, participants);
+
+            using var workbook = new XLWorkbook(outputPath);
+            var sheet = workbook.Worksheet("对阵表");
+            var usedTexts = sheet.CellsUsed()
+                .Select(cell => cell.GetString())
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .ToArray();
+
+            Assert.Contains(usedTexts, text => text.Contains("5个小组出线名额", StringComparison.Ordinal));
+            Assert.Equal(5, usedTexts.Count(text => Regex.IsMatch(text, @"^第\d+组出线$")));
+            Assert.DoesNotContain("冠军", usedTexts);
         }
         finally
         {
@@ -909,9 +1000,10 @@ public sealed class DrawWorkflowTests
         int groupCount,
         string seed = "test-seed",
         CompetitionMode mode = CompetitionMode.SinglesRoundRobin,
-        EventKind eventKind = EventKind.Singles)
+        EventKind eventKind = EventKind.Singles,
+        KnockoutGoal knockoutGoal = KnockoutGoal.OneQualifierPerGroup)
     {
-        return new DrawSettings(mode, eventKind, groupCount, seed);
+        return new DrawSettings(mode, eventKind, groupCount, seed, KnockoutGoal: knockoutGoal);
     }
 
     private static string Signature(IReadOnlyList<DrawGroup> groups)

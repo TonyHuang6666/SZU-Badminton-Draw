@@ -25,6 +25,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         SeedBox.Text = GenerateSeed();
         UpdateEventKindForMode();
+        UpdateKnockoutGoalVisibility();
         UpdatePreviewBadges();
         UpdateExportOptionsVisibility();
     }
@@ -121,6 +122,7 @@ public partial class MainWindow : Window
         if (IsLoaded)
         {
             UpdateEventKindForMode();
+            UpdateKnockoutGoalVisibility();
         }
     }
 
@@ -129,6 +131,14 @@ public partial class MainWindow : Window
         if (IsLoaded)
         {
             UpdateExportOptionsVisibility();
+        }
+    }
+
+    private void GroupCountBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (IsLoaded)
+        {
+            UpdateKnockoutGoalVisibility();
         }
     }
 
@@ -199,7 +209,8 @@ public partial class MainWindow : Window
                 GetCompetitionMode(),
                 GetEventKind(),
                 groupCount,
-                SeedBox.Text);
+                SeedBox.Text,
+                KnockoutGoal: GetKnockoutGoal());
 
             ApplyImportResult(_reader.ReadParticipantsWithWarnings(InputPathBox.Text, settings.EventKind));
             _latestResult = _drawService.Generate(_participants, settings);
@@ -309,6 +320,18 @@ public partial class MainWindow : Window
         return Enum.Parse<EventKind>(GetSelectedTag(EventKindBox));
     }
 
+    private KnockoutGoal GetKnockoutGoal()
+    {
+        if (GetCompetitionMode() is not (CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout))
+        {
+            return KnockoutGoal.Champion;
+        }
+
+        return TryGetGroupCount(out var groupCount) && groupCount > 1 && IsPowerOfTwo(groupCount)
+            ? Enum.Parse<KnockoutGoal>(GetSelectedTag(KnockoutGoalBox))
+            : KnockoutGoal.OneQualifierPerGroup;
+    }
+
     private EventKind? TryApplyDetectedEventKind()
     {
         if (string.IsNullOrWhiteSpace(InputPathBox.Text))
@@ -329,6 +352,7 @@ public partial class MainWindow : Window
                 _ => CompetitionMode.TeamKnockout
             });
             UpdateEventKindForMode();
+            UpdateKnockoutGoalVisibility();
         }
         else
         {
@@ -339,6 +363,7 @@ public partial class MainWindow : Window
                 _ => CompetitionMode.SinglesKnockout
             });
             UpdateEventKindForMode();
+            UpdateKnockoutGoalVisibility();
             SelectEventKind(detectedEventKind);
         }
 
@@ -478,6 +503,44 @@ public partial class MainWindow : Window
             && _latestResult.Settings.IsKnockout
             ? Visibility.Visible
             : Visibility.Collapsed;
+    }
+
+    private void UpdateKnockoutGoalVisibility()
+    {
+        var showGoalOptions = GetCompetitionMode() is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout
+            && TryGetGroupCount(out var groupCount)
+            && groupCount > 1
+            && IsPowerOfTwo(groupCount);
+
+        KnockoutGoalPanel.Visibility = showGoalOptions ? Visibility.Visible : Visibility.Collapsed;
+        if (!showGoalOptions)
+        {
+            SelectKnockoutGoal(KnockoutGoal.OneQualifierPerGroup);
+        }
+    }
+
+    private bool TryGetGroupCount(out int groupCount)
+    {
+        return int.TryParse(GroupCountBox.Text.Trim(), out groupCount);
+    }
+
+    private static bool IsPowerOfTwo(int value)
+    {
+        return value > 0 && (value & (value - 1)) == 0;
+    }
+
+    private void SelectKnockoutGoal(KnockoutGoal knockoutGoal)
+    {
+        foreach (ComboBoxItem item in KnockoutGoalBox.Items)
+        {
+            if (string.Equals(item.Tag?.ToString(), knockoutGoal.ToString(), StringComparison.Ordinal))
+            {
+                KnockoutGoalBox.SelectedItem = item;
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("缺少淘汰赛目标选项配置。");
     }
 
     private static int GetPdfTileValue(TextBox textBox, string name)

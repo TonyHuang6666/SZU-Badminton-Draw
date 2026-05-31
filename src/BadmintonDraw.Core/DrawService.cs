@@ -8,6 +8,7 @@ public sealed class DrawService
     public DrawResult Generate(IReadOnlyList<DrawParticipant> participants, DrawSettings settings)
     {
         Validate(participants, settings);
+        settings = NormalizeSettings(settings);
 
         var rng = new StableRandom(settings.RandomSeed);
         var groups = BuildBalancedGroups(participants, settings.GroupCount, rng);
@@ -257,6 +258,7 @@ public sealed class DrawService
         builder.AppendLine(settings.EventKind.ToString());
         builder.AppendLine(settings.GroupCount.ToString());
         builder.AppendLine(settings.AlgorithmVersion.ToString());
+        builder.AppendLine(settings.KnockoutGoal.ToString());
 
         foreach (var participant in participants)
         {
@@ -301,6 +303,24 @@ public sealed class DrawService
         }
 
         ValidateSeedRanks(participants);
+    }
+
+    private static DrawSettings NormalizeSettings(DrawSettings settings)
+    {
+        if (settings.IsKnockout
+            && settings.GroupCount > 1
+            && !IsPowerOfTwo(settings.GroupCount)
+            && settings.KnockoutGoal == KnockoutGoal.Champion)
+        {
+            return settings with { KnockoutGoal = KnockoutGoal.OneQualifierPerGroup };
+        }
+
+        return settings;
+    }
+
+    private static bool IsPowerOfTwo(int value)
+    {
+        return value > 0 && (value & (value - 1)) == 0;
     }
 
     private static void ValidateSeedRanks(IReadOnlyList<DrawParticipant> participants)

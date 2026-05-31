@@ -19,3 +19,9 @@ public enum DrawAlgorithmVersion
 {
     PerGroupPowerOfTwo = 1
 }
+
+public enum KnockoutGoal
+{
+    Champion = 1,
+    OneQualifierPerGroup = 2
+}

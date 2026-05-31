@@ -49,13 +49,22 @@ public sealed class DrawResultExcelWriter
         var sheet = workbook.Worksheets.Add("对阵表");
         var bracketSlots = BuildBracketSlots(result);
         var mainSlotCount = bracketSlots.Count;
-        var isQualifierBracket = !IsPowerOfTwo(result.Groups.Count);
-        var qualifierHeaders = isQualifierBracket
+        var isGroupedChampionBracket = result.Settings.KnockoutGoal == KnockoutGoal.Champion
+            && result.Groups.Count > 1
+            && IsPowerOfTwo(result.Groups.Count);
+        var isQualifierBracket = result.Groups.Count > 1 && !isGroupedChampionBracket;
+        var qualifierHeaders = isQualifierBracket || isGroupedChampionBracket
             ? BuildQualifierRoundHeaders(result, bracketSlots)
             : null;
+        var championHeaders = isGroupedChampionBracket
+            ? BuildChampionRoundHeaders(result.Groups.Count)
+            : null;
         var roundColumns = qualifierHeaders is not null
-            ? BuildRoundColumnsByCount(qualifierHeaders.Count)
+            ? BuildRoundColumnsByCount(qualifierHeaders.Count + (championHeaders?.Count ?? 0))
             : BuildRoundColumns(mainSlotCount);
+        var customHeaders = qualifierHeaders is null
+            ? null
+            : qualifierHeaders.Concat(championHeaders ?? []).ToList();
         var lastColumn = roundColumns.Count > 0
             ? roundColumns[^1] + MergedCellWidth - 1
             : MainDrawFirstColumn + MergedCellWidth - 1;
@@ -68,14 +77,20 @@ public sealed class DrawResultExcelWriter
             mainSlotCount,
             bracketSlots.Count(slot => slot.IsPlayIn),
             lastColumn,
-            isQualifierBracket ? result.Groups.Count : null);
-        WriteBracketHeaders(sheet, roundColumns, mainSlotCount, qualifierHeaders);
-        WriteGroupBands(sheet, result, bracketSlots, lastColumn, isQualifierBracket, roundColumns);
+            isQualifierBracket ? result.Groups.Count : null,
+            isGroupedChampionBracket);
+        WriteBracketHeaders(sheet, roundColumns, mainSlotCount, customHeaders);
+        WriteGroupBands(sheet, result, bracketSlots, lastColumn, isQualifierBracket || isGroupedChampionBracket, roundColumns);
         WriteFirstRoundSlots(sheet, bracketSlots, roundColumns[0]);
-        if (isQualifierBracket)
+        if (isQualifierBracket || isGroupedChampionBracket)
         {
-            WriteQualifierRoundSlots(sheet, result, bracketSlots, roundColumns);
-            WriteQualifierBracketConnectors(sheet, result, bracketSlots, roundColumns);
+            var qualifierFinalColumnIndex = qualifierHeaders!.Count - 1;
+            WriteQualifierRoundSlots(sheet, result, bracketSlots, roundColumns, qualifierFinalColumnIndex);
+            WriteQualifierBracketConnectors(sheet, result, bracketSlots, roundColumns, qualifierFinalColumnIndex);
+            if (isGroupedChampionBracket)
+            {
+                WriteGroupedChampionSlotsAndConnectors(sheet, result, bracketSlots, roundColumns, qualifierFinalColumnIndex);
+            }
         }
         else
         {
@@ -241,22 +256,36 @@ public sealed class DrawResultExcelWriter
         DrawResult result,
         IReadOnlyList<BracketSlot> bracketSlots)
     {
-        var groupSlotCounts = result.Groups
+        var maxGroupSlotCount = result.Groups
             .Select(group => bracketSlots.Count(slot => slot.GroupNumber == group.Number))
-            .ToList();
+            .DefaultIfEmpty(1)
+            .Max();
         var headers = new List<string>();
+        var from = Math.Max(1, maxGroupSlotCount);
 
-        while (groupSlotCounts.Any(count => count > 1))
+        while (from > 1)
         {
-            var from = groupSlotCounts.Sum();
-            groupSlotCounts = groupSlotCounts
-                .Select(count => count > 1 ? count / 2 : 1)
-                .ToList();
-            var to = groupSlotCounts.Sum();
+            var to = Math.Max(1, from / 2);
             headers.Add($"{from}进{to}");
+            from = to;
         }
 
         headers.Add("出线");
+        return headers;
+    }
+
+    private static List<string> BuildChampionRoundHeaders(int qualifierCount)
+    {
+        var headers = new List<string>();
+        var from = Math.Max(1, qualifierCount);
+
+        while (from > 1)
+        {
+            var to = Math.Max(1, from / 2);
+            headers.Add(to == 1 ? "冠军" : $"{from}进{to}");
+            from = to;
+        }
+
         return headers;
     }
 
@@ -285,7 +314,8 @@ public sealed class DrawResultExcelWriter
         int mainSlotCount,
         int playInCount,
         int lastColumn,
-        int? qualifierCount = null)
+        int? qualifierCount = null,
+        bool isGroupedChampionBracket = false)
     {
         var participantLabel = result.Settings.EventKind switch
         {
@@ -312,7 +342,9 @@ public sealed class DrawResultExcelWriter
             1,
             2,
             lastColumn,
-            qualifierCount.HasValue
+            isGroupedChampionBracket
+                ? $"共{result.Audit.ParticipantCount}{participantLabel}，{playInCount}场附加赛；分为{result.Groups.Count}个小组，每组出线后进入{result.Groups.Count}强淘汰赛，最终决出冠军。"
+                : qualifierCount.HasValue
                 ? $"共{result.Audit.ParticipantCount}{participantLabel}：{playInCount}场附加赛；附加赛后{mainSlotCount}{participantLabel}进入正赛，最终决出{qualifierCount.Value}个小组出线名额。"
                 : $"共{result.Audit.ParticipantCount}{participantLabel}：{playInCount}场附加赛；附加赛后{mainSlotCount}{participantLabel}进入正赛。附加赛胜者直接进入同一行的正赛位置。",
             NoteFill,
@@ -517,9 +549,10 @@ public sealed class DrawResultExcelWriter
         IXLWorksheet sheet,
         DrawResult result,
         IReadOnlyList<BracketSlot> bracketSlots,
-        IReadOnlyList<int> roundColumns)
+        IReadOnlyList<int> roundColumns,
+        int qualifierFinalColumnIndex)
     {
-        var finalColumn = roundColumns[^1];
+        var finalColumn = roundColumns[qualifierFinalColumnIndex];
 
         foreach (var group in result.Groups)
         {
@@ -535,7 +568,7 @@ public sealed class DrawResultExcelWriter
 
             for (var roundIndex = 1; roundIndex <= roundCount; roundIndex++)
             {
-                var column = roundColumns[Math.Min(roundIndex, roundColumns.Count - 1)];
+                var column = roundColumns[Math.Min(roundIndex, qualifierFinalColumnIndex)];
                 var survivorCount = Math.Max(1, initialCount / (int)Math.Pow(2, roundIndex));
                 var step = SlotRowGap * (int)Math.Pow(2, roundIndex);
                 var offset = Math.Max(1, step / 2 - SlotRowGap / 2);
@@ -568,7 +601,7 @@ public sealed class DrawResultExcelWriter
                 }
             }
 
-            if (roundCount < roundColumns.Count - 1)
+            if (roundCount < qualifierFinalColumnIndex)
             {
                 var finalRow = GetGroupCenterRow(groupStartRow, initialCount);
                 WriteMergedCell(
@@ -589,9 +622,10 @@ public sealed class DrawResultExcelWriter
         IXLWorksheet sheet,
         DrawResult result,
         IReadOnlyList<BracketSlot> bracketSlots,
-        IReadOnlyList<int> roundColumns)
+        IReadOnlyList<int> roundColumns,
+        int qualifierFinalColumnIndex)
     {
-        var finalColumn = roundColumns[^1];
+        var finalColumn = roundColumns[qualifierFinalColumnIndex];
 
         foreach (var group in result.Groups)
         {
@@ -607,7 +641,7 @@ public sealed class DrawResultExcelWriter
 
             for (var roundIndex = 1; roundIndex <= roundCount; roundIndex++)
             {
-                var targetColumn = roundColumns[Math.Min(roundIndex, roundColumns.Count - 1)];
+                var targetColumn = roundColumns[Math.Min(roundIndex, qualifierFinalColumnIndex)];
                 var survivorCount = Math.Max(1, initialCount / (int)Math.Pow(2, roundIndex));
                 var isGroupFinal = survivorCount == 1;
 
@@ -627,16 +661,84 @@ public sealed class DrawResultExcelWriter
                 }
             }
 
-            if (roundCount < roundColumns.Count - 1)
+            if (roundCount < qualifierFinalColumnIndex)
             {
-                var sourceColumn = roundColumns[Math.Max(0, roundCount)];
-                var sourceRow = roundCount == 0
-                    ? groupStartRow
-                    : GetGroupRoundRow(groupStartRow, roundCount, 0);
                 var targetRow = GetGroupCenterRow(groupStartRow, initialCount);
-                DrawSingleConnector(sheet, sourceColumn, finalColumn, sourceRow, targetRow);
+                if (initialCount == 1)
+                {
+                    DrawSingleConnector(sheet, roundColumns[0], finalColumn, groupStartRow, targetRow);
+                }
+                else
+                {
+                    var sourceColumn = roundColumns[Math.Max(0, roundCount - 1)];
+                    var upperRow = GetGroupRoundRow(groupStartRow, roundCount - 1, 0);
+                    var lowerRow = GetGroupRoundRow(groupStartRow, roundCount - 1, 1);
+                    DrawMatchConnector(sheet, sourceColumn, finalColumn, upperRow, lowerRow, targetRow);
+                }
             }
         }
+    }
+
+    private static void WriteGroupedChampionSlotsAndConnectors(
+        IXLWorksheet sheet,
+        DrawResult result,
+        IReadOnlyList<BracketSlot> bracketSlots,
+        IReadOnlyList<int> roundColumns,
+        int qualifierFinalColumnIndex)
+    {
+        var sourceColumn = roundColumns[qualifierFinalColumnIndex];
+        var sourceRows = result.Groups
+            .Select(group => GetGroupQualifierRow(result, bracketSlots, group.Number))
+            .ToList();
+
+        for (var roundColumnIndex = qualifierFinalColumnIndex + 1; roundColumnIndex < roundColumns.Count; roundColumnIndex++)
+        {
+            var targetColumn = roundColumns[roundColumnIndex];
+            var targetRows = new List<int>();
+            var isChampionColumn = roundColumnIndex == roundColumns.Count - 1;
+
+            for (var matchIndex = 0; matchIndex + 1 < sourceRows.Count; matchIndex += 2)
+            {
+                var upperRow = sourceRows[matchIndex];
+                var lowerRow = sourceRows[matchIndex + 1];
+                var targetRow = (upperRow + lowerRow) / 2;
+                targetRows.Add(targetRow);
+
+                WriteMergedCell(
+                    sheet,
+                    targetRow,
+                    targetColumn,
+                    targetRow,
+                    targetColumn + 1,
+                    isChampionColumn ? "冠军" : $"胜者{matchIndex / 2 + 1}",
+                    isChampionColumn ? QualifiedFill : FutureFill,
+                    isChampionColumn ? XLColor.White : null,
+                    isBold: isChampionColumn);
+                DrawMatchConnector(sheet, sourceColumn, targetColumn, upperRow, lowerRow, targetRow);
+            }
+
+            sourceColumn = targetColumn;
+            sourceRows = targetRows;
+        }
+    }
+
+    private static int GetGroupQualifierRow(
+        DrawResult result,
+        IReadOnlyList<BracketSlot> bracketSlots,
+        int groupNumber)
+    {
+        var firstIndex = bracketSlots.ToList().FindIndex(slot => slot.GroupNumber == groupNumber);
+        if (firstIndex < 0)
+        {
+            throw new InvalidOperationException($"找不到第 {groupNumber} 组的签位。");
+        }
+
+        var initialCount = bracketSlots.Count(slot => slot.GroupNumber == groupNumber);
+        var groupStartRow = BracketStartRow + firstIndex * SlotRowGap;
+        var roundCount = (int)Math.Log2(initialCount);
+        return roundCount == 0
+            ? groupStartRow
+            : GetGroupRoundRow(groupStartRow, roundCount, 0);
     }
 
     private static int GetGroupCenterRow(int groupStartRow, int groupSlotCount)
