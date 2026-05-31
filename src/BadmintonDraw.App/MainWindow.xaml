@@ -1,7 +1,7 @@
 <Window x:Class="BadmintonDraw.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="深大羽协抽签工具" Height="934" Width="1106" MinHeight="860" MinWidth="1040"
+        Title="深大羽协抽签工具" Height="1168" Width="1360" MinHeight="860" MinWidth="1040"
         Icon="/Assets/szuba-app-icon.ico"
         WindowStartupLocation="CenterScreen"
         Background="#EFE6FF" FontFamily="Microsoft YaHei UI, Segoe UI">
@@ -285,6 +285,36 @@
                                 <Button Grid.Column="2" Style="{StaticResource SecondaryButton}" Click="GenerateSeed_Click">生成</Button>
                             </Grid>
 
+                            <Label Content="导出为" Margin="0,18,0,8" />
+                            <ComboBox x:Name="ExportFormatBox" SelectionChanged="ExportFormatBox_SelectionChanged">
+                                <ComboBoxItem Content="Excel" Tag="Excel" IsSelected="True" />
+                                <ComboBoxItem Content="JPG 图片" Tag="Jpeg" />
+                                <ComboBoxItem Content="极清 PNG（透明背景）" Tag="Png" />
+                                <ComboBoxItem Content="A4 PDF 打印" Tag="A4Pdf" />
+                            </ComboBox>
+
+                            <StackPanel x:Name="A4PdfOptionsPanel" Visibility="Collapsed">
+                                <Label Content="A4 PDF 分页" Margin="0,18,0,8" />
+                                <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="42" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="42" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="行"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           VerticalAlignment="Center" />
+                                <TextBox x:Name="PdfRowsBox" Grid.Column="1" Text="1" />
+                                <TextBlock Grid.Column="3"
+                                           Text="列"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           VerticalAlignment="Center" />
+                                <TextBox x:Name="PdfColumnsBox" Grid.Column="4" Text="1" />
+                                </Grid>
+                            </StackPanel>
+
                             <Button Margin="0,22,0,0"
                                     Style="{StaticResource RoundedButton}"
                                     Background="{StaticResource DeepPrimaryBrush}"
@@ -293,7 +323,7 @@
                             <Button Margin="0,14,0,0"
                                     Style="{StaticResource SecondaryButton}"
                                     Height="48"
-                                    Click="Export_Click">导出结果 Excel</Button>
+                                    Click="Export_Click">选择路径并导出</Button>
                         </StackPanel>
                     </ScrollViewer>
                 </Border>

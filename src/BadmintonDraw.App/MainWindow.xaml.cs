@@ -13,6 +13,7 @@ public partial class MainWindow : Window
     private readonly DrawService _drawService = new();
     private readonly ParticipantExcelReader _reader = new();
     private readonly DrawResultExcelWriter _writer = new();
+    private readonly DrawResultVisualWriter _visualWriter = new();
     private readonly ParticipantTemplateWriter _templateWriter = new();
     private IReadOnlyList<DrawParticipant> _participants = Array.Empty<DrawParticipant>();
     private IReadOnlyList<ParticipantImportWarning> _importWarnings = Array.Empty<ParticipantImportWarning>();
@@ -25,6 +26,7 @@ public partial class MainWindow : Window
         SeedBox.Text = GenerateSeed();
         UpdateEventKindForMode();
         UpdatePreviewBadges();
+        UpdateExportOptionsVisibility();
     }
 
     private void BrowseInput_Click(object sender, RoutedEventArgs e)
@@ -46,7 +48,10 @@ public partial class MainWindow : Window
 
     private void Preview_Click(object sender, RoutedEventArgs e)
     {
-        TryGenerate();
+        if (TryGenerate())
+        {
+            UpdateExportOptionsVisibility();
+        }
     }
 
     private void Export_Click(object sender, RoutedEventArgs e)
@@ -56,17 +61,37 @@ public partial class MainWindow : Window
             return;
         }
 
+        var exportFormat = GetExportFormat();
         var dialog = new SaveFileDialog
         {
-            Filter = "Excel 文件 (*.xlsx)|*.xlsx",
-            FileName = $"抽签结果_{DateTime.Now:yyyyMMdd_HHmm}.xlsx",
+            Filter = GetDialogFilter(exportFormat),
+            DefaultExt = GetExportExtension(exportFormat),
+            AddExtension = true,
+            FileName = $"抽签结果_{DateTime.Now:yyyyMMdd_HHmm}{GetExportExtension(exportFormat)}",
             Title = "保存抽签结果"
         };
 
         if (dialog.ShowDialog(this) == true && _latestResult is not null)
         {
-            _writer.Write(dialog.FileName, _latestResult, _participants);
-            SetStatus($"已导出：{dialog.FileName}");
+            var outputPath = Path.ChangeExtension(dialog.FileName, GetExportExtension(exportFormat));
+
+            try
+            {
+                if (exportFormat == ExportFormat.Excel)
+                {
+                    _writer.Write(outputPath, _latestResult, _participants);
+                }
+                else
+                {
+                    ExportVisualResult(outputPath, exportFormat);
+                }
+
+                SetStatus($"已导出：{outputPath}");
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or DrawValidationException)
+            {
+                SetStatus(ex.Message, isError: true);
+            }
         }
     }
 
@@ -96,6 +121,14 @@ public partial class MainWindow : Window
         if (IsLoaded)
         {
             UpdateEventKindForMode();
+        }
+    }
+
+    private void ExportFormatBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (IsLoaded)
+        {
+            UpdateExportOptionsVisibility();
         }
     }
 
@@ -180,9 +213,10 @@ public partial class MainWindow : Window
             GroupCountStatText.Text = groupCount.ToString();
             PreviewStateText.Text = "已预览";
             UpdatePreviewBadges(_latestResult);
+            UpdateExportOptionsVisibility();
             SetStatus(detectedEventKind.HasValue
                 ? $"检测到名单类型为{GetEventKindDisplay(detectedEventKind.Value)}，已自动切换并生成预览。"
-                : "抽签预览已生成，可继续切换轮次或导出 Excel。",
+                : "抽签预览已生成，可继续切换轮次或导出结果。",
                 _importWarnings.Count > 0 ? StatusKind.Warning : StatusKind.Normal,
                 _importWarnings);
             return true;
@@ -372,6 +406,89 @@ public partial class MainWindow : Window
         return $"SZUBA-{DateTime.Now:yyyyMMdd-HHmmss}-{Random.Shared.Next(1000, 9999)}";
     }
 
+    private ExportFormat GetExportFormat()
+    {
+        return ExportFormatBox.SelectedItem is ComboBoxItem item && item.Tag is not null
+            ? Enum.Parse<ExportFormat>(item.Tag.ToString()!)
+            : ExportFormat.Excel;
+    }
+
+    private static string GetExportExtension(ExportFormat format)
+    {
+        return format switch
+        {
+            ExportFormat.Png => ".png",
+            ExportFormat.Jpeg => ".jpg",
+            ExportFormat.A4Pdf => ".pdf",
+            _ => ".xlsx"
+        };
+    }
+
+    private static string GetDialogFilter(ExportFormat format)
+    {
+        return format switch
+        {
+            ExportFormat.Png => "PNG 图片 (*.png)|*.png",
+            ExportFormat.Jpeg => "JPG 图片 (*.jpg)|*.jpg",
+            ExportFormat.A4Pdf => "A4 PDF (*.pdf)|*.pdf",
+            _ => "Excel 文件 (*.xlsx)|*.xlsx"
+        };
+    }
+
+    private static DrawResultVisualFormat ToVisualFormat(ExportFormat format)
+    {
+        return format switch
+        {
+            ExportFormat.Png => DrawResultVisualFormat.Png,
+            ExportFormat.Jpeg => DrawResultVisualFormat.Jpeg,
+            ExportFormat.A4Pdf => DrawResultVisualFormat.A4Pdf,
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Excel 导出不需要视觉格式。")
+        };
+    }
+
+    private void ExportVisualResult(string outputPath, ExportFormat exportFormat)
+    {
+        if (_latestResult is null)
+        {
+            throw new InvalidOperationException("请先预览抽签。");
+        }
+
+        var tempExcelPath = Path.Combine(Path.GetTempPath(), $"badminton-draw-export-{Guid.NewGuid():N}.xlsx");
+        try
+        {
+            _writer.Write(tempExcelPath, _latestResult, _participants);
+            var sheetName = _latestResult.Settings.IsKnockout ? "对阵表" : "总分组结果";
+            var options = exportFormat == ExportFormat.A4Pdf
+                ? new DrawResultVisualOptions(GetPdfTileValue(PdfRowsBox, "PDF 行数"), GetPdfTileValue(PdfColumnsBox, "PDF 列数"))
+                : new DrawResultVisualOptions();
+            _visualWriter.Write(outputPath, tempExcelPath, sheetName, ToVisualFormat(exportFormat), options);
+        }
+        finally
+        {
+            if (File.Exists(tempExcelPath))
+            {
+                File.Delete(tempExcelPath);
+            }
+        }
+    }
+
+    private void UpdateExportOptionsVisibility()
+    {
+        A4PdfOptionsPanel.Visibility = _latestResult is not null && GetExportFormat() == ExportFormat.A4Pdf
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private static int GetPdfTileValue(TextBox textBox, string name)
+    {
+        if (!int.TryParse(textBox.Text.Trim(), out var value) || value < 1 || value > 50)
+        {
+            throw new DrawValidationException($"{name}必须是 1 到 50 之间的整数。");
+        }
+
+        return value;
+    }
+
     private void UpdatePreviewBadges(DrawResult? result = null)
     {
         var participantCount = result?.Audit.ParticipantCount ?? _participants.Count;
@@ -459,5 +576,13 @@ public partial class MainWindow : Window
         Normal,
         Warning,
         Error
+    }
+
+    private enum ExportFormat
+    {
+        Excel,
+        Jpeg,
+        Png,
+        A4Pdf
     }
 }

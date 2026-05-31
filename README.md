@@ -7,7 +7,7 @@
 仓库已经改造成分层的 Windows 图形化工具：
 
 - `src/BadmintonDraw.Core`：抽签核心算法，不依赖界面和 Excel。
-- `src/BadmintonDraw.Excel`：参赛名单 Excel 导入、结果 Excel 导出、名单模板生成。
+- `src/BadmintonDraw.Excel`：参赛名单 Excel 导入、结果 Excel/图片/PDF 导出、名单模板生成。
 - `src/BadmintonDraw.App`：Windows WPF 图形界面。
 - `tests/BadmintonDraw.Tests`：基于 xUnit 的基础算法和 Excel 导入导出测试。
 - `docs`：算法、公平性和使用说明。
@@ -19,16 +19,15 @@
 3. 回到软件，选择参赛名单 Excel。
 4. 选择比赛模式、项目类型、小组数和随机种子。
 5. 点击“预览抽签”检查结果。
-6. 点击“导出结果 Excel”，得到 `抽签结果.xlsx`。
+6. 在“导出为”下拉框选择 Excel、JPG、极清透明 PNG 或 A4 PDF 打印，再点击“选择路径并导出”。
 
-导出的结果文件会包含：
+Excel 导出的结果文件会包含：
 
-- 总分组结果
-- 第一轮对阵名单
-- 轮空或直接晋级名单
-- Excel 排表格式
+- 淘汰赛对阵表，或循环赛总分组结果
 - 抽签设置与审计信息
 - 原始名单
+
+JPG、PNG 和 PDF 会先生成 Excel，再从 Excel 的对阵表或分组结果工作表渲染，因此 Excel 版式调整后其他格式会同步变化。PNG 使用透明背景，并在小于 20MB 的前提下尽量提高分辨率。A4 PDF 支持手动设置行数和列数，用于打印拼接，并会按页面切片宽高自动选择竖向或横向 A4。
 
 ## 公平性设计
 

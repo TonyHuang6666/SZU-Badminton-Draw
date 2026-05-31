@@ -1,6 +1,8 @@
 using BadmintonDraw.Core;
 using BadmintonDraw.Excel;
 using ClosedXML.Excel;
+using SkiaSharp;
+using System.Text;
 using Xunit;
 
 namespace BadmintonDraw.Tests;
@@ -200,6 +202,48 @@ public sealed class DrawWorkflowTests
         finally
         {
             DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public void VisualWriterExportsImageAndPdfFormats()
+    {
+        var participants = CreateParticipants(8).ToList();
+        participants[0] = participants[0] with { IsSeed = true, SeedRank = 1 };
+        var settings = CreateSettings(groupCount: 2, mode: CompetitionMode.SinglesKnockout);
+        var result = new DrawService().Generate(participants, settings);
+        var workbookPath = Path.Combine(Path.GetTempPath(), $"badminton-bracket-source-{Guid.NewGuid():N}.xlsx");
+        var writer = new DrawResultVisualWriter();
+        var outputPaths = new[]
+        {
+            Path.Combine(Path.GetTempPath(), $"badminton-bracket-{Guid.NewGuid():N}.png"),
+            Path.Combine(Path.GetTempPath(), $"badminton-bracket-{Guid.NewGuid():N}.jpg"),
+            Path.Combine(Path.GetTempPath(), $"badminton-bracket-a4-{Guid.NewGuid():N}.pdf")
+        };
+
+        try
+        {
+            new DrawResultExcelWriter().Write(workbookPath, result, participants);
+
+            writer.Write(outputPaths[0], workbookPath, "对阵表", DrawResultVisualFormat.Png);
+            writer.Write(outputPaths[1], workbookPath, "对阵表", DrawResultVisualFormat.Jpeg);
+            writer.Write(outputPaths[2], workbookPath, "对阵表", DrawResultVisualFormat.A4Pdf, new DrawResultVisualOptions(2, 2));
+
+            AssertFileHeader(outputPaths[0], [0x89, 0x50, 0x4E, 0x47]);
+            AssertFileHeader(outputPaths[1], [0xFF, 0xD8, 0xFF]);
+            AssertFileHeader(outputPaths[2], [0x25, 0x50, 0x44, 0x46]);
+            Assert.True(new FileInfo(outputPaths[0]).Length <= 20L * 1024L * 1024L);
+            using var bitmap = SKBitmap.Decode(outputPaths[0]);
+            Assert.Equal(0, bitmap.GetPixel(0, 0).Alpha);
+            AssertPdfUsesTextLayer(outputPaths[2]);
+        }
+        finally
+        {
+            DeleteIfExists(workbookPath);
+            foreach (var outputPath in outputPaths)
+            {
+                DeleteIfExists(outputPath);
+            }
         }
     }
 
@@ -691,6 +735,21 @@ public sealed class DrawWorkflowTests
     {
         return cell.Style.Font.Bold
             && cell.Style.Font.FontColor.Color.ToArgb() == XLColor.FromHtml("#C00000").Color.ToArgb();
+    }
+
+    private static void AssertFileHeader(string path, IReadOnlyList<byte> expectedHeader)
+    {
+        var bytes = File.ReadAllBytes(path);
+        Assert.True(bytes.Length > expectedHeader.Count);
+        Assert.Equal(expectedHeader, bytes.Take(expectedHeader.Count).ToArray());
+    }
+
+    private static void AssertPdfUsesTextLayer(string path)
+    {
+        var text = Encoding.Latin1.GetString(File.ReadAllBytes(path));
+        Assert.Contains("/Font", text);
+        Assert.Contains("/ToUnicode", text);
+        Assert.DoesNotContain("/Subtype /Image", text);
     }
 
     private static void DeleteIfExists(string path)
