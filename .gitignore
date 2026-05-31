@@ -39,3 +39,4 @@ obj/
 *.suo
 *.nupkg
 TestResults/
+artifacts/
