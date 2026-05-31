@@ -3,6 +3,7 @@ using BadmintonDraw.Excel;
 using ClosedXML.Excel;
 using SkiaSharp;
 using System.Text;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace BadmintonDraw.Tests;
@@ -313,6 +314,79 @@ public sealed class DrawWorkflowTests
         {
             DeleteIfExists(workbookPath);
             DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public void RoundRobinExportCreatesMatrixBracketSheet()
+    {
+        var participants = CreateParticipants(6).ToList();
+        participants[0] = participants[0] with { IsSeed = true, SeedRank = 1 };
+        var settings = CreateSettings(
+            groupCount: 2,
+            mode: CompetitionMode.TeamRoundRobin,
+            eventKind: EventKind.Team);
+        var result = new DrawService().Generate(participants, settings);
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-round-robin-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            new DrawResultExcelWriter().Write(outputPath, result, participants);
+
+            using var workbook = new XLWorkbook(outputPath);
+            var sheet = workbook.Worksheet("对阵表");
+            var firstGroup = result.Groups[0].Participants;
+            var summaryColumn = firstGroup.Count + 2;
+
+            Assert.DoesNotContain(workbook.Worksheets, worksheet => worksheet.Name == "总分组结果");
+            Assert.Contains("团体循环赛对阵表", sheet.Cell(1, 1).GetString());
+            Assert.Equal("A组", sheet.Cell(5, 1).GetString());
+            Assert.Equal(firstGroup[0].DisplayName, sheet.Cell(5, 2).GetString());
+            Assert.Equal(firstGroup[0].DisplayName, sheet.Cell(6, 1).GetString());
+            Assert.Equal("—", sheet.Cell(6, 2).GetString());
+            Assert.Equal("胜场", sheet.Cell(5, summaryColumn).GetString());
+            Assert.Equal("净胜", sheet.Cell(5, summaryColumn + 1).GetString());
+            Assert.Equal("名次", sheet.Cell(5, summaryColumn + 2).GetString());
+            Assert.Contains(
+                sheet.CellsUsed().Where(cell => cell.GetString() == "选手01"),
+                IsSeedFont);
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public void RoundRobinA4PdfExportsOneLandscapePagePerGroup()
+    {
+        var participants = CreateParticipants(29).ToList();
+        var settings = CreateSettings(
+            groupCount: 4,
+            mode: CompetitionMode.TeamRoundRobin,
+            eventKind: EventKind.Team);
+        var result = new DrawService().Generate(participants, settings);
+        var workbookPath = Path.Combine(Path.GetTempPath(), $"badminton-round-robin-source-{Guid.NewGuid():N}.xlsx");
+        var pdfPath = Path.Combine(Path.GetTempPath(), $"badminton-round-robin-a4-{Guid.NewGuid():N}.pdf");
+
+        try
+        {
+            new DrawResultExcelWriter().Write(workbookPath, result, participants);
+            new DrawResultVisualWriter().Write(
+                pdfPath,
+                workbookPath,
+                "对阵表",
+                DrawResultVisualFormat.A4Pdf,
+                new DrawResultVisualOptions(9, 9));
+
+            AssertFileHeader(pdfPath, [0x25, 0x50, 0x44, 0x46]);
+            AssertPdfUsesTextLayer(pdfPath);
+            Assert.Equal(4, CountPdfPages(pdfPath));
+        }
+        finally
+        {
+            DeleteIfExists(workbookPath);
+            DeleteIfExists(pdfPath);
         }
     }
 
@@ -819,6 +893,12 @@ public sealed class DrawWorkflowTests
         Assert.Contains("/Font", text);
         Assert.Contains("/ToUnicode", text);
         Assert.DoesNotContain("/Subtype /Image", text);
+    }
+
+    private static int CountPdfPages(string path)
+    {
+        var text = Encoding.Latin1.GetString(File.ReadAllBytes(path));
+        return Regex.Matches(text, @"/Type\s*/Page(?!s)").Count;
     }
 
     private static void DeleteIfExists(string path)

@@ -457,11 +457,10 @@ public partial class MainWindow : Window
         try
         {
             _writer.Write(tempExcelPath, _latestResult, _participants);
-            var sheetName = _latestResult.Settings.IsKnockout ? "对阵表" : "总分组结果";
-            var options = exportFormat == ExportFormat.A4Pdf
+            var options = exportFormat == ExportFormat.A4Pdf && _latestResult.Settings.IsKnockout
                 ? new DrawResultVisualOptions(GetPdfTileValue(PdfRowsBox, "PDF 行数"), GetPdfTileValue(PdfColumnsBox, "PDF 列数"))
                 : new DrawResultVisualOptions();
-            _visualWriter.Write(outputPath, tempExcelPath, sheetName, ToVisualFormat(exportFormat), options);
+            _visualWriter.Write(outputPath, tempExcelPath, "对阵表", ToVisualFormat(exportFormat), options);
         }
         finally
         {
@@ -474,7 +473,9 @@ public partial class MainWindow : Window
 
     private void UpdateExportOptionsVisibility()
     {
-        A4PdfOptionsPanel.Visibility = _latestResult is not null && GetExportFormat() == ExportFormat.A4Pdf
+        A4PdfOptionsPanel.Visibility = _latestResult is not null
+            && GetExportFormat() == ExportFormat.A4Pdf
+            && _latestResult.Settings.IsKnockout
             ? Visibility.Visible
             : Visibility.Collapsed;
     }

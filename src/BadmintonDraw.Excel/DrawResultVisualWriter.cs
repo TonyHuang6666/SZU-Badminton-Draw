@@ -16,6 +16,8 @@ public sealed class DrawResultVisualWriter
     private const float A4PortraitWidth = 595.28f;
     private const float A4PortraitHeight = 841.89f;
     private const float A4Margin = 2f;
+    private const float RoundRobinPdfHorizontalSafetyInset = 24f;
+    private const float TextWidthSafetyFactor = 0.9f;
     private const float DefaultFontSize = 10f * PointsToPixels;
 
     private static readonly SKColor White = SKColors.White;
@@ -42,19 +44,26 @@ public sealed class DrawResultVisualWriter
 
         using var workbook = new XLWorkbook(workbookPath);
         var sheet = workbook.Worksheet(sheetName);
-        var layout = BuildLayout(sheet);
         options ??= new DrawResultVisualOptions();
 
         switch (format)
         {
             case DrawResultVisualFormat.Png:
-                WriteTransparentPng(outputPath, layout);
+                WriteTransparentPng(outputPath, BuildLayout(sheet));
                 break;
             case DrawResultVisualFormat.Jpeg:
-                WriteRaster(outputPath, layout, SKEncodedImageFormat.Jpeg, 95, scale: 1f, transparentBackground: false);
+                WriteRaster(outputPath, BuildLayout(sheet), SKEncodedImageFormat.Jpeg, 95, scale: 1f, transparentBackground: false);
                 break;
             case DrawResultVisualFormat.A4Pdf:
-                WriteA4Pdf(outputPath, layout, options.PdfRows, options.PdfColumns);
+                if (TryBuildRoundRobinPageLayouts(sheet, out var pageLayouts))
+                {
+                    WriteRoundRobinA4Pdf(outputPath, pageLayouts);
+                }
+                else
+                {
+                    WriteA4Pdf(outputPath, BuildLayout(sheet), options.PdfRows, options.PdfColumns);
+                }
+
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(format), format, "不支持的导出格式。");
@@ -69,6 +78,11 @@ public sealed class DrawResultVisualWriter
         var firstColumn = usedRange.RangeAddress.FirstAddress.ColumnNumber;
         var lastRow = usedRange.RangeAddress.LastAddress.RowNumber;
         var lastColumn = usedRange.RangeAddress.LastAddress.ColumnNumber;
+        return BuildLayout(sheet, firstRow, firstColumn, lastRow, lastColumn);
+    }
+
+    private static WorksheetLayout BuildLayout(IXLWorksheet sheet, int firstRow, int firstColumn, int lastRow, int lastColumn)
+    {
         var metrics = GridMetrics.Create(sheet, firstRow, firstColumn, lastRow, lastColumn);
         var mergedRanges = sheet.MergedRanges
             .Where(range => Intersects(range, firstRow, firstColumn, lastRow, lastColumn))
@@ -80,19 +94,30 @@ public sealed class DrawResultVisualWriter
         {
             var first = mergedRange.RangeAddress.FirstAddress;
             var last = mergedRange.RangeAddress.LastAddress;
+            var cellFirstRow = Math.Max(first.RowNumber, firstRow);
+            var cellFirstColumn = Math.Max(first.ColumnNumber, firstColumn);
+            var cellLastRow = Math.Min(last.RowNumber, lastRow);
+            var cellLastColumn = Math.Min(last.ColumnNumber, lastColumn);
             var cell = mergedRange.FirstCell();
 
             cells.Add(CreateVisualCell(
                 cell,
-                metrics.GetRect(first.RowNumber, first.ColumnNumber, last.RowNumber, last.ColumnNumber)));
+                metrics.GetRect(cellFirstRow, cellFirstColumn, cellLastRow, cellLastColumn)));
 
             foreach (var mergedCell in mergedRange.Cells())
             {
+                var row = mergedCell.Address.RowNumber;
+                var column = mergedCell.Address.ColumnNumber;
+                if (row < firstRow || row > lastRow || column < firstColumn || column > lastColumn)
+                {
+                    continue;
+                }
+
                 mergedAddresses.Add(mergedCell.Address.ToStringRelative());
             }
         }
 
-        foreach (var cell in usedRange.CellsUsed(XLCellsUsedOptions.All))
+        foreach (var cell in sheet.Range(firstRow, firstColumn, lastRow, lastColumn).CellsUsed(XLCellsUsedOptions.All))
         {
             if (mergedAddresses.Contains(cell.Address.ToStringRelative()))
             {
@@ -118,6 +143,104 @@ public sealed class DrawResultVisualWriter
             && address.LastAddress.RowNumber >= firstRow
             && address.FirstAddress.ColumnNumber <= lastColumn
             && address.LastAddress.ColumnNumber >= firstColumn;
+    }
+
+    private static bool TryBuildRoundRobinPageLayouts(
+        IXLWorksheet sheet,
+        out IReadOnlyList<WorksheetLayout> pageLayouts)
+    {
+        pageLayouts = [];
+        var usedRange = sheet.RangeUsed(XLCellsUsedOptions.All);
+        if (usedRange is null
+            || !sheet.Cell(1, 1).GetString().Contains("循环赛对阵表", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var usedLastRow = usedRange.RangeAddress.LastAddress.RowNumber;
+        var usedLastColumn = usedRange.RangeAddress.LastAddress.ColumnNumber;
+        var sections = new List<RoundRobinSection>();
+        for (var row = 1; row <= usedLastRow; row++)
+        {
+            if (TryGetRoundRobinSection(sheet, row, usedLastColumn, out var section))
+            {
+                sections.Add(section);
+            }
+        }
+
+        if (sections.Count == 0)
+        {
+            return false;
+        }
+
+        var layouts = new List<WorksheetLayout>();
+        for (var index = 0; index < sections.Count; index++)
+        {
+            var section = sections[index];
+            var sectionLastRow = index + 1 < sections.Count
+                ? sections[index + 1].HeaderRow - 2
+                : usedLastRow;
+
+            while (sectionLastRow > section.HeaderRow
+                && IsEmptyRow(sheet, sectionLastRow, 1, section.LastColumn))
+            {
+                sectionLastRow--;
+            }
+
+            var firstRow = index == 0 ? 1 : section.HeaderRow;
+            layouts.Add(BuildLayout(sheet, firstRow, 1, sectionLastRow, section.LastColumn));
+        }
+
+        pageLayouts = layouts;
+        return true;
+    }
+
+    private static bool TryGetRoundRobinSection(
+        IXLWorksheet sheet,
+        int row,
+        int searchLastColumn,
+        out RoundRobinSection section)
+    {
+        section = default;
+        var groupLabel = sheet.Cell(row, 1).GetString().Trim();
+        if (!groupLabel.EndsWith("组", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var winColumn = 0;
+        var netColumn = 0;
+        var rankColumn = 0;
+        for (var column = 2; column <= searchLastColumn; column++)
+        {
+            var text = sheet.Cell(row, column).GetString().Trim();
+            if (text == "胜场")
+            {
+                winColumn = column;
+            }
+            else if (text == "净胜")
+            {
+                netColumn = column;
+            }
+            else if (text == "名次")
+            {
+                rankColumn = column;
+            }
+        }
+
+        if (winColumn == 0 || netColumn == 0 || rankColumn == 0)
+        {
+            return false;
+        }
+
+        section = new RoundRobinSection(row, rankColumn);
+        return true;
+    }
+
+    private static bool IsEmptyRow(IXLWorksheet sheet, int row, int firstColumn, int lastColumn)
+    {
+        return Enumerable.Range(firstColumn, lastColumn - firstColumn + 1)
+            .All(column => string.IsNullOrWhiteSpace(sheet.Cell(row, column).GetString()));
     }
 
     private static VisualCell CreateVisualCell(IXLCell cell, SKRect bounds)
@@ -272,6 +395,66 @@ public sealed class DrawResultVisualWriter
         document.Close();
     }
 
+    private static void WriteRoundRobinA4Pdf(string outputPath, IReadOnlyList<WorksheetLayout> pageLayouts)
+    {
+        using var stream = File.Create(outputPath);
+        using var document = SKDocument.CreatePdf(stream);
+
+        var pageSize = new PageSize(A4LandscapeWidth, A4LandscapeHeight);
+        var printableWidth = pageSize.Width - (A4Margin + RoundRobinPdfHorizontalSafetyInset) * 2;
+        var printableHeight = pageSize.Height - A4Margin * 2;
+
+        foreach (var sourceLayout in pageLayouts)
+        {
+            var layout = StretchLayoutToPageHeight(sourceLayout, printableHeight / printableWidth);
+            var scale = Math.Min(
+                printableWidth / (layout.Width * PdfScale),
+                printableHeight / (layout.Height * PdfScale));
+            var drawWidth = layout.Width * PdfScale * scale;
+            var drawHeight = layout.Height * PdfScale * scale;
+            var originX = A4Margin + RoundRobinPdfHorizontalSafetyInset + (printableWidth - drawWidth) / 2;
+            var originY = A4Margin + (printableHeight - drawHeight) / 2;
+
+            using var canvas = document.BeginPage(pageSize.Width, pageSize.Height);
+            canvas.Save();
+            canvas.ClipRect(new SKRect(A4Margin, A4Margin, pageSize.Width - A4Margin, pageSize.Height - A4Margin));
+            canvas.Translate(originX, originY);
+            canvas.Scale(PdfScale * scale);
+            DrawLayout(canvas, layout, White);
+            canvas.Restore();
+            document.EndPage();
+        }
+
+        document.Close();
+    }
+
+    private static WorksheetLayout StretchLayoutToPageHeight(WorksheetLayout layout, float targetAspectRatio)
+    {
+        var targetHeight = Math.Max(layout.Height, layout.Width * targetAspectRatio);
+        if (targetHeight <= layout.Height + 1f)
+        {
+            return layout;
+        }
+
+        var sourceContentHeight = Math.Max(1f, layout.Height - CanvasMargin * 2);
+        var targetContentHeight = Math.Max(1f, targetHeight - CanvasMargin * 2);
+        var verticalScale = targetContentHeight / sourceContentHeight;
+        var stretchedCells = layout.Cells
+            .Select(cell => cell with { Bounds = StretchRectVertically(cell.Bounds, verticalScale) })
+            .ToList();
+
+        return layout with { Height = targetHeight, Cells = stretchedCells };
+    }
+
+    private static SKRect StretchRectVertically(SKRect rect, float verticalScale)
+    {
+        return new SKRect(
+            rect.Left,
+            CanvasMargin + (rect.Top - CanvasMargin) * verticalScale,
+            rect.Right,
+            CanvasMargin + (rect.Bottom - CanvasMargin) * verticalScale);
+    }
+
     private static PageSize GetA4PageSize(float sourceTileWidth, float sourceTileHeight)
     {
         return sourceTileHeight > sourceTileWidth * 1.1f
@@ -360,9 +543,10 @@ public sealed class DrawResultVisualWriter
         };
         var textBounds = cell.Bounds;
         textBounds.Inflate(-5, -3);
+        var maxLineWidth = Math.Max(10, textBounds.Width * TextWidthSafetyFactor);
         var lines = cell.WrapText
-            ? WrapText(cell.Text, paint, Math.Max(10, textBounds.Width))
-            : [TrimWithEllipsis(cell.Text, paint, textBounds.Width)];
+            ? WrapText(cell.Text, paint, maxLineWidth)
+            : [TrimWithEllipsis(cell.Text, paint, maxLineWidth)];
         var metrics = paint.FontMetrics;
         var lineHeight = Math.Max(1, metrics.Descent - metrics.Ascent + metrics.Leading);
         var maxLines = Math.Max(1, (int)Math.Floor(textBounds.Height / lineHeight));
@@ -370,8 +554,10 @@ public sealed class DrawResultVisualWriter
         if (lines.Count > maxLines)
         {
             lines = lines.Take(maxLines).ToList();
-            lines[^1] = TrimWithEllipsis(lines[^1], paint, textBounds.Width);
+            lines[^1] = TrimWithEllipsis(lines[^1], paint, maxLineWidth);
         }
+
+        lines = lines.Select(line => TrimWithEllipsis(line, paint, maxLineWidth)).ToList();
 
         var totalHeight = lineHeight * lines.Count;
         var firstBaseline = GetFirstBaseline(textBounds, cell.VerticalAlignment, totalHeight, metrics);
@@ -495,6 +681,8 @@ public sealed class DrawResultVisualWriter
     private sealed record WorksheetLayout(float Width, float Height, IReadOnlyList<VisualCell> Cells);
 
     private sealed record PageSize(float Width, float Height);
+
+    private readonly record struct RoundRobinSection(int HeaderRow, int LastColumn);
 
     private sealed class GridMetrics
     {

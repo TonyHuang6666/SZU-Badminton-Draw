@@ -34,7 +34,7 @@ public sealed class DrawResultExcelWriter
         }
         else
         {
-            WriteGroupSheet(workbook, "总分组结果", result.Groups);
+            WriteRoundRobinSheet(workbook, result);
         }
 
         WriteAuditSheet(workbook, "抽签设置与审计信息", result);
@@ -927,39 +927,234 @@ public sealed class DrawResultExcelWriter
         return value > 0 && (value & (value - 1)) == 0;
     }
 
-    private static void WriteGroupSheet(XLWorkbook workbook, string sheetName, IReadOnlyList<DrawGroup> groups)
+    private static void WriteRoundRobinSheet(XLWorkbook workbook, DrawResult result)
     {
-        var sheet = workbook.Worksheets.Add(sheetName);
-        var headers = new[] { "组别", "组内序号", "名称", "是否种子", "种子序号", "备注" };
+        var sheet = workbook.Worksheets.Add("对阵表");
+        var maxGroupSize = Math.Max(1, result.Groups.Select(group => group.Participants.Count).DefaultIfEmpty(0).Max());
+        var lastColumn = Math.Max(7, maxGroupSize + 4);
+        var row = 5;
 
-        WriteHeader(sheet, headers);
-        var row = 2;
+        ConfigureRoundRobinSheet(sheet, lastColumn, maxGroupSize);
+        WriteRoundRobinTitle(sheet, result, lastColumn);
 
-        foreach (var group in groups)
+        foreach (var group in result.Groups)
         {
-            if (group.Participants.Count == 0)
-            {
-                sheet.Cell(row, 1).Value = $"第{group.Number}组";
-                sheet.Cell(row, 2).Value = 0;
-                row++;
-                continue;
-            }
+            row = WriteRoundRobinGroup(sheet, group, row);
+            row++;
+        }
 
-            for (var i = 0; i < group.Participants.Count; i++)
+        sheet.SheetView.FreezeRows(4);
+        sheet.ShowGridLines = false;
+        sheet.PageSetup.PageOrientation = XLPageOrientation.Landscape;
+        sheet.PageSetup.FitToPages(1, 0);
+        sheet.PageSetup.SetRowsToRepeatAtTop(1, 4);
+        sheet.PageSetup.PrintAreas.Add($"A1:{sheet.Cell(Math.Max(row - 1, 4), lastColumn).Address.ToStringRelative()}");
+    }
+
+    private static void ConfigureRoundRobinSheet(IXLWorksheet sheet, int lastColumn, int maxGroupSize)
+    {
+        var participantColumnWidth = maxGroupSize switch
+        {
+            <= 5 => 18,
+            <= 7 => 16,
+            <= 8 => 15.5,
+            <= 10 => 13,
+            _ => 10
+        };
+        var summaryColumnWidth = maxGroupSize >= 8 ? 7 : 8;
+
+        for (var column = 1; column <= lastColumn; column++)
+        {
+            sheet.Column(column).Width = column >= lastColumn - 2
+                ? summaryColumnWidth
+                : participantColumnWidth;
+        }
+
+        sheet.Row(1).Height = 26;
+        sheet.Row(2).Height = 26;
+        sheet.Row(3).Height = 24;
+        sheet.Row(4).Height = 30;
+    }
+
+    private static void WriteRoundRobinTitle(IXLWorksheet sheet, DrawResult result, int lastColumn)
+    {
+        var participantLabel = RoundRobinParticipantLabel(result.Settings.EventKind);
+        WriteRoundRobinMergedCell(
+            sheet,
+            1,
+            1,
+            2,
+            lastColumn,
+            $"{EventKindText(result.Settings.EventKind)}循环赛对阵表",
+            XLColor.White,
+            isBold: true,
+            fontSize: 18);
+        WriteRoundRobinMergedCell(
+            sheet,
+            3,
+            1,
+            3,
+            lastColumn,
+            $"共{result.Audit.ParticipantCount}个{participantLabel}，分为{result.Groups.Count}个小组。",
+            XLColor.White,
+            isBold: true,
+            fontSize: 11);
+        WriteRoundRobinMergedCell(
+            sheet,
+            4,
+            1,
+            4,
+            lastColumn,
+            "交叉格填写赛程/比分/结果；对角线为轮空；右侧填胜场、净胜、名次。",
+            NoteFill,
+            fontSize: 9);
+    }
+
+    private static int WriteRoundRobinGroup(IXLWorksheet sheet, DrawGroup group, int startRow)
+    {
+        var participants = group.Participants;
+        var groupSize = participants.Count;
+        var groupColumnCount = Math.Max(4, groupSize + 4);
+        var lastRow = startRow + Math.Max(groupSize, 1);
+
+        sheet.Cell(startRow, 1).Value = BuildRoundRobinGroupLabel(group.Number);
+        for (var i = 0; i < groupSize; i++)
+        {
+            var participant = participants[i];
+            var headerCell = sheet.Cell(startRow, i + 2);
+            headerCell.Value = participant.DisplayName;
+            HighlightSeedCell(headerCell, participant);
+        }
+
+        sheet.Cell(startRow, groupSize + 2).Value = "胜场";
+        sheet.Cell(startRow, groupSize + 3).Value = "净胜";
+        sheet.Cell(startRow, groupSize + 4).Value = "名次";
+
+        if (groupSize == 0)
+        {
+            sheet.Cell(startRow + 1, 1).Value = "暂无参赛对象";
+            sheet.Range(startRow + 1, 1, startRow + 1, groupColumnCount).Merge();
+        }
+        else
+        {
+            for (var rowIndex = 0; rowIndex < groupSize; rowIndex++)
             {
-                var participant = group.Participants[i];
-                sheet.Cell(row, 1).Value = $"第{group.Number}组";
-                sheet.Cell(row, 2).Value = i + 1;
-                sheet.Cell(row, 3).Value = participant.DisplayName;
-                sheet.Cell(row, 4).Value = participant.IsSeed ? "是" : "";
-                sheet.Cell(row, 5).Value = participant.SeedRank.HasValue ? participant.SeedRank.Value : "";
-                sheet.Cell(row, 6).Value = participant.Note ?? "";
-                row++;
+                var participant = participants[rowIndex];
+                var row = startRow + rowIndex + 1;
+                var nameCell = sheet.Cell(row, 1);
+                nameCell.Value = participant.DisplayName;
+                HighlightSeedCell(nameCell, participant);
+
+                for (var columnIndex = 0; columnIndex < groupSize; columnIndex++)
+                {
+                    var cell = sheet.Cell(row, columnIndex + 2);
+                    if (rowIndex == columnIndex)
+                    {
+                        cell.Value = "—";
+                        cell.Style.Fill.BackgroundColor = FutureFill;
+                    }
+                    else
+                    {
+                        cell.Value = "";
+                    }
+                }
             }
         }
 
-        ApplyTableStyle(sheet, headers.Length, row - 1);
-        HighlightSeedRows(sheet, headers.Length, row - 1);
+        ApplyRoundRobinGroupStyle(sheet, startRow, lastRow, groupColumnCount, groupSize);
+        return lastRow + 1;
+    }
+
+    private static void ApplyRoundRobinGroupStyle(IXLWorksheet sheet, int firstRow, int lastRow, int lastColumn, int groupSize)
+    {
+        var range = sheet.Range(firstRow, 1, lastRow, lastColumn);
+        range.Style.Font.FontName = "Microsoft YaHei";
+        range.Style.Font.FontSize = 10;
+        range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        range.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        range.Style.Alignment.WrapText = true;
+        range.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+        range.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+        range.Style.Border.OutsideBorderColor = XLColor.FromHtml("#808080");
+        range.Style.Border.InsideBorderColor = XLColor.FromHtml("#808080");
+
+        var headerRange = sheet.Range(firstRow, 1, firstRow, lastColumn);
+        headerRange.Style.Font.Bold = true;
+        headerRange.Style.Fill.BackgroundColor = GroupFill;
+
+        var summaryStartColumn = Math.Max(2, groupSize + 2);
+        sheet.Range(firstRow, summaryStartColumn, lastRow, lastColumn).Style.Fill.BackgroundColor = NoteFill;
+        sheet.Range(firstRow, summaryStartColumn, firstRow, lastColumn).Style.Font.Bold = true;
+
+        for (var row = firstRow; row <= lastRow; row++)
+        {
+            sheet.Row(row).Height = row == firstRow ? 36 : 30;
+        }
+    }
+
+    private static void WriteRoundRobinMergedCell(
+        IXLWorksheet sheet,
+        int firstRow,
+        int firstColumn,
+        int lastRow,
+        int lastColumn,
+        string value,
+        XLColor fill,
+        bool isBold = false,
+        double fontSize = 10)
+    {
+        var range = sheet.Range(firstRow, firstColumn, lastRow, lastColumn);
+        range.Merge();
+        range.Value = value;
+        range.Style.Fill.BackgroundColor = fill;
+        range.Style.Font.FontName = "Microsoft YaHei";
+        range.Style.Font.FontSize = fontSize;
+        range.Style.Font.Bold = isBold;
+        range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        range.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        range.Style.Alignment.WrapText = true;
+        range.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+        range.Style.Border.OutsideBorderColor = XLColor.FromHtml("#808080");
+    }
+
+    private static void HighlightSeedCell(IXLCell cell, DrawParticipant participant)
+    {
+        if (!participant.IsSeed)
+        {
+            return;
+        }
+
+        cell.Style.Font.FontColor = SeedFontColor;
+        cell.Style.Font.Bold = true;
+    }
+
+    private static string RoundRobinParticipantLabel(EventKind eventKind)
+    {
+        return eventKind switch
+        {
+            EventKind.Team => "参赛单位",
+            EventKind.Doubles => "参赛组合",
+            _ => "参赛选手"
+        };
+    }
+
+    private static string BuildRoundRobinGroupLabel(int groupNumber)
+    {
+        return $"{ToExcelColumnName(groupNumber)}组";
+    }
+
+    private static string ToExcelColumnName(int number)
+    {
+        var value = Math.Max(1, number);
+        var chars = new Stack<char>();
+        while (value > 0)
+        {
+            value--;
+            chars.Push((char)('A' + value % 26));
+            value /= 26;
+        }
+
+        return new string(chars.ToArray());
     }
 
     private static void WriteAuditSheet(XLWorkbook workbook, string sheetName, DrawResult result)
