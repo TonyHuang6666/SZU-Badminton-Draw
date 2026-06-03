@@ -204,6 +204,14 @@ public sealed class ParticipantExcelReader
 
     private static void ValidateSeedRanks(IReadOnlyList<ParticipantRow> participantRows)
     {
+        var seedCount = participantRows.Count(row => row.Participant.IsSeed);
+        var maxSeedCount = OfficialDrawRules.GetMaximumSeedCount(participantRows.Count);
+        if (seedCount > maxSeedCount)
+        {
+            throw new ExcelImportException(
+                $"当前参赛数量最多设置 {maxSeedCount} 个种子，名单中设置了 {seedCount} 个。");
+        }
+
         var duplicateSeedRank = participantRows
             .Where(row => row.Participant.SeedRank.HasValue)
             .GroupBy(row => row.Participant.SeedRank!.Value)
@@ -216,11 +224,11 @@ public sealed class ParticipantExcelReader
 
         var overflowSeedRank = participantRows
             .FirstOrDefault(row => row.Participant.SeedRank.HasValue
-                && row.Participant.SeedRank.Value > participantRows.Count);
+                && row.Participant.SeedRank.Value > maxSeedCount);
         if (overflowSeedRank is not null)
         {
             throw new ExcelImportException(
-                $"第 {overflowSeedRank.RowNumber} 行“种子序号”为 {overflowSeedRank.Participant.SeedRank}，不能大于参赛单位总数 {participantRows.Count}。");
+                $"第 {overflowSeedRank.RowNumber} 行“种子序号”为 {overflowSeedRank.Participant.SeedRank}，不能大于当前参赛数量允许的种子数量 {maxSeedCount}。");
         }
     }
 

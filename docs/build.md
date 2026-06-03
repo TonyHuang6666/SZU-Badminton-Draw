@@ -35,4 +35,4 @@ src\BadmintonDraw.App\bin\Release\net8.0-windows\win-x64\publish
 
 把发布目录中的程序发给干事即可使用。
 
-正式发布到 GitHub Release 时，建议将发布目录压缩为类似 `SZU-Badminton-Draw_vX.Y.Z_win-x64_self-contained.zip` 的文件，并随版本标签一起上传。
+正式发布到 GitHub Release 时，建议将发布目录压缩为类似 `SZU-Badminton-Draw_v2.0.0_win-x64_self-contained.zip` 的文件，并随版本标签一起上传。Release 说明中应列出规则化抽签、官方种子签位、循环赛 PDF 分页、图片/PDF 导出等重要变化。

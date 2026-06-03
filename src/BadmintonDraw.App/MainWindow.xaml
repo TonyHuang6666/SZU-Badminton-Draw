@@ -282,7 +282,7 @@
                                 </ComboBox>
                             </StackPanel>
 
-                            <Label Content="随机种子" Margin="0,18,0,8" />
+                            <Label Content="随机数种子" Margin="0,18,0,8" />
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -365,7 +365,7 @@
                                     <TextBlock x:Name="ParticipantPillText" Text="参赛单位 0 个" Foreground="#7B5600" />
                                 </Border>
                                 <Border Background="#EAF3FF" BorderBrush="#B7D3FF" BorderThickness="1" CornerRadius="15" Padding="14,6">
-                                    <TextBlock x:Name="SeedPillText" Text="随机种子：未生成" Foreground="#235494" />
+                                    <TextBlock x:Name="SeedPillText" Text="随机数种子：未生成" Foreground="#235494" />
                                 </Border>
                             </WrapPanel>
                         </Grid>

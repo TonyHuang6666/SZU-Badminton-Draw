@@ -35,22 +35,35 @@ public sealed class DrawService
         int groupCount,
         StableRandom rng)
     {
+        var targetSizes = Enumerable.Range(0, groupCount)
+            .Select(index => participants.Count / groupCount + (index < participants.Count % groupCount ? 1 : 0))
+            .ToArray();
+        var groups = Enumerable.Range(0, groupCount)
+            .Select(_ => new List<DrawParticipant>())
+            .ToList();
         var regularParticipants = participants.Where(participant => !participant.IsSeed).ToList();
         var seededParticipants = participants
             .Where(participant => participant.IsSeed)
             .OrderBy(participant => participant.SeedRank ?? int.MaxValue)
             .ThenBy(participant => participant.NormalizedDisplayName, StringComparer.Ordinal)
             .ToList();
+        var seedGroupOrder = OfficialDrawRules.GetSeedGroupOrder(groupCount);
 
         rng.Shuffle(regularParticipants);
 
-        var groups = DivideEvenly(regularParticipants, groupCount);
-        groups.Sort((left, right) => left.Count.CompareTo(right.Count));
-        var seedGroupOrder = BuildProtectedSeedGroupOrder(groupCount);
-
         for (var i = 0; i < seededParticipants.Count; i++)
         {
-            groups[seedGroupOrder[i % groupCount]].Add(seededParticipants[i]);
+            AddParticipantToBestGroup(
+                seededParticipants[i],
+                groups,
+                targetSizes,
+                rng,
+                seedGroupOrder[i % seedGroupOrder.Count]);
+        }
+
+        foreach (var participant in regularParticipants)
+        {
+            AddParticipantToBestGroup(participant, groups, targetSizes, rng, preferredGroupIndex: null);
         }
 
         foreach (var group in groups)
@@ -61,66 +74,42 @@ public sealed class DrawService
         return groups;
     }
 
-    private static IReadOnlyList<int> BuildProtectedSeedGroupOrder(int groupCount)
+    private static void AddParticipantToBestGroup(
+        DrawParticipant participant,
+        IReadOnlyList<List<DrawParticipant>> groups,
+        IReadOnlyList<int> targetSizes,
+        StableRandom rng,
+        int? preferredGroupIndex)
     {
-        var order = new List<int>(groupCount);
-        AddProtectedSeedPositions(order, 0, groupCount - 1);
-        return order;
-    }
-
-    private static void AddProtectedSeedPositions(ICollection<int> order, int first, int last)
-    {
-        if (first > last)
-        {
-            return;
-        }
-
-        if (order.Count == 0)
-        {
-            AddSeedPosition(order, first);
-            AddSeedPosition(order, last);
-        }
-
-        if (last - first <= 1)
-        {
-            return;
-        }
-
-        var middleLeft = (first + last) / 2;
-        var middleRight = middleLeft + 1;
-        AddSeedPosition(order, middleLeft);
-        AddSeedPosition(order, middleRight);
-        AddProtectedSeedPositions(order, first, middleLeft);
-        AddProtectedSeedPositions(order, middleRight, last);
-    }
-
-    private static void AddSeedPosition(ICollection<int> order, int position)
-    {
-        if (!order.Contains(position))
-        {
-            order.Add(position);
-        }
-    }
-
-    private static List<List<DrawParticipant>> DivideEvenly(
-        IReadOnlyList<DrawParticipant> participants,
-        int groupCount)
-    {
-        var groups = Enumerable.Range(0, groupCount)
-            .Select(_ => new List<DrawParticipant>())
+        var candidates = Enumerable.Range(0, groups.Count)
+            .Where(index => groups[index].Count < targetSizes[index])
             .ToList();
-        var index = 0;
 
-        for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
+        if (candidates.Count == 0)
         {
-            var groupSize = participants.Count / groupCount + (groupIndex < participants.Count % groupCount ? 1 : 0);
-            for (var i = 0; i < groupSize; i++)
-            {
-                groups[groupIndex].Add(participants[index++]);
-            }
+            candidates = Enumerable.Range(0, groups.Count).ToList();
         }
 
-        return groups;
+        rng.Shuffle(candidates);
+
+        var targetGroup = candidates
+            .OrderBy(index => CountUnitConflicts(participant, groups[index]))
+            .ThenBy(index => preferredGroupIndex.HasValue ? GroupDistance(index, preferredGroupIndex.Value, groups.Count) : 0)
+            .ThenBy(index => groups[index].Count)
+            .First();
+
+        groups[targetGroup].Add(participant);
+    }
+
+    private static int CountUnitConflicts(DrawParticipant participant, IEnumerable<DrawParticipant> group)
+    {
+        return group.Count(existing => OfficialDrawRules.HaveSameUnit(participant, existing));
+    }
+
+    private static int GroupDistance(int left, int right, int groupCount)
+    {
+        var direct = Math.Abs(left - right);
+        return Math.Min(direct, groupCount - direct);
     }
 
     private static KnockoutSplit SplitPerGroupPowerOfTwo(IReadOnlyList<List<DrawParticipant>> groups)
@@ -182,8 +171,11 @@ public sealed class DrawService
 
         foreach (var participant in regularParticipants)
         {
-            var seededMatch = matches.FirstOrDefault(match => match.Count == 1 && match[0].IsSeed);
-            var target = seededMatch
+            var target = matches
+                .Where(match => match.Count == 1 && !SharesAnyUnit(participant, match))
+                .OrderByDescending(match => match[0].IsSeed)
+                .FirstOrDefault()
+                ?? matches.FirstOrDefault(match => match.Count == 1)
                 ?? matches.FirstOrDefault(match => match.Count == 0)
                 ?? matches.First(match => match.Count < 2);
             target.Add(participant);
@@ -195,7 +187,7 @@ public sealed class DrawService
     private static List<DrawParticipant> ArrangeParticipantsBySeedProtection(IReadOnlyList<DrawParticipant> participants)
     {
         var arranged = new DrawParticipant?[participants.Count];
-        var protectedPositions = BuildProtectedSeedGroupOrder(participants.Count);
+        var protectedPositions = OfficialDrawRules.GetSeedPositionOrder(participants.Count);
         var seededParticipants = participants
             .Where(participant => participant.IsSeed)
             .OrderBy(participant => participant.SeedRank ?? int.MaxValue)
@@ -214,6 +206,11 @@ public sealed class DrawService
         }
 
         return arranged.Cast<DrawParticipant>().ToList();
+    }
+
+    private static bool SharesAnyUnit(DrawParticipant participant, IEnumerable<DrawParticipant> others)
+    {
+        return others.Any(other => OfficialDrawRules.HaveSameUnit(participant, other));
     }
 
     private static int CalculateRoundOneCount(int groupSize)
@@ -293,7 +290,7 @@ public sealed class DrawService
 
         if (string.IsNullOrWhiteSpace(settings.RandomSeed))
         {
-            throw new DrawValidationException("随机种子不能为空。");
+            throw new DrawValidationException("随机数种子不能为空。");
         }
 
         var emptyName = participants.FirstOrDefault(participant => string.IsNullOrWhiteSpace(participant.DisplayName));
@@ -325,6 +322,14 @@ public sealed class DrawService
 
     private static void ValidateSeedRanks(IReadOnlyList<DrawParticipant> participants)
     {
+        var seedCount = participants.Count(participant => participant.IsSeed);
+        var maxSeedCount = OfficialDrawRules.GetMaximumSeedCount(participants.Count);
+        if (seedCount > maxSeedCount)
+        {
+            throw new DrawValidationException(
+                $"当前参赛数量最多设置 {maxSeedCount} 个种子，名单中设置了 {seedCount} 个。");
+        }
+
         var invalidSeedRank = participants.FirstOrDefault(participant => participant.SeedRank.HasValue
             && participant.SeedRank.Value <= 0);
         if (invalidSeedRank is not null)
@@ -333,11 +338,11 @@ public sealed class DrawService
         }
 
         var overflowSeedRank = participants.FirstOrDefault(participant => participant.SeedRank.HasValue
-            && participant.SeedRank.Value > participants.Count);
+            && participant.SeedRank.Value > maxSeedCount);
         if (overflowSeedRank is not null)
         {
             throw new DrawValidationException(
-                $"种子序号不能大于参赛人数或队伍数：{overflowSeedRank.DisplayName} 的种子序号为 {overflowSeedRank.SeedRank}");
+                $"种子序号不能大于当前参赛数量允许的种子数量 {maxSeedCount}：{overflowSeedRank.DisplayName} 的种子序号为 {overflowSeedRank.SeedRank}");
         }
 
         var duplicateSeedRank = participants

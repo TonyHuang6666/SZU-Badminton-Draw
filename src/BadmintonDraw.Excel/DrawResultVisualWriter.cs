@@ -19,6 +19,7 @@ public sealed class DrawResultVisualWriter
     private const float RoundRobinPdfHorizontalSafetyInset = 24f;
     private const float TextWidthSafetyFactor = 0.9f;
     private const float DefaultFontSize = 10f * PointsToPixels;
+    private const string DefaultFontName = "Microsoft YaHei";
 
     private static readonly SKColor White = SKColors.White;
     private static readonly SKColor Black = SKColors.Black;
@@ -174,26 +175,201 @@ public sealed class DrawResultVisualWriter
             return false;
         }
 
-        var layouts = new List<WorksheetLayout>();
+        var layouts = new List<WorksheetLayout>
+        {
+            BuildRoundRobinCoverLayout(sheet, sections, usedLastRow),
+        };
+
         for (var index = 0; index < sections.Count; index++)
         {
             var section = sections[index];
-            var sectionLastRow = index + 1 < sections.Count
-                ? sections[index + 1].HeaderRow - 2
-                : usedLastRow;
-
-            while (sectionLastRow > section.HeaderRow
-                && IsEmptyRow(sheet, sectionLastRow, 1, section.LastColumn))
-            {
-                sectionLastRow--;
-            }
-
-            var firstRow = index == 0 ? 1 : section.HeaderRow;
-            layouts.Add(BuildLayout(sheet, firstRow, 1, sectionLastRow, section.LastColumn));
+            var sectionLastRow = GetRoundRobinSectionLastRow(sheet, sections, index, usedLastRow);
+            layouts.Add(BuildLayout(sheet, section.HeaderRow, 1, sectionLastRow, section.LastColumn));
         }
 
         pageLayouts = layouts;
         return true;
+    }
+
+    private static WorksheetLayout BuildRoundRobinCoverLayout(
+        IXLWorksheet sourceSheet,
+        IReadOnlyList<RoundRobinSection> sections,
+        int usedLastRow)
+    {
+        using var workbook = new XLWorkbook();
+        workbook.Style.Font.FontName = DefaultFontName;
+        var sheet = workbook.Worksheets.Add("PDF封面");
+        const int lastColumn = 8;
+
+        var title = sourceSheet.Cell(1, 1).GetString().Trim();
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            title = "循环赛对阵表";
+        }
+
+        var summary = sourceSheet.Cell(3, 1).GetString().Trim();
+        var note = sourceSheet.Cell(4, 1).GetString().Trim();
+        var groupSummaries = sections
+            .Select((section, index) =>
+            {
+                var sectionLastRow = GetRoundRobinSectionLastRow(sourceSheet, sections, index, usedLastRow);
+                var groupName = sourceSheet.Cell(section.HeaderRow, 1).GetString().Trim();
+                return new RoundRobinGroupSummary(
+                    string.IsNullOrWhiteSpace(groupName) ? $"第{index + 1}组" : groupName,
+                    CountRoundRobinParticipants(sourceSheet, section, sectionLastRow),
+                    index + 2);
+            })
+            .ToArray();
+
+        for (var column = 1; column <= lastColumn; column++)
+        {
+            sheet.Column(column).Width = 12;
+        }
+
+        sheet.Row(1).Height = 34;
+        sheet.Row(2).Height = 18;
+        sheet.Row(3).Height = 24;
+        sheet.Row(4).Height = 28;
+        sheet.Row(5).Height = 10;
+        sheet.Row(6).Height = 24;
+        sheet.Row(7).Height = 30;
+        sheet.Row(8).Height = 30;
+        sheet.Row(9).Height = 30;
+        sheet.Row(10).Height = 38;
+        sheet.Row(11).Height = 10;
+        sheet.Row(12).Height = 24;
+
+        var titleRange = MergeAndSet(sheet, 1, 1, 2, lastColumn, title);
+        titleRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#1F4E78");
+        titleRange.Style.Font.FontColor = XLColor.White;
+        titleRange.Style.Font.Bold = true;
+        titleRange.Style.Font.FontSize = 20;
+
+        var summaryRange = MergeAndSet(sheet, 3, 1, 3, lastColumn, summary);
+        summaryRange.Style.Font.Bold = true;
+        summaryRange.Style.Font.FontSize = 12;
+
+        var noteRange = MergeAndSet(sheet, 4, 1, 4, lastColumn, note);
+        noteRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#EEF2FF");
+        noteRange.Style.Font.FontSize = 10;
+
+        var infoTitle = MergeAndSet(sheet, 6, 1, 6, lastColumn, "打印总览");
+        infoTitle.Style.Fill.BackgroundColor = XLColor.FromHtml("#305496");
+        infoTitle.Style.Font.FontColor = XLColor.White;
+        infoTitle.Style.Font.Bold = true;
+
+        WriteCoverInfoRow(sheet, 7, "PDF结构", "第 1 页为总览说明；后续每个小组单独一页，适合直接横向打印。", lastColumn);
+        WriteCoverInfoRow(sheet, 8, "小组数量", $"{sections.Count} 个小组", lastColumn);
+        WriteCoverInfoRow(sheet, 9, "小组人数", string.Join("；", groupSummaries.Select(group => $"{group.Name}：{group.ParticipantCount}")), lastColumn);
+        WriteCoverInfoRow(sheet, 10, "填写提示", "矩阵交叉格显示场次编号；右侧填写胜场、净胜、名次；每组下方为赛程顺序。", lastColumn);
+
+        var groupTitle = MergeAndSet(sheet, 12, 1, 12, lastColumn, "小组页码索引");
+        groupTitle.Style.Fill.BackgroundColor = XLColor.FromHtml("#D9EAF7");
+        groupTitle.Style.Font.Bold = true;
+
+        var tableHeaderRow = 13;
+        sheet.Cell(tableHeaderRow, 1).Value = "小组";
+        sheet.Range(tableHeaderRow, 2, tableHeaderRow, 3).Merge().Value = "参赛单位/选手数";
+        sheet.Range(tableHeaderRow, 4, tableHeaderRow, lastColumn).Merge().Value = "PDF页码";
+        sheet.Range(tableHeaderRow, 1, tableHeaderRow, lastColumn).Style.Fill.BackgroundColor = XLColor.FromHtml("#E7F3FB");
+        sheet.Range(tableHeaderRow, 1, tableHeaderRow, lastColumn).Style.Font.Bold = true;
+        sheet.Row(tableHeaderRow).Height = 24;
+
+        var row = tableHeaderRow + 1;
+        foreach (var group in groupSummaries)
+        {
+            sheet.Cell(row, 1).Value = group.Name;
+            sheet.Range(row, 2, row, 3).Merge().Value = group.ParticipantCount;
+            sheet.Range(row, 4, row, lastColumn).Merge().Value = $"第 {group.PageNumber} 页";
+            sheet.Row(row).Height = 24;
+            row++;
+        }
+
+        var finalRow = Math.Max(row - 1, tableHeaderRow + 1);
+        var footer = MergeAndSet(
+            sheet,
+            finalRow + 1,
+            1,
+            finalRow + 2,
+            lastColumn,
+            "建议打印方式：A4 横向、窄边距、按实际大小或适合页面打印；如需现场记录，可先打印本封面作为抽签结果目录。");
+        footer.Style.Fill.BackgroundColor = XLColor.FromHtml("#F8FAFC");
+        footer.Style.Font.FontColor = XLColor.FromHtml("#1F2937");
+        footer.Style.Font.FontSize = 10;
+        sheet.Row(finalRow + 1).Height = 24;
+        sheet.Row(finalRow + 2).Height = 24;
+
+        var usedRange = sheet.Range(1, 1, finalRow + 2, lastColumn);
+        usedRange.Style.Font.FontName = DefaultFontName;
+        usedRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        usedRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        usedRange.Style.Alignment.WrapText = true;
+        usedRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        usedRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+        usedRange.Style.Border.OutsideBorderColor = XLColor.FromHtml("#808080");
+        usedRange.Style.Border.InsideBorderColor = XLColor.FromHtml("#808080");
+
+        return BuildLayout(sheet, 1, 1, finalRow + 2, lastColumn);
+    }
+
+    private static IXLRange MergeAndSet(
+        IXLWorksheet sheet,
+        int firstRow,
+        int firstColumn,
+        int lastRow,
+        int lastColumn,
+        string value)
+    {
+        var range = sheet.Range(firstRow, firstColumn, lastRow, lastColumn);
+        range.Merge();
+        range.FirstCell().Value = value;
+        return range;
+    }
+
+    private static void WriteCoverInfoRow(IXLWorksheet sheet, int row, string label, string value, int lastColumn)
+    {
+        sheet.Cell(row, 1).Value = label;
+        sheet.Range(row, 2, row, lastColumn).Merge().Value = value;
+        sheet.Cell(row, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#D9EAF7");
+        sheet.Cell(row, 1).Style.Font.Bold = true;
+        sheet.Range(row, 2, row, lastColumn).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+    }
+
+    private static int GetRoundRobinSectionLastRow(
+        IXLWorksheet sheet,
+        IReadOnlyList<RoundRobinSection> sections,
+        int index,
+        int usedLastRow)
+    {
+        var section = sections[index];
+        var sectionLastRow = index + 1 < sections.Count
+            ? sections[index + 1].HeaderRow - 2
+            : usedLastRow;
+
+        while (sectionLastRow > section.HeaderRow
+            && IsEmptyRow(sheet, sectionLastRow, 1, section.LastColumn))
+        {
+            sectionLastRow--;
+        }
+
+        return sectionLastRow;
+    }
+
+    private static int CountRoundRobinParticipants(IXLWorksheet sheet, RoundRobinSection section, int sectionLastRow)
+    {
+        var count = 0;
+        for (var row = section.HeaderRow + 1; row <= sectionLastRow; row++)
+        {
+            var label = sheet.Cell(row, 1).GetString().Trim();
+            if (string.IsNullOrWhiteSpace(label) || label == "赛程顺序")
+            {
+                break;
+            }
+
+            count++;
+        }
+
+        return count;
     }
 
     private static bool TryGetRoundRobinSection(
@@ -298,7 +474,7 @@ public sealed class DrawResultVisualWriter
         var fill = ToSkColor(style.Fill.BackgroundColor, White);
         var fontColor = ToSkColor(style.Font.FontColor, Black);
         var fontName = string.IsNullOrWhiteSpace(style.Font.FontName)
-            ? "Microsoft YaHei"
+            ? DefaultFontName
             : style.Font.FontName;
         var fontSize = (float)Math.Max(6, style.Font.FontSize * PointsToPixels);
 
@@ -595,14 +771,33 @@ public sealed class DrawResultVisualWriter
             TextAlign = ToTextAlign(cell.HorizontalAlignment)
         };
         var textBounds = cell.Bounds;
-        textBounds.Inflate(-5, -3);
+        var horizontalPadding = Math.Min(5f, Math.Max(2f, cell.Bounds.Width * 0.035f));
+        var verticalPadding = Math.Min(3f, Math.Max(1.5f, cell.Bounds.Height * 0.08f));
+        textBounds.Inflate(-horizontalPadding, -verticalPadding);
         var maxLineWidth = Math.Max(10, textBounds.Width * TextWidthSafetyFactor);
-        var lines = cell.WrapText
-            ? WrapText(cell.Text, paint, maxLineWidth)
-            : [TrimWithEllipsis(cell.Text, paint, maxLineWidth)];
-        var metrics = paint.FontMetrics;
-        var lineHeight = Math.Max(1, metrics.Descent - metrics.Ascent + metrics.Leading);
-        var maxLines = Math.Max(1, (int)Math.Floor(textBounds.Height / lineHeight));
+        var minFontSize = Math.Min(cell.FontSize, 5.8f * PointsToPixels);
+        List<string> lines;
+        SKFontMetrics metrics;
+        float lineHeight;
+        int maxLines;
+
+        while (true)
+        {
+            lines = cell.WrapText
+                ? WrapText(cell.Text, paint, maxLineWidth)
+                : [cell.Text];
+            metrics = paint.FontMetrics;
+            lineHeight = Math.Max(1, metrics.Descent - metrics.Ascent + metrics.Leading);
+            maxLines = Math.Max(1, (int)Math.Floor(textBounds.Height / lineHeight));
+            var fitsHeight = lines.Count <= maxLines;
+            var fitsWidth = lines.All(line => paint.MeasureText(line) <= maxLineWidth);
+            if ((fitsHeight && fitsWidth) || paint.TextSize <= minFontSize)
+            {
+                break;
+            }
+
+            paint.TextSize = Math.Max(minFontSize, paint.TextSize - 0.5f);
+        }
 
         if (lines.Count > maxLines)
         {
@@ -736,6 +931,8 @@ public sealed class DrawResultVisualWriter
     private sealed record PageSize(float Width, float Height);
 
     private readonly record struct RoundRobinSection(int HeaderRow, int LastColumn);
+
+    private readonly record struct RoundRobinGroupSummary(string Name, int ParticipantCount, int PageNumber);
 
     private sealed class GridMetrics
     {

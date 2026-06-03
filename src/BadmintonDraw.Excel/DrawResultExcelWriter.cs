@@ -126,7 +126,7 @@ public sealed class DrawResultExcelWriter
                 var second = roundOneParticipants[i + 1];
                 slots.Add(new BracketSlot(
                     group.Number,
-                    $"第{group.Number}组附加赛{matchNumber}胜者",
+                    $"第{group.Number}组首轮赛{matchNumber}胜者",
                     false,
                     MinSeedRank(first, second),
                     true,
@@ -172,7 +172,7 @@ public sealed class DrawResultExcelWriter
         }
 
         var arranged = new BracketSlot?[slots.Count];
-        var protectedPositions = BuildProtectedSlotOrder(slots.Count);
+        var protectedPositions = OfficialDrawRules.GetSeedPositionOrder(slots.Count);
         var seededSlots = slots
             .Where(slot => slot.ProtectedSeedRank.HasValue)
             .OrderBy(slot => slot.ProtectedSeedRank!.Value)
@@ -191,47 +191,6 @@ public sealed class DrawResultExcelWriter
         }
 
         return arranged.Cast<BracketSlot>().ToList();
-    }
-
-    private static IReadOnlyList<int> BuildProtectedSlotOrder(int slotCount)
-    {
-        var order = new List<int>(slotCount);
-        AddProtectedSlotPositions(order, 0, slotCount - 1);
-        return order;
-    }
-
-    private static void AddProtectedSlotPositions(ICollection<int> order, int first, int last)
-    {
-        if (first > last)
-        {
-            return;
-        }
-
-        if (order.Count == 0)
-        {
-            AddSlotPosition(order, first);
-            AddSlotPosition(order, last);
-        }
-
-        if (last - first <= 1)
-        {
-            return;
-        }
-
-        var middleLeft = (first + last) / 2;
-        var middleRight = middleLeft + 1;
-        AddSlotPosition(order, middleLeft);
-        AddSlotPosition(order, middleRight);
-        AddProtectedSlotPositions(order, first, middleLeft);
-        AddProtectedSlotPositions(order, middleRight, last);
-    }
-
-    private static void AddSlotPosition(ICollection<int> order, int position)
-    {
-        if (!order.Contains(position))
-        {
-            order.Add(position);
-        }
     }
 
     private static List<int> BuildRoundColumns(int mainSlotCount)
@@ -256,18 +215,21 @@ public sealed class DrawResultExcelWriter
         DrawResult result,
         IReadOnlyList<BracketSlot> bracketSlots)
     {
-        var maxGroupSlotCount = result.Groups
+        var groupSlotCounts = result.Groups
             .Select(group => bracketSlots.Count(slot => slot.GroupNumber == group.Number))
-            .DefaultIfEmpty(1)
-            .Max();
+            .Where(count => count > 0)
+            .Select(count => Math.Max(1, count))
+            .ToList();
         var headers = new List<string>();
-        var from = Math.Max(1, maxGroupSlotCount);
 
-        while (from > 1)
+        while (groupSlotCounts.Any(count => count > 1))
         {
-            var to = Math.Max(1, from / 2);
+            var from = groupSlotCounts.Sum();
+            groupSlotCounts = groupSlotCounts
+                .Select(count => Math.Max(1, count / 2))
+                .ToList();
+            var to = groupSlotCounts.Sum();
             headers.Add($"{from}进{to}");
-            from = to;
         }
 
         headers.Add("出线");
@@ -343,10 +305,10 @@ public sealed class DrawResultExcelWriter
             2,
             lastColumn,
             isGroupedChampionBracket
-                ? $"共{result.Audit.ParticipantCount}{participantLabel}，{playInCount}场附加赛；分为{result.Groups.Count}个小组，每组出线后进入{result.Groups.Count}强淘汰赛，最终决出冠军。"
+                ? $"共{result.Audit.ParticipantCount}{participantLabel}，{playInCount}场首轮赛；分为{result.Groups.Count}个小组，每组出线后进入{result.Groups.Count}强淘汰赛，最终决出冠军。"
                 : qualifierCount.HasValue
-                ? $"共{result.Audit.ParticipantCount}{participantLabel}：{playInCount}场附加赛；附加赛后{mainSlotCount}{participantLabel}进入正赛，最终决出{qualifierCount.Value}个小组出线名额。"
-                : $"共{result.Audit.ParticipantCount}{participantLabel}：{playInCount}场附加赛；附加赛后{mainSlotCount}{participantLabel}进入正赛。附加赛胜者直接进入同一行的正赛位置。",
+                ? $"共{result.Audit.ParticipantCount}{participantLabel}：{playInCount}场首轮赛；首轮赛后{mainSlotCount}{participantLabel}进入正赛，最终决出{qualifierCount.Value}个小组出线名额。"
+                : $"共{result.Audit.ParticipantCount}{participantLabel}：{playInCount}场首轮赛；首轮赛后{mainSlotCount}{participantLabel}进入正赛。首轮赛胜者直接进入同一行的正赛位置。",
             NoteFill,
             XLColor.FromHtml("#1F2937"),
             fontSize: 11);
@@ -364,7 +326,7 @@ public sealed class DrawResultExcelWriter
             PlayInFirstColumn,
             4,
             PlayInWinnerColumn + MergedCellWidth - 1,
-            "附加赛",
+            "首轮赛",
             HeaderFill,
             XLColor.White,
             isBold: true);
@@ -428,7 +390,7 @@ public sealed class DrawResultExcelWriter
             var playInCount = bracketSlots.Count(slot => slot.GroupNumber == group.Number && slot.IsPlayIn);
             var mainSlotCount = bracketSlots.Count(slot => slot.GroupNumber == group.Number);
             var row = BracketStartRow + firstIndex * SlotRowGap - 1;
-            var title = $"第{group.Number}组：{group.Participants.Count}人，{playInCount}场附加赛，附加赛后{mainSlotCount}人进入正赛";
+            var title = $"第{group.Number}组：{group.Participants.Count}人，{playInCount}场首轮赛，首轮赛后{mainSlotCount}人进入正赛";
 
             if (!isQualifierBracket)
             {
@@ -954,7 +916,7 @@ public sealed class DrawResultExcelWriter
             1,
             noteRow,
             lastColumn,
-            "填写说明：左侧附加赛完成后，将胜者姓名填入黄色正赛位置；绿色为直接进入正赛的选手；灰色格用于逐轮填写胜者；红色加粗姓名为种子选手。",
+            "填写说明：左侧首轮赛完成后，将胜者姓名填入黄色正赛位置；绿色为直接进入正赛的选手；灰色格用于逐轮填写胜者；红色加粗姓名为种子选手。",
             NoteFill,
             XLColor.FromHtml("#1F2937"));
     }
@@ -1033,15 +995,21 @@ public sealed class DrawResultExcelWriter
     {
         var sheet = workbook.Worksheets.Add("对阵表");
         var maxGroupSize = Math.Max(1, result.Groups.Select(group => group.Participants.Count).DefaultIfEmpty(0).Max());
+        var maxDisplayNameLength = result.Groups
+            .SelectMany(group => group.Participants)
+            .Select(participant => participant.DisplayName.Length)
+            .DefaultIfEmpty(0)
+            .Max();
+        var layout = BuildRoundRobinLayout(maxGroupSize, maxDisplayNameLength);
         var lastColumn = Math.Max(7, maxGroupSize + 4);
         var row = 5;
 
-        ConfigureRoundRobinSheet(sheet, lastColumn, maxGroupSize);
+        ConfigureRoundRobinSheet(sheet, lastColumn, layout);
         WriteRoundRobinTitle(sheet, result, lastColumn);
 
         foreach (var group in result.Groups)
         {
-            row = WriteRoundRobinGroup(sheet, group, row);
+            row = WriteRoundRobinGroup(sheet, group, row, layout);
             row++;
         }
 
@@ -1053,23 +1021,46 @@ public sealed class DrawResultExcelWriter
         sheet.PageSetup.PrintAreas.Add($"A1:{sheet.Cell(Math.Max(row - 1, 4), lastColumn).Address.ToStringRelative()}");
     }
 
-    private static void ConfigureRoundRobinSheet(IXLWorksheet sheet, int lastColumn, int maxGroupSize)
+    private static RoundRobinLayout BuildRoundRobinLayout(int maxGroupSize, int maxDisplayNameLength)
     {
         var participantColumnWidth = maxGroupSize switch
         {
-            <= 5 => 18,
-            <= 7 => 16,
-            <= 8 => 15.5,
-            <= 10 => 13,
-            _ => 10
+            <= 5 => 20,
+            <= 7 => 18,
+            <= 8 => 17,
+            <= 10 => 14.5,
+            _ => 12
         };
-        var summaryColumnWidth = maxGroupSize >= 8 ? 7 : 8;
+        var summaryColumnWidth = maxGroupSize >= 8 ? 7.5 : 8.5;
+        var fontSize = maxDisplayNameLength switch
+        {
+            >= 11 => 8.2,
+            >= 9 => 8.8,
+            _ => 9.5
+        };
+        var estimatedCharsPerLine = Math.Max(4, participantColumnWidth * 0.52);
+        var estimatedLines = Math.Clamp(
+            (int)Math.Ceiling(Math.Max(1, maxDisplayNameLength) / estimatedCharsPerLine),
+            1,
+            3);
+        var headerHeight = Math.Max(36, 22 + estimatedLines * (fontSize + 5));
+        var rowHeight = Math.Max(30, 16 + estimatedLines * (fontSize + 4));
 
+        return new RoundRobinLayout(
+            participantColumnWidth,
+            summaryColumnWidth,
+            fontSize,
+            headerHeight,
+            rowHeight);
+    }
+
+    private static void ConfigureRoundRobinSheet(IXLWorksheet sheet, int lastColumn, RoundRobinLayout layout)
+    {
         for (var column = 1; column <= lastColumn; column++)
         {
             sheet.Column(column).Width = column >= lastColumn - 2
-                ? summaryColumnWidth
-                : participantColumnWidth;
+                ? layout.SummaryColumnWidth
+                : layout.ParticipantColumnWidth;
         }
 
         sheet.Row(1).Height = 26;
@@ -1081,6 +1072,9 @@ public sealed class DrawResultExcelWriter
     private static void WriteRoundRobinTitle(IXLWorksheet sheet, DrawResult result, int lastColumn)
     {
         var participantLabel = RoundRobinParticipantLabel(result.Settings.EventKind);
+        var noteText = result.Settings.EventKind == EventKind.Team
+            ? "交叉格显示场次编号，可填写比分/结果；对角线为轮空；赛程顺序按轮转法生成。"
+            : "交叉格显示场次编号，可填写比分/结果；对角线为轮空；同单位对阵已优先排入赛程。";
         WriteRoundRobinMergedCell(
             sheet,
             1,
@@ -1107,17 +1101,25 @@ public sealed class DrawResultExcelWriter
             1,
             4,
             lastColumn,
-            "交叉格填写赛程/比分/结果；对角线为轮空；右侧填胜场、净胜、名次。",
+            noteText,
             NoteFill,
             fontSize: 9);
     }
 
-    private static int WriteRoundRobinGroup(IXLWorksheet sheet, DrawGroup group, int startRow)
+    private static int WriteRoundRobinGroup(
+        IXLWorksheet sheet,
+        DrawGroup group,
+        int startRow,
+        RoundRobinLayout layout)
     {
         var participants = group.Participants;
         var groupSize = participants.Count;
         var groupColumnCount = Math.Max(4, groupSize + 4);
         var lastRow = startRow + Math.Max(groupSize, 1);
+        var schedule = BuildRoundRobinSchedule(participants);
+        var scheduleByPair = schedule.ToDictionary(
+            match => BuildPairKey(match.FirstIndex, match.SecondIndex),
+            match => match.Order);
 
         sheet.Cell(startRow, 1).Value = BuildRoundRobinGroupLabel(group.Number);
         for (var i = 0; i < groupSize; i++)
@@ -1157,21 +1159,188 @@ public sealed class DrawResultExcelWriter
                     }
                     else
                     {
-                        cell.Value = "";
+                        cell.Value = rowIndex < columnIndex
+                            && scheduleByPair.TryGetValue(BuildPairKey(rowIndex, columnIndex), out var matchOrder)
+                            ? $"第{matchOrder}场"
+                            : "";
                     }
                 }
             }
         }
 
-        ApplyRoundRobinGroupStyle(sheet, startRow, lastRow, groupColumnCount, groupSize);
-        return lastRow + 1;
+        ApplyRoundRobinGroupStyle(sheet, startRow, lastRow, groupColumnCount, groupSize, layout);
+        var scheduleLastRow = WriteRoundRobinSchedule(sheet, participants, schedule, lastRow + 2, groupColumnCount);
+        return Math.Max(lastRow, scheduleLastRow) + 1;
     }
 
-    private static void ApplyRoundRobinGroupStyle(IXLWorksheet sheet, int firstRow, int lastRow, int lastColumn, int groupSize)
+    private static IReadOnlyList<RoundRobinMatch> BuildRoundRobinSchedule(IReadOnlyList<DrawParticipant> participants)
+    {
+        if (participants.Count <= 1)
+        {
+            return [];
+        }
+
+        var slots = participants
+            .Select((_, index) => (int?)index)
+            .ToList();
+        if (slots.Count % 2 == 1)
+        {
+            slots.Add(null);
+        }
+
+        var matches = new List<RoundRobinMatch>();
+        var roundCount = slots.Count - 1;
+        var matchesPerRound = slots.Count / 2;
+
+        for (var round = 1; round <= roundCount; round++)
+        {
+            for (var matchIndex = 0; matchIndex < matchesPerRound; matchIndex++)
+            {
+                var first = slots[matchIndex];
+                var second = slots[slots.Count - 1 - matchIndex];
+                if (first.HasValue && second.HasValue)
+                {
+                    var sameUnit = OfficialDrawRules.HaveSameUnit(participants[first.Value], participants[second.Value]);
+                    matches.Add(new RoundRobinMatch(0, round, matchIndex + 1, first.Value, second.Value, sameUnit));
+                }
+            }
+
+            RotateRoundRobinSlots(slots);
+        }
+
+        return matches
+            .OrderBy(match => match.SameUnit ? 0 : 1)
+            .ThenBy(match => match.Round)
+            .ThenBy(match => match.RoundMatchNumber)
+            .Select((match, index) => match with { Order = index + 1 })
+            .ToList();
+    }
+
+    private static void RotateRoundRobinSlots(IList<int?> slots)
+    {
+        if (slots.Count <= 2)
+        {
+            return;
+        }
+
+        var last = slots[^1];
+        for (var index = slots.Count - 1; index > 1; index--)
+        {
+            slots[index] = slots[index - 1];
+        }
+
+        slots[1] = last;
+    }
+
+    private static int WriteRoundRobinSchedule(
+        IXLWorksheet sheet,
+        IReadOnlyList<DrawParticipant> participants,
+        IReadOnlyList<RoundRobinMatch> schedule,
+        int startRow,
+        int lastColumn)
+    {
+        if (schedule.Count == 0)
+        {
+            return startRow - 1;
+        }
+
+        var opponentFirstColumn = 3;
+        var noteColumn = Math.Max(4, lastColumn);
+        var opponentLastColumn = Math.Max(opponentFirstColumn, noteColumn - 1);
+        var headerRow = startRow + 1;
+        var lastRow = headerRow + schedule.Count;
+
+        var titleRange = sheet.Range(startRow, 1, startRow, noteColumn);
+        titleRange.Merge();
+        titleRange.Value = "赛程顺序";
+        titleRange.Style.Fill.BackgroundColor = HeaderFill;
+        titleRange.Style.Font.FontColor = XLColor.White;
+        titleRange.Style.Font.Bold = true;
+
+        sheet.Cell(headerRow, 1).Value = "场次";
+        sheet.Cell(headerRow, 2).Value = "轮次";
+        WriteRoundRobinScheduleMergedCell(sheet, headerRow, opponentFirstColumn, opponentLastColumn, "对阵");
+        sheet.Cell(headerRow, noteColumn).Value = "备注";
+
+        for (var i = 0; i < schedule.Count; i++)
+        {
+            var match = schedule[i];
+            var row = headerRow + i + 1;
+            sheet.Cell(row, 1).Value = match.Order;
+            sheet.Cell(row, 2).Value = $"第{match.Round}轮";
+            WriteRoundRobinScheduleMergedCell(
+                sheet,
+                row,
+                opponentFirstColumn,
+                opponentLastColumn,
+                $"{participants[match.FirstIndex].DisplayName}  vs  {participants[match.SecondIndex].DisplayName}");
+            sheet.Cell(row, noteColumn).Value = match.SameUnit ? "同单位优先" : "";
+        }
+
+        ApplyRoundRobinScheduleStyle(sheet, startRow, lastRow, noteColumn);
+        return lastRow;
+    }
+
+    private static void WriteRoundRobinScheduleMergedCell(
+        IXLWorksheet sheet,
+        int row,
+        int firstColumn,
+        int lastColumn,
+        string value)
+    {
+        var range = sheet.Range(row, firstColumn, row, lastColumn);
+        if (firstColumn < lastColumn)
+        {
+            range.Merge();
+        }
+
+        range.Value = value;
+    }
+
+    private static void ApplyRoundRobinScheduleStyle(
+        IXLWorksheet sheet,
+        int firstRow,
+        int lastRow,
+        int lastColumn)
     {
         var range = sheet.Range(firstRow, 1, lastRow, lastColumn);
         range.Style.Font.FontName = "Microsoft YaHei";
-        range.Style.Font.FontSize = 10;
+        range.Style.Font.FontSize = 9;
+        range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        range.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        range.Style.Alignment.WrapText = true;
+        range.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+        range.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+        range.Style.Border.OutsideBorderColor = XLColor.FromHtml("#808080");
+        range.Style.Border.InsideBorderColor = XLColor.FromHtml("#808080");
+
+        sheet.Range(firstRow + 1, 1, firstRow + 1, lastColumn).Style.Font.Bold = true;
+        sheet.Range(firstRow + 1, 1, firstRow + 1, lastColumn).Style.Fill.BackgroundColor = GroupFill;
+
+        for (var row = firstRow; row <= lastRow; row++)
+        {
+            sheet.Row(row).Height = row == firstRow ? 22 : 20;
+        }
+    }
+
+    private static string BuildPairKey(int firstIndex, int secondIndex)
+    {
+        var first = Math.Min(firstIndex, secondIndex);
+        var second = Math.Max(firstIndex, secondIndex);
+        return $"{first}:{second}";
+    }
+
+    private static void ApplyRoundRobinGroupStyle(
+        IXLWorksheet sheet,
+        int firstRow,
+        int lastRow,
+        int lastColumn,
+        int groupSize,
+        RoundRobinLayout layout)
+    {
+        var range = sheet.Range(firstRow, 1, lastRow, lastColumn);
+        range.Style.Font.FontName = "Microsoft YaHei";
+        range.Style.Font.FontSize = layout.FontSize;
         range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         range.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
         range.Style.Alignment.WrapText = true;
@@ -1190,7 +1359,7 @@ public sealed class DrawResultExcelWriter
 
         for (var row = firstRow; row <= lastRow; row++)
         {
-            sheet.Row(row).Height = row == firstRow ? 36 : 30;
+            sheet.Row(row).Height = row == firstRow ? layout.HeaderRowHeight : layout.BodyRowHeight;
         }
     }
 
@@ -1266,7 +1435,7 @@ public sealed class DrawResultExcelWriter
         {
             ("比赛模式", result.Settings.CompetitionMode.ToString()),
             ("项目类型", result.Settings.EventKind.ToString()),
-            ("随机种子", result.Audit.RandomSeed),
+            ("随机数种子", result.Audit.RandomSeed),
             ("输入哈希", result.Audit.InputHash),
             ("生成时间", result.Audit.GeneratedAt.ToString("yyyy-MM-dd HH:mm:ss zzz")),
             ("参赛数量", result.Audit.ParticipantCount.ToString()),
@@ -1354,6 +1523,21 @@ public sealed class DrawResultExcelWriter
         bool PlayInSecondIsSeed);
 
     private sealed record ColumnSpan(int FirstColumn, int LastColumn);
+
+    private sealed record RoundRobinMatch(
+        int Order,
+        int Round,
+        int RoundMatchNumber,
+        int FirstIndex,
+        int SecondIndex,
+        bool SameUnit);
+
+    private sealed record RoundRobinLayout(
+        double ParticipantColumnWidth,
+        double SummaryColumnWidth,
+        double FontSize,
+        double HeaderRowHeight,
+        double BodyRowHeight);
 
     private enum ConnectorBorderSide
     {

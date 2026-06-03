@@ -12,7 +12,7 @@ internal sealed class StableRandom
     {
         if (string.IsNullOrWhiteSpace(seed))
         {
-            throw new DrawValidationException("随机种子不能为空。");
+            throw new DrawValidationException("随机数种子不能为空。");
         }
 
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(seed.Trim()));

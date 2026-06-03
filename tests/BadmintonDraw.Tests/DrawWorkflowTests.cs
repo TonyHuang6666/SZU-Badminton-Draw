@@ -53,7 +53,7 @@ public sealed class DrawWorkflowTests
     [Fact]
     public void MultipleSeedsInSameGroupUseProtectedBracketSlots()
     {
-        var participants = CreateParticipants(8).ToList();
+        var participants = CreateParticipants(16).ToList();
         participants[0] = participants[0] with { IsSeed = true, SeedRank = 1 };
         participants[1] = participants[1] with { IsSeed = true, SeedRank = 2 };
         participants[2] = participants[2] with { IsSeed = true, SeedRank = 3 };
@@ -63,15 +63,15 @@ public sealed class DrawWorkflowTests
             mode: CompetitionMode.SinglesKnockout));
 
         Assert.Equal(1, result.ByeGroups[0].Participants[0].SeedRank);
-        Assert.Equal(2, result.ByeGroups[0].Participants[7].SeedRank);
-        Assert.Equal(3, result.ByeGroups[0].Participants[3].SeedRank);
-        Assert.Equal(4, result.ByeGroups[0].Participants[4].SeedRank);
+        Assert.Equal(2, result.ByeGroups[0].Participants[15].SeedRank);
+        Assert.Equal(3, result.ByeGroups[0].Participants[4].SeedRank);
+        Assert.Equal(4, result.ByeGroups[0].Participants[11].SeedRank);
     }
 
     [Fact]
     public void ExportedBracketSpacesMultipleSeedsWithinGroup()
     {
-        var participants = CreateParticipants(8).ToList();
+        var participants = CreateParticipants(16).ToList();
         participants[0] = participants[0] with { IsSeed = true, SeedRank = 1 };
         participants[1] = participants[1] with { IsSeed = true, SeedRank = 2 };
         participants[2] = participants[2] with { IsSeed = true, SeedRank = 3 };
@@ -87,9 +87,75 @@ public sealed class DrawWorkflowTests
             using var workbook = new XLWorkbook(outputPath);
             var sheet = workbook.Worksheet("对阵表");
             Assert.Equal("选手01", sheet.Cell(6, 5).GetString());
-            Assert.Equal("选手02", sheet.Cell(34, 5).GetString());
-            Assert.Equal("选手03", sheet.Cell(18, 5).GetString());
-            Assert.Equal("选手04", sheet.Cell(22, 5).GetString());
+            Assert.Equal("选手02", sheet.Cell(66, 5).GetString());
+            Assert.Equal("选手03", sheet.Cell(22, 5).GetString());
+            Assert.Equal("选手04", sheet.Cell(50, 5).GetString());
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(16, "1,16,5,12")]
+    [InlineData(32, "1,32,9,24,5,13,20,28")]
+    [InlineData(64, "1,64,17,48,9,25,40,56,5,13,21,29,36,44,52,60")]
+    [InlineData(128, "1,128,33,96,17,49,80,112,9,25,41,57,72,88,104,120")]
+    [InlineData(256, "1,256,65,192,33,97,160,224,17,49,81,113,144,176,208,240,9,25,41,57,73,89,105,121,136,152,168,184,200,216,232,248")]
+    public void OfficialSeedPositionTableIsUsed(int slotCount, string expectedPositions)
+    {
+        var expected = expectedPositions.Split(',').Select(int.Parse).ToArray();
+        var actual = OfficialDrawRules.GetSeedPositionOrder(slotCount)
+            .Take(expected.Length)
+            .Select(position => position + 1)
+            .ToArray();
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void SameUnitParticipantsAreSpreadAcrossGroupsWhenPossible()
+    {
+        var participants = new List<DrawParticipant>
+        {
+            new("甲01", TeamName: "计算机与软件学院"),
+            new("甲02", TeamName: "计算机与软件学院"),
+            new("乙01", TeamName: "管理学院"),
+            new("乙02", TeamName: "经济学院"),
+            new("乙03", TeamName: "法学院"),
+            new("乙04", TeamName: "医学院"),
+            new("乙05", TeamName: "传播学院"),
+            new("乙06", TeamName: "体育学院")
+        };
+
+        var result = new DrawService().Generate(participants, CreateSettings(groupCount: 4));
+
+        Assert.All(
+            result.Groups,
+            group => Assert.True(group.Participants.Count(participant => participant.TeamName == "计算机与软件学院") <= 1));
+    }
+
+    [Fact]
+    public void KnockoutExportUsesFirstRoundTerminology()
+    {
+        var participants = CreateParticipants(5);
+        var settings = CreateSettings(groupCount: 1, mode: CompetitionMode.SinglesKnockout);
+        var result = new DrawService().Generate(participants, settings);
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-first-round-terminology-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            new DrawResultExcelWriter().Write(outputPath, result, participants);
+
+            using var workbook = new XLWorkbook(outputPath);
+            var texts = workbook.Worksheet("对阵表").CellsUsed()
+                .Select(cell => cell.GetString())
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .ToArray();
+
+            Assert.Contains(texts, text => text.Contains("首轮赛", StringComparison.Ordinal));
+            Assert.DoesNotContain(texts, text => text.Contains("附加赛", StringComparison.Ordinal));
         }
         finally
         {
@@ -170,7 +236,8 @@ public sealed class DrawWorkflowTests
             Assert.Contains("出线", headerValues);
             Assert.Contains("8进4", headerValues);
             Assert.Contains("冠军", headerValues);
-            Assert.DoesNotContain("26进13", headerValues);
+            Assert.Contains("26进13", headerValues);
+            Assert.Contains("13进8", headerValues);
             Assert.DoesNotContain("3进1", headerValues);
             Assert.Equal(8, usedTexts.Count(text => Regex.IsMatch(text, @"^第\d+组出线$")));
             Assert.Contains(usedTexts, text => text == "冠军");
@@ -209,17 +276,20 @@ public sealed class DrawWorkflowTests
                 .Where(text => !string.IsNullOrWhiteSpace(text))
                 .ToArray();
 
-            Assert.Contains("4进2", headerValues);
-            Assert.Contains("2进1", headerValues);
+            Assert.Contains("26进13", headerValues);
+            Assert.Contains("13进8", headerValues);
             Assert.Contains("出线", headerValues);
             Assert.DoesNotContain("冠军", headerValues);
+            Assert.DoesNotContain("4进2", headerValues);
+            Assert.DoesNotContain("2进1", headerValues);
             Assert.DoesNotContain("3进1", headerValues);
             Assert.Equal(8, usedTexts.Count(text => Regex.IsMatch(text, @"^第\d+组出线$")));
             Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(6, 7).Style.Border.BottomBorder);
             Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(10, 7).Style.Border.TopBorder);
-            Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(7, 12).Style.Border.RightBorder);
-            Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(8, 12).Style.Border.RightBorder);
-            Assert.Equal(XLBorderStyleValues.Thin, sheet.Cell(9, 12).Style.Border.RightBorder);
+            var connectorRightBorders = sheet.RangeUsed(XLCellsUsedOptions.All)!.Cells()
+                .Count(cell => string.IsNullOrWhiteSpace(cell.GetString())
+                    && cell.Style.Border.RightBorder == XLBorderStyleValues.Thin);
+            Assert.True(connectorRightBorders >= 3);
         }
         finally
         {
@@ -476,6 +546,8 @@ public sealed class DrawWorkflowTests
 
             Assert.DoesNotContain(workbook.Worksheets, worksheet => worksheet.Name == "总分组结果");
             Assert.Contains("团体循环赛对阵表", sheet.Cell(1, 1).GetString());
+            Assert.DoesNotContain("同单位", sheet.Cell(4, 1).GetString(), StringComparison.Ordinal);
+            Assert.Contains("赛程顺序按轮转法生成", sheet.Cell(4, 1).GetString(), StringComparison.Ordinal);
             Assert.Equal("A组", sheet.Cell(5, 1).GetString());
             Assert.Equal(firstGroup[0].DisplayName, sheet.Cell(5, 2).GetString());
             Assert.Equal(firstGroup[0].DisplayName, sheet.Cell(6, 1).GetString());
@@ -494,7 +566,90 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
-    public void RoundRobinA4PdfExportsOneLandscapePagePerGroup()
+    public void RoundRobinExportWritesScheduleAndPrioritizesSameUnitMatches()
+    {
+        var participants = new List<DrawParticipant>
+        {
+            new("计算机一队", TeamName: "计算机与软件学院"),
+            new("计算机二队", TeamName: "计算机与软件学院"),
+            new("管理学院", TeamName: "管理学院"),
+            new("经济学院", TeamName: "经济学院")
+        };
+        var settings = CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesRoundRobin,
+            eventKind: EventKind.Singles);
+        var result = new DrawService().Generate(participants, settings);
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-round-robin-schedule-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            new DrawResultExcelWriter().Write(outputPath, result, participants);
+
+            using var workbook = new XLWorkbook(outputPath);
+            var sheet = workbook.Worksheet("对阵表");
+            var noteCell = sheet.CellsUsed()
+                .FirstOrDefault(cell => cell.GetString() == "同单位优先");
+
+            Assert.NotNull(noteCell);
+            Assert.Equal("1", sheet.Cell(noteCell.Address.RowNumber, 1).GetString());
+            Assert.Contains("赛程顺序", sheet.CellsUsed().Select(cell => cell.GetString()));
+            Assert.Contains("第1场", sheet.CellsUsed().Select(cell => cell.GetString()));
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public void RoundRobinExportKeepsLongTeamNamesReadable()
+    {
+        var participants = new List<DrawParticipant>
+        {
+            new("建筑与城市规划学院", TeamName: "建筑与城市规划学院"),
+            new("深圳南特金融科技学院", TeamName: "深圳南特金融科技学院"),
+            new("机电与控制工程学院", TeamName: "机电与控制工程学院"),
+            new("化学与环境工程学院", TeamName: "化学与环境工程学院"),
+            new("电子与信息工程学院", TeamName: "电子与信息工程学院"),
+            new("生命与海洋科学学院", TeamName: "生命与海洋科学学院"),
+            new("计算机与软件学院", TeamName: "计算机与软件学院"),
+            new("政府管理学院", TeamName: "政府管理学院")
+        };
+        var settings = CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.TeamRoundRobin,
+            eventKind: EventKind.Team);
+        var result = new DrawService().Generate(participants, settings);
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-round-robin-long-names-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            new DrawResultExcelWriter().Write(outputPath, result, participants);
+
+            using var workbook = new XLWorkbook(outputPath);
+            var sheet = workbook.Worksheet("对阵表");
+            var scheduleTitle = sheet.CellsUsed()
+                .First(cell => cell.GetString() == "赛程顺序");
+            var firstScheduleDataRow = scheduleTitle.Address.RowNumber + 2;
+            var opponentMerge = sheet.MergedRanges.FirstOrDefault(range =>
+                range.RangeAddress.FirstAddress.RowNumber == firstScheduleDataRow
+                && range.RangeAddress.FirstAddress.ColumnNumber == 3);
+
+            Assert.True(sheet.Row(5).Height > 36);
+            Assert.True(sheet.Row(6).Height > 30);
+            Assert.True(sheet.Cell(5, 1).Style.Font.FontSize < 10);
+            Assert.NotNull(opponentMerge);
+            Assert.True(opponentMerge.RangeAddress.LastAddress.ColumnNumber > 4);
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public void RoundRobinA4PdfExportsCoverAndOneLandscapePagePerGroup()
     {
         var participants = CreateParticipants(29).ToList();
         var settings = CreateSettings(
@@ -517,7 +672,7 @@ public sealed class DrawWorkflowTests
 
             AssertFileHeader(pdfPath, [0x25, 0x50, 0x44, 0x46]);
             AssertPdfUsesTextLayer(pdfPath);
-            Assert.Equal(4, CountPdfPages(pdfPath));
+            Assert.Equal(5, CountPdfPages(pdfPath));
         }
         finally
         {
@@ -711,7 +866,7 @@ public sealed class DrawWorkflowTests
             var error = Assert.Throws<ExcelImportException>(() =>
                 new ParticipantExcelReader().ReadParticipants(invalidPath, EventKind.Singles));
 
-            Assert.Contains("不能大于参赛单位总数 2", error.Message);
+            Assert.Contains("不能大于当前参赛数量允许的种子数量 2", error.Message);
         }
         finally
         {
@@ -911,7 +1066,23 @@ public sealed class DrawWorkflowTests
         var error = Assert.Throws<DrawValidationException>(() =>
             new DrawService().Generate(participants, CreateSettings(groupCount: 1)));
 
-        Assert.Contains("种子序号不能大于参赛人数或队伍数", error.Message);
+        Assert.Contains("不能大于当前参赛数量允许的种子数量 2", error.Message);
+    }
+
+    [Fact]
+    public void DrawServiceRejectsSeedCountAboveOfficialLimit()
+    {
+        var participants = CreateParticipants(29).ToList();
+        for (var index = 0; index < 5; index++)
+        {
+            participants[index] = participants[index] with { IsSeed = true, SeedRank = index + 1 };
+        }
+
+        var error = Assert.Throws<DrawValidationException>(() =>
+            new DrawService().Generate(participants, CreateSettings(groupCount: 4)));
+
+        Assert.Contains("最多设置 4 个种子", error.Message);
+        Assert.Contains("设置了 5 个", error.Message);
     }
 
     [Fact]

@@ -559,7 +559,7 @@ public partial class MainWindow : Window
         var groupCountText = result?.Groups.Count.ToString() ?? GroupCountBox.Text.Trim();
 
         ParticipantPillText.Text = $"参赛单位 {participantCount} 个";
-        SeedPillText.Text = $"随机种子：{SeedBox.Text}";
+        SeedPillText.Text = $"随机数种子：{SeedBox.Text}";
         ParticipantCountText.Text = participantCount.ToString();
         EventKindStatText.Text = GetEventKindDisplay(GetEventKind());
         GroupCountStatText.Text = string.IsNullOrWhiteSpace(groupCountText) ? "-" : groupCountText;
