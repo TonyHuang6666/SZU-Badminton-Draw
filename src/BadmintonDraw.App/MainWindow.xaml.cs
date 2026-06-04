@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using BadmintonDraw.Core;
@@ -68,7 +69,7 @@ public partial class MainWindow : Window
             Filter = GetDialogFilter(exportFormat),
             DefaultExt = GetExportExtension(exportFormat),
             AddExtension = true,
-            FileName = $"抽签结果_{DateTime.Now:yyyyMMdd_HHmm}{GetExportExtension(exportFormat)}",
+            FileName = BuildDefaultExportFileName(_latestResult!, _loadedInputPath ?? InputPathBox.Text, exportFormat),
             Title = "保存抽签结果"
         };
 
@@ -429,6 +430,122 @@ public partial class MainWindow : Window
     private static string GenerateSeed()
     {
         return $"SZUBA-{DateTime.Now:yyyyMMdd-HHmmss}-{Random.Shared.Next(1000, 9999)}";
+    }
+
+    private static string BuildDefaultExportFileName(DrawResult result, string inputPath, ExportFormat format)
+    {
+        var parts = new List<string>
+        {
+            ExtractEventName(inputPath),
+            GetCompetitionModeFileNamePart(result.Settings.CompetitionMode),
+            GetEventScaleFileNamePart(result.Settings.EventKind, result.Audit.ParticipantCount),
+            $"{result.Audit.GroupCount}组"
+        };
+
+        var knockoutGoalPart = GetKnockoutGoalFileNamePart(result.Settings);
+        if (!string.IsNullOrWhiteSpace(knockoutGoalPart))
+        {
+            parts.Add(knockoutGoalPart);
+        }
+
+        parts.Add(result.Audit.GeneratedAt.LocalDateTime.ToString("yyyyMMdd_HHmm"));
+        parts.Add($"seed{GetSeedTail(result.Audit.RandomSeed)}");
+
+        var stem = string.Join("_", parts.Select(SanitizeFileNamePart).Where(part => !string.IsNullOrWhiteSpace(part)));
+        stem = LimitFileNameLength(stem, maxLength: 150);
+
+        return $"{stem}{GetExportExtension(format)}";
+    }
+
+    private static string ExtractEventName(string inputPath)
+    {
+        var stem = Path.GetFileNameWithoutExtension(inputPath);
+        if (string.IsNullOrWhiteSpace(stem))
+        {
+            return "抽签结果";
+        }
+
+        var normalized = stem.Trim();
+        normalized = Regex.Replace(normalized, @"\s*[-—–]\s*副本$", "", RegexOptions.IgnoreCase);
+        normalized = Regex.Replace(normalized, @"副本$", "", RegexOptions.IgnoreCase);
+        normalized = Regex.Replace(normalized, @"参赛名单模板|参赛名单|名单模板|名单|模板|抽签结果", "", RegexOptions.IgnoreCase);
+        normalized = Regex.Replace(normalized, @"\d+\s*组\s*种子", "", RegexOptions.IgnoreCase);
+        normalized = Regex.Replace(normalized, @"\d+\s*[人对队组]\b?", "", RegexOptions.IgnoreCase);
+        normalized = Regex.Replace(normalized, @"[_\-\s（）()]+$", "");
+        normalized = Regex.Replace(normalized, @"^[_\-\s（）()]+", "");
+        normalized = Regex.Replace(normalized, @"[_\-\s]+", "_");
+
+        return string.IsNullOrWhiteSpace(normalized) ? "抽签结果" : normalized;
+    }
+
+    private static string GetCompetitionModeFileNamePart(CompetitionMode competitionMode)
+    {
+        return competitionMode is CompetitionMode.SinglesRoundRobin or CompetitionMode.TeamRoundRobin
+            ? "循环赛"
+            : "淘汰赛";
+    }
+
+    private static string GetEventScaleFileNamePart(EventKind eventKind, int participantCount)
+    {
+        return eventKind switch
+        {
+            EventKind.Doubles => $"双打{participantCount}对",
+            EventKind.Team => $"团体{participantCount}队",
+            _ => $"单打{participantCount}人"
+        };
+    }
+
+    private static string? GetKnockoutGoalFileNamePart(DrawSettings settings)
+    {
+        if (!settings.IsKnockout)
+        {
+            return null;
+        }
+
+        if (settings.GroupCount == 1 || settings.KnockoutGoal == KnockoutGoal.Champion)
+        {
+            return "决出冠军";
+        }
+
+        return "每组出线";
+    }
+
+    private static string GetSeedTail(string randomSeed)
+    {
+        var tail = randomSeed
+            .Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .LastOrDefault() ?? randomSeed;
+        tail = SanitizeFileNamePart(tail);
+
+        if (string.IsNullOrWhiteSpace(tail))
+        {
+            return "custom";
+        }
+
+        return tail.Length <= 8 ? tail : tail[^8..];
+    }
+
+    private static string SanitizeFileNamePart(string value)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars().Concat(new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' }).ToHashSet();
+        var chars = value
+            .Trim()
+            .Select(ch => char.IsControl(ch) || invalidChars.Contains(ch) ? '_' : ch)
+            .ToArray();
+        var sanitized = new string(chars);
+        sanitized = Regex.Replace(sanitized, @"_+", "_");
+        sanitized = Regex.Replace(sanitized, @"\s+", "");
+        return sanitized.Trim('_', '-', ' ');
+    }
+
+    private static string LimitFileNameLength(string stem, int maxLength)
+    {
+        if (stem.Length <= maxLength)
+        {
+            return stem;
+        }
+
+        return stem[..maxLength].TrimEnd('_', '-', ' ');
     }
 
     private ExportFormat GetExportFormat()
