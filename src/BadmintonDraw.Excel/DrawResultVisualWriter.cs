@@ -60,6 +60,10 @@ public sealed class DrawResultVisualWriter
                 {
                     WriteRoundRobinA4Pdf(outputPath, pageLayouts);
                 }
+                else if (TryBuildScheduleGridPageLayouts(sheet, out pageLayouts))
+                {
+                    WriteScheduleGridA4Pdf(outputPath, pageLayouts);
+                }
                 else
                 {
                     WriteA4Pdf(outputPath, BuildLayout(sheet), options.PdfRows, options.PdfColumns);
@@ -185,6 +189,56 @@ public sealed class DrawResultVisualWriter
             var section = sections[index];
             var sectionLastRow = GetRoundRobinSectionLastRow(sheet, sections, index, usedLastRow);
             layouts.Add(BuildLayout(sheet, section.HeaderRow, 1, sectionLastRow, section.LastColumn));
+        }
+
+        pageLayouts = layouts;
+        return true;
+    }
+
+    private static bool TryBuildScheduleGridPageLayouts(
+        IXLWorksheet sheet,
+        out IReadOnlyList<WorksheetLayout> pageLayouts)
+    {
+        pageLayouts = [];
+        var usedRange = sheet.RangeUsed(XLCellsUsedOptions.All);
+        if (usedRange is null || !string.Equals(sheet.Name, "时间场地网格", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var usedLastRow = usedRange.RangeAddress.LastAddress.RowNumber;
+        var usedLastColumn = usedRange.RangeAddress.LastAddress.ColumnNumber;
+        var sectionStartRows = new List<int>();
+        for (var row = 1; row < usedLastRow; row++)
+        {
+            var title = sheet.Cell(row, 1).GetString().Trim();
+            var nextRowFirstCell = sheet.Cell(row + 1, 1).GetString().Trim();
+            if (title.EndsWith("赛程", StringComparison.Ordinal)
+                && string.Equals(nextRowFirstCell, "时间", StringComparison.Ordinal))
+            {
+                sectionStartRows.Add(row);
+            }
+        }
+
+        if (sectionStartRows.Count == 0)
+        {
+            return false;
+        }
+
+        var layouts = new List<WorksheetLayout>();
+        for (var index = 0; index < sectionStartRows.Count; index++)
+        {
+            var startRow = sectionStartRows[index];
+            var endRow = index + 1 < sectionStartRows.Count
+                ? sectionStartRows[index + 1] - 1
+                : usedLastRow;
+            while (endRow > startRow && IsEmptyRow(sheet, endRow, 1, usedLastColumn))
+            {
+                endRow--;
+            }
+
+            var lastColumn = GetLastContentColumn(sheet, startRow, endRow, usedLastColumn);
+            layouts.Add(BuildLayout(sheet, startRow, 1, endRow, lastColumn));
         }
 
         pageLayouts = layouts;
@@ -420,6 +474,24 @@ public sealed class DrawResultVisualWriter
             .All(column => string.IsNullOrWhiteSpace(sheet.Cell(row, column).GetString()));
     }
 
+    private static int GetLastContentColumn(IXLWorksheet sheet, int firstRow, int lastRow, int maxColumn)
+    {
+        var lastColumn = 1;
+        for (var row = firstRow; row <= lastRow; row++)
+        {
+            for (var column = maxColumn; column >= 1; column--)
+            {
+                if (!string.IsNullOrWhiteSpace(sheet.Cell(row, column).GetString()))
+                {
+                    lastColumn = Math.Max(lastColumn, column);
+                    break;
+                }
+            }
+        }
+
+        return lastColumn;
+    }
+
     private static VisualCell CreateMergedVisualCell(IXLRange mergedRange, IXLCell cell, SKRect bounds)
     {
         var rangeBorder = mergedRange.Style.Border;
@@ -626,11 +698,24 @@ public sealed class DrawResultVisualWriter
 
     private static void WriteRoundRobinA4Pdf(string outputPath, IReadOnlyList<WorksheetLayout> pageLayouts)
     {
+        WritePageLayoutsA4Pdf(outputPath, pageLayouts, RoundRobinPdfHorizontalSafetyInset);
+    }
+
+    private static void WriteScheduleGridA4Pdf(string outputPath, IReadOnlyList<WorksheetLayout> pageLayouts)
+    {
+        WritePageLayoutsA4Pdf(outputPath, pageLayouts, horizontalSafetyInset: 10f);
+    }
+
+    private static void WritePageLayoutsA4Pdf(
+        string outputPath,
+        IReadOnlyList<WorksheetLayout> pageLayouts,
+        float horizontalSafetyInset)
+    {
         using var stream = File.Create(outputPath);
         using var document = SKDocument.CreatePdf(stream);
 
         var pageSize = new PageSize(A4LandscapeWidth, A4LandscapeHeight);
-        var printableWidth = pageSize.Width - (A4Margin + RoundRobinPdfHorizontalSafetyInset) * 2;
+        var printableWidth = pageSize.Width - (A4Margin + horizontalSafetyInset) * 2;
         var printableHeight = pageSize.Height - A4Margin * 2;
 
         foreach (var sourceLayout in pageLayouts)
@@ -641,7 +726,7 @@ public sealed class DrawResultVisualWriter
                 printableHeight / (layout.Height * PdfScale));
             var drawWidth = layout.Width * PdfScale * scale;
             var drawHeight = layout.Height * PdfScale * scale;
-            var originX = A4Margin + RoundRobinPdfHorizontalSafetyInset + (printableWidth - drawWidth) / 2;
+            var originX = A4Margin + horizontalSafetyInset + (printableWidth - drawWidth) / 2;
             var originY = A4Margin + (printableHeight - drawHeight) / 2;
 
             using var canvas = document.BeginPage(pageSize.Width, pageSize.Height);

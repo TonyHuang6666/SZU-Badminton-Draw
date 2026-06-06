@@ -230,7 +230,9 @@
                 </Grid>
             </Border>
 
-            <Grid Grid.Row="2">
+            <TabControl Grid.Row="2">
+                <TabItem Header="抽签与对阵表">
+            <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="390" />
                     <ColumnDefinition Width="24" />
@@ -299,6 +301,7 @@
                                 <ComboBoxItem Content="JPG 图片" Tag="Jpeg" />
                                 <ComboBoxItem Content="极清 PNG（透明背景）" Tag="Png" />
                                 <ComboBoxItem Content="A4 PDF 打印" Tag="A4Pdf" />
+                                <ComboBoxItem Content="全部导出" Tag="All" />
                             </ComboBox>
 
                             <StackPanel x:Name="A4PdfOptionsPanel" Visibility="Collapsed">
@@ -332,6 +335,7 @@
                                     Style="{StaticResource SecondaryButton}"
                                     Height="48"
                                     Click="Export_Click">选择路径并导出</Button>
+
                         </StackPanel>
                     </ScrollViewer>
                 </Border>
@@ -448,6 +452,211 @@
                     </Grid>
                 </Border>
             </Grid>
+                </TabItem>
+
+                <TabItem Header="赛程编排">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="390" />
+                            <ColumnDefinition Width="24" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0" Background="{StaticResource PanelBrush}" CornerRadius="22" Padding="28,26">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                    <TextBlock Text="赛程编排"
+                                               FontSize="24"
+                                               FontWeight="Heavy"
+                                               Foreground="{StaticResource DeepPrimaryBrush}" />
+
+                                    <Label Content="预约日期" Margin="0,26,0,8" />
+                                    <DatePicker x:Name="ScheduleDatePicker" Height="44" />
+
+                                    <Label Content="预约时间段" Margin="0,18,0,8" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <ComboBox x:Name="ScheduleStartBox">
+                                            <ComboBoxItem Content="08:00" />
+                                            <ComboBoxItem Content="09:00" />
+                                            <ComboBoxItem Content="10:00" />
+                                            <ComboBoxItem Content="11:00" />
+                                            <ComboBoxItem Content="12:00" />
+                                            <ComboBoxItem Content="13:00" />
+                                            <ComboBoxItem Content="14:00" IsSelected="True" />
+                                            <ComboBoxItem Content="15:00" />
+                                            <ComboBoxItem Content="16:00" />
+                                            <ComboBoxItem Content="17:00" />
+                                            <ComboBoxItem Content="18:00" />
+                                            <ComboBoxItem Content="19:00" />
+                                            <ComboBoxItem Content="20:00" />
+                                            <ComboBoxItem Content="21:00" />
+                                        </ComboBox>
+                                        <ComboBox x:Name="ScheduleEndBox" Grid.Column="2">
+                                            <ComboBoxItem Content="09:00" />
+                                            <ComboBoxItem Content="10:00" />
+                                            <ComboBoxItem Content="11:00" />
+                                            <ComboBoxItem Content="12:00" />
+                                            <ComboBoxItem Content="13:00" />
+                                            <ComboBoxItem Content="14:00" />
+                                            <ComboBoxItem Content="15:00" />
+                                            <ComboBoxItem Content="16:00" />
+                                            <ComboBoxItem Content="17:00" />
+                                            <ComboBoxItem Content="18:00" IsSelected="True" />
+                                            <ComboBoxItem Content="19:00" />
+                                            <ComboBoxItem Content="20:00" />
+                                            <ComboBoxItem Content="21:00" />
+                                            <ComboBoxItem Content="22:00" />
+                                        </ComboBox>
+                                    </Grid>
+
+                                    <Label Content="选择场馆" Margin="0,18,0,8" />
+                                    <ComboBox x:Name="ScheduleVenueBox" SelectionChanged="ScheduleVenueBox_SelectionChanged">
+                                        <ComboBoxItem Content="全部" Tag="All" IsSelected="True" />
+                                        <ComboBoxItem Content="运动广场东馆羽毛球场" Tag="YuehaiEast" />
+                                        <ComboBoxItem Content="至快体育馆" Tag="Zhikuai" />
+                                        <ComboBoxItem Content="至畅体育馆" Tag="Zhichang" />
+                                        <ComboBoxItem Content="自定义场地" Tag="Custom" />
+                                    </ComboBox>
+
+                                    <Label Content="选择场地（逗号分隔，可手动删改）" Margin="0,18,0,8" />
+                                    <TextBox x:Name="ScheduleCourtsBox"
+                                             Height="118"
+                                             AcceptsReturn="True"
+                                             TextWrapping="Wrap"
+                                             VerticalContentAlignment="Top"
+                                             Padding="12,8" />
+
+                                    <Grid Margin="0,14,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="10" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Button Style="{StaticResource RoundedButton}"
+                                                Background="#235494"
+                                                BorderBrush="#235494"
+                                                Click="AddScheduleDay_Click">添加赛程日</Button>
+                                        <Button Grid.Column="2"
+                                                Style="{StaticResource SecondaryButton}"
+                                                Click="RemoveScheduleDay_Click">删除选中赛程日</Button>
+                                    </Grid>
+
+                                    <DataGrid x:Name="ScheduleDaysGrid"
+                                              Height="150"
+                                              Margin="0,14,0,0"
+                                              AutoGenerateColumns="False"
+                                              SelectionMode="Single">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="日期" Binding="{Binding Date}" Width="96" />
+                                            <DataGridTextColumn Header="时间段" Binding="{Binding TimeRange}" Width="110" />
+                                            <DataGridTextColumn Header="场馆" Binding="{Binding Venue}" Width="130" />
+                                            <DataGridTextColumn Header="场地" Binding="{Binding CourtSummary}" Width="*" />
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+
+                                    <Label Content="耗时设置（分钟）" Margin="0,18,0,8" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="42" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="42" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="每场"
+                                                   Foreground="{StaticResource MutedBrush}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBox x:Name="ScheduleMatchMinutesBox" Grid.Column="1" Text="30" />
+                                        <TextBlock Grid.Column="3"
+                                                   Text="间隔"
+                                                   Foreground="{StaticResource MutedBrush}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBox x:Name="ScheduleBreakMinutesBox" Grid.Column="4" Text="0" />
+                                    </Grid>
+
+                                    <Label Content="单名选手每日最多场次" Margin="0,18,0,8" />
+                                    <ComboBox x:Name="MaxMatchesPerDayBox">
+                                        <ComboBoxItem Content="1" />
+                                        <ComboBoxItem Content="2" IsSelected="True" />
+                                        <ComboBoxItem Content="3" />
+                                    </ComboBox>
+
+                                    <Button Margin="0,22,0,0"
+                                            Style="{StaticResource RoundedButton}"
+                                            Background="#235494"
+                                            BorderBrush="#235494"
+                                            Click="GenerateSchedule_Click">生成赛程预览</Button>
+                                    <CheckBox x:Name="ExportTimedBracketBox"
+                                              Margin="0,14,0,0"
+                                              IsChecked="True"
+                                              Content="同时导出带比赛时间和场地的对阵表" />
+                                    <Label Content="导出为" Margin="0,18,0,8" />
+                                    <ComboBox x:Name="ScheduleExportFormatBox">
+                                        <ComboBoxItem Content="Excel" Tag="Excel" IsSelected="True" />
+                                        <ComboBoxItem Content="JPG 图片" Tag="Jpeg" />
+                                        <ComboBoxItem Content="极清 PNG（透明背景）" Tag="Png" />
+                                        <ComboBoxItem Content="A4 PDF 打印" Tag="A4Pdf" />
+                                        <ComboBoxItem Content="全部导出" Tag="All" />
+                                    </ComboBox>
+                                    <Button Margin="0,14,0,0"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Height="48"
+                                            Click="ExportSchedule_Click">选择路径并导出赛程</Button>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Border>
+
+                        <Border Grid.Column="2" Background="{StaticResource PanelBrush}" CornerRadius="22" Padding="28,26">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="16" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Grid Grid.Row="0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="8" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="赛程预览"
+                                               FontSize="24"
+                                               FontWeight="Heavy"
+                                               Foreground="{StaticResource DeepPrimaryBrush}" />
+                                    <WrapPanel Grid.Row="2" ItemHeight="30">
+                                        <Border Background="#EAF3FF" BorderBrush="#B7D3FF" BorderThickness="1" CornerRadius="15" Padding="14,6" Margin="0,0,8,0">
+                                            <TextBlock x:Name="ScheduleSummaryText" Text="尚未生成赛程。" Foreground="#235494" />
+                                        </Border>
+                                        <Border Background="#FFF8E6" BorderBrush="#F2D889" BorderThickness="1" CornerRadius="15" Padding="14,6">
+                                            <TextBlock x:Name="ScheduleCapacityText" Text="待选择日期、时间段与场地" Foreground="#7B5600" />
+                                        </Border>
+                                    </WrapPanel>
+                                </Grid>
+
+                                <DataGrid Grid.Row="2" x:Name="ScheduleGrid" AutoGenerateColumns="False">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="序号" Binding="{Binding Order}" Width="70" />
+                                        <DataGridTextColumn Header="日期/比赛日" Binding="{Binding DayLabel}" Width="120" />
+                                        <DataGridTextColumn Header="时间" Binding="{Binding TimeRange}" Width="120" />
+                                        <DataGridTextColumn Header="场地" Binding="{Binding Court}" Width="110" />
+                                        <DataGridTextColumn Header="组别" Binding="{Binding GroupName}" Width="90" />
+                                        <DataGridTextColumn Header="阶段" Binding="{Binding Phase}" Width="120" />
+                                        <DataGridTextColumn Header="场次" Binding="{Binding MatchName}" Width="170" />
+                                        <DataGridTextColumn Header="选手/队伍A" Binding="{Binding SideA}" Width="*" />
+                                        <DataGridTextColumn Header="选手/队伍B" Binding="{Binding SideB}" Width="*" />
+                                        <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="150" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </TabItem>
+            </TabControl>
 
             <Border Grid.Row="4" Background="#F6F0FF" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="18" Padding="18,10">
                 <DockPanel LastChildFill="False">

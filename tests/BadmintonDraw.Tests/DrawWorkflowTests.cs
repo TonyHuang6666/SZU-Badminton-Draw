@@ -682,6 +682,284 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void ScheduleServiceAssignsKnockoutMatchesToCourtsAndTimes()
+    {
+        var participants = CreateParticipants(8);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(16, 0), ["A1", "A2"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 7), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        Assert.Equal(7, schedule.Matches.Count);
+        Assert.Equal(2, schedule.DayCount);
+        Assert.Equal("2026-06-06", schedule.Matches[0].DayLabel);
+        Assert.Equal("2026-06-07", schedule.Matches[^1].DayLabel);
+        Assert.Equal("A1", schedule.Matches[0].Court);
+        Assert.Equal("A2", schedule.Matches[1].Court);
+        Assert.Equal("14:00-14:30", schedule.Matches[0].TimeRange);
+        Assert.Equal("14:30-15:00", schedule.Matches[2].TimeRange);
+        Assert.Contains(schedule.Matches, match => match.Phase == "决赛");
+        Assert.Contains(schedule.Matches, match => match.SideA.Contains("胜者", StringComparison.Ordinal));
+        Assert.True(schedule.Matches.Single(match => match.Phase == "决赛").StartTime >= new TimeOnly(14, 0));
+    }
+
+    [Fact]
+    public void ScheduleServiceExportsFullKnockoutPlaceholderTreeForLargeGroupedDraw()
+    {
+        var participants = CreateParticipants(159);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 8,
+            mode: CompetitionMode.SinglesKnockout,
+            eventKind: EventKind.Doubles,
+            knockoutGoal: KnockoutGoal.OneQualifierPerGroup));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(18, 0), Enumerable.Range(1, 32).Select(index => $"场地{index}").ToList()),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 7), new TimeOnly(14, 0), new TimeOnly(18, 0), Enumerable.Range(1, 32).Select(index => $"场地{index}").ToList()),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), Enumerable.Range(1, 16).Select(index => $"场地{index}").ToList()),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 14), new TimeOnly(14, 0), new TimeOnly(18, 0), Enumerable.Range(1, 8).Select(index => $"场地{index}").ToList())
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        Assert.Equal(151, schedule.Matches.Count);
+        Assert.Contains(schedule.Matches, match => match.Phase == "首轮赛");
+        Assert.Contains(schedule.Matches, match => match.Phase == "128进64");
+        Assert.Contains(schedule.Matches, match => match.Phase == "64进32");
+        Assert.Contains(schedule.Matches, match => match.Phase == "32进16");
+        Assert.Contains(schedule.Matches, match => match.Phase == "16进8");
+        Assert.Contains(schedule.Matches, match => match.MatchName.StartsWith("A组128进64", StringComparison.Ordinal));
+        Assert.Contains(schedule.Matches, match => match.MatchName.StartsWith("A组16进8", StringComparison.Ordinal));
+        Assert.DoesNotContain(schedule.Matches, match => match.MatchName.Contains("A组8进4", StringComparison.Ordinal));
+        Assert.DoesNotContain(schedule.Matches, match => match.MatchName.Contains("A组半决赛", StringComparison.Ordinal));
+        Assert.DoesNotContain(schedule.Matches, match => match.MatchName.Contains("A组决赛", StringComparison.Ordinal));
+        Assert.Contains(schedule.Matches, match => match.Note == "胜者获得本组出线名额");
+        Assert.Equal("2026-06-06", schedule.Matches[0].DayLabel);
+        Assert.DoesNotContain(schedule.Matches, match => match.Phase == "决赛");
+    }
+
+    [Fact]
+    public void ScheduleServiceUsesBracketHeaderPhasesForGroupedChampionDraw()
+    {
+        var participants = CreateParticipants(159);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 8,
+            mode: CompetitionMode.SinglesKnockout,
+            eventKind: EventKind.Doubles,
+            knockoutGoal: KnockoutGoal.Champion));
+        var days = Enumerable.Range(0, 8)
+            .Select(index => new ScheduleDaySettings(
+                new DateOnly(2026, 6, 6).AddDays(index),
+                new TimeOnly(14, 0),
+                new TimeOnly(18, 0),
+                Enumerable.Range(1, 64).Select(court => $"场地{court}").ToList()))
+            .ToList();
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(days, MatchMinutes: 30, MaxMatchesPerEntrantPerDay: 2));
+
+        Assert.Equal(158, schedule.Matches.Count);
+        Assert.Contains(schedule.Matches, match => match.Phase == "128进64");
+        Assert.Contains(schedule.Matches, match => match.Phase == "64进32");
+        Assert.Contains(schedule.Matches, match => match.Phase == "32进16");
+        Assert.Contains(schedule.Matches, match => match.Phase == "16进8");
+        Assert.Contains(schedule.Matches, match => match.Phase == "8进4");
+        Assert.Contains(schedule.Matches, match => match.Phase == "4进2");
+        Assert.Contains(schedule.Matches, match => match.Phase == "决赛");
+        Assert.Contains(schedule.Matches, match => match.MatchName.StartsWith("总决赛8进4", StringComparison.Ordinal));
+        Assert.Contains(schedule.Matches, match => match.MatchName.StartsWith("总决赛4进2", StringComparison.Ordinal));
+        Assert.DoesNotContain(schedule.Matches, match => match.MatchName.Contains("总决赛半决赛", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ScheduleServiceRejectsInsufficientKnockoutResources()
+    {
+        var participants = CreateParticipants(8);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout));
+
+        var error = Assert.Throws<DrawValidationException>(() =>
+            new ScheduleService().Generate(
+                result,
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1", "A2"])],
+                    MatchMinutes: 30,
+                    MaxMatchesPerEntrantPerDay: 2)));
+
+        Assert.Contains("资源不足", error.Message);
+    }
+
+    [Fact]
+    public void ScheduleServicePrioritizesSameUnitRoundRobinMatches()
+    {
+        var participants = new List<DrawParticipant>
+        {
+            new("计算机一队", TeamName: "计算机与软件学院"),
+            new("计算机二队", TeamName: "计算机与软件学院"),
+            new("管理学院", TeamName: "管理学院"),
+            new("经济学院", TeamName: "经济学院")
+        };
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesRoundRobin,
+            eventKind: EventKind.Singles));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(18, 0), ["C1"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 7), new TimeOnly(14, 0), new TimeOnly(18, 0), ["C1"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        Assert.Equal(6, schedule.Matches.Count);
+        Assert.True(schedule.Matches[0].SameUnit);
+        Assert.Equal("同单位优先", schedule.Matches[0].Note);
+    }
+
+    [Fact]
+    public void ScheduleExcelWriterExportsDetailAndGridSheets()
+    {
+        var participants = CreateParticipants(6);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 2,
+            mode: CompetitionMode.SinglesKnockout));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(["A1", "A2"], new TimeOnly(14, 0), new TimeOnly(18, 0), MatchMinutes: 30));
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-schedule-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            new ScheduleExcelWriter().Write(outputPath, schedule);
+
+            using var workbook = new XLWorkbook(outputPath);
+            Assert.Contains(workbook.Worksheets, worksheet => worksheet.Name == "赛程明细");
+            Assert.Contains(workbook.Worksheets, worksheet => worksheet.Name == "时间场地网格");
+            Assert.Contains("比赛赛程明细表", workbook.Worksheet("赛程明细").Cell(1, 1).GetString());
+            Assert.Equal("时间", workbook.Worksheet("时间场地网格").Cell(2, 1).GetString());
+            var gridSheet = workbook.Worksheet("时间场地网格");
+            var gridText = string.Join('\n', gridSheet.CellsUsed().Select(cell => cell.GetString()));
+            var playInCell = gridSheet.CellsUsed()
+                .First(cell => cell.GetString().Contains("首轮赛", StringComparison.Ordinal));
+            var mainDrawCell = gridSheet.CellsUsed()
+                .First(cell => Regex.IsMatch(cell.GetString(), @"\d+进\d+"));
+
+            Assert.NotEqual(
+                playInCell.Style.Fill.BackgroundColor.Color.ToArgb(),
+                mainDrawCell.Style.Fill.BackgroundColor.Color.ToArgb());
+            Assert.True(playInCell.WorksheetRow().Height >= 70);
+            Assert.Matches(@"\d{2}:\d{2}-\d{2}:\d{2} A\d胜", gridText);
+            Assert.DoesNotContain("首轮赛1胜者", gridText, StringComparison.Ordinal);
+            Assert.Contains(
+                "首轮赛1胜者",
+                string.Join('\n', workbook.Worksheet("赛程明细").CellsUsed().Select(cell => cell.GetString())));
+            Assert.Contains(
+                "A1",
+                string.Join('\n', workbook.Worksheet("赛程参数").CellsUsed().Select(cell => cell.GetString())));
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public void ScheduleGridA4PdfSplitsOnePagePerCompetitionDay()
+    {
+        var participants = CreateParticipants(8);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(16, 0), ["A1"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 7), new TimeOnly(14, 0), new TimeOnly(16, 0), ["A1"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+        var workbookPath = Path.Combine(Path.GetTempPath(), $"badminton-schedule-source-{Guid.NewGuid():N}.xlsx");
+        var pdfPath = Path.Combine(Path.GetTempPath(), $"badminton-schedule-a4-{Guid.NewGuid():N}.pdf");
+
+        try
+        {
+            new ScheduleExcelWriter().Write(workbookPath, schedule);
+            new DrawResultVisualWriter().Write(
+                pdfPath,
+                workbookPath,
+                "时间场地网格",
+                DrawResultVisualFormat.A4Pdf);
+
+            AssertFileHeader(pdfPath, [0x25, 0x50, 0x44, 0x46]);
+            AssertPdfUsesTextLayer(pdfPath);
+            Assert.Equal(schedule.DayCount, CountPdfPages(pdfPath));
+        }
+        finally
+        {
+            DeleteIfExists(workbookPath);
+            DeleteIfExists(pdfPath);
+        }
+    }
+
+    [Fact]
+    public void DrawResultExcelWriterAnnotatesBracketWithScheduledTimes()
+    {
+        var participants = CreateParticipants(8);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(16, 0), ["A1", "A2"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 7), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-timed-bracket-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            new DrawResultExcelWriter().Write(outputPath, result, participants, schedule);
+
+            using var workbook = new XLWorkbook(outputPath);
+            var bracketTexts = workbook.Worksheet("对阵表")
+                .CellsUsed()
+                .Select(cell => cell.GetString())
+                .ToList();
+            var timedWinnerCell = workbook.Worksheet("对阵表")
+                .CellsUsed()
+                .First(cell => cell.GetString().StartsWith("胜者", StringComparison.Ordinal)
+                    && cell.GetString().Contains("2026-06-06 14:30-15:00", StringComparison.Ordinal)
+                    && cell.GetString().Contains("A", StringComparison.Ordinal));
+
+            Assert.Contains(bracketTexts, text => text.Contains("2026-06-06 14:00-14:30", StringComparison.Ordinal));
+            Assert.Contains(bracketTexts, text => text.Contains("A1", StringComparison.Ordinal));
+            Assert.Contains(bracketTexts, text => text.Contains("2026-06-07", StringComparison.Ordinal));
+            Assert.True(timedWinnerCell.WorksheetRow().Height >= 40);
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
     public void ParticipantTemplateHeaderIsReadable()
     {
         var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-template-{Guid.NewGuid():N}.xlsx");

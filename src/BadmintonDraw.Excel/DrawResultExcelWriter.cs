@@ -24,17 +24,21 @@ public sealed class DrawResultExcelWriter
     private static readonly XLColor NoteFill = XLColor.FromHtml("#EEF2FF");
     private static readonly XLColor SeedFontColor = XLColor.FromHtml("#C00000");
 
-    public void Write(string outputPath, DrawResult result, IReadOnlyList<DrawParticipant> sourceParticipants)
+    public void Write(
+        string outputPath,
+        DrawResult result,
+        IReadOnlyList<DrawParticipant> sourceParticipants,
+        SchedulePlan? schedulePlan = null)
     {
         using var workbook = new XLWorkbook();
 
         if (result.Settings.IsKnockout)
         {
-            WriteUnifiedBracketSheet(workbook, result);
+            WriteUnifiedBracketSheet(workbook, result, schedulePlan);
         }
         else
         {
-            WriteRoundRobinSheet(workbook, result);
+            WriteRoundRobinSheet(workbook, result, schedulePlan);
         }
 
         WriteAuditSheet(workbook, "抽签设置与审计信息", result);
@@ -44,7 +48,7 @@ public sealed class DrawResultExcelWriter
         workbook.SaveAs(outputPath);
     }
 
-    private static void WriteUnifiedBracketSheet(XLWorkbook workbook, DrawResult result)
+    private static void WriteUnifiedBracketSheet(XLWorkbook workbook, DrawResult result, SchedulePlan? schedulePlan)
     {
         var sheet = workbook.Worksheets.Add("对阵表");
         var bracketSlots = BuildBracketSlots(result);
@@ -97,6 +101,19 @@ public sealed class DrawResultExcelWriter
             WriteFutureRoundSlots(sheet, mainSlotCount, roundColumns);
             WriteFutureRoundConnectors(sheet, mainSlotCount, roundColumns);
         }
+
+        if (schedulePlan is not null)
+        {
+            WriteKnockoutScheduleAnnotations(
+                sheet,
+                result,
+                bracketSlots,
+                roundColumns,
+                qualifierHeaders?.Count,
+                isGroupedChampionBracket,
+                schedulePlan);
+        }
+
         WriteBracketNote(sheet, noteRow, lastColumn);
 
         sheet.SheetView.FreezeRows(4);
@@ -217,38 +234,13 @@ public sealed class DrawResultExcelWriter
     {
         var groupSlotCounts = result.Groups
             .Select(group => bracketSlots.Count(slot => slot.GroupNumber == group.Number))
-            .Where(count => count > 0)
-            .Select(count => Math.Max(1, count))
             .ToList();
-        var headers = new List<string>();
-
-        while (groupSlotCounts.Any(count => count > 1))
-        {
-            var from = groupSlotCounts.Sum();
-            groupSlotCounts = groupSlotCounts
-                .Select(count => Math.Max(1, count / 2))
-                .ToList();
-            var to = groupSlotCounts.Sum();
-            headers.Add($"{from}进{to}");
-        }
-
-        headers.Add("出线");
-        return headers;
+        return BracketStageLabels.BuildQualifierRoundHeaders(groupSlotCounts).ToList();
     }
 
     private static List<string> BuildChampionRoundHeaders(int qualifierCount)
     {
-        var headers = new List<string>();
-        var from = Math.Max(1, qualifierCount);
-
-        while (from > 1)
-        {
-            var to = Math.Max(1, from / 2);
-            headers.Add(to == 1 ? "冠军" : $"{from}进{to}");
-            from = to;
-        }
-
-        return headers;
+        return BracketStageLabels.BuildChampionRoundHeaders(qualifierCount).ToList();
     }
 
     private static void ConfigureBracketSheet(IXLWorksheet sheet, int lastColumn, int noteRow)
@@ -367,6 +359,23 @@ public sealed class DrawResultExcelWriter
         }
 
         return $"{from}进{to}";
+    }
+
+    private static string BuildScheduleGroupName(int groupNumber)
+    {
+        return groupNumber == 0 ? "总决赛" : BuildRoundRobinGroupLabel(groupNumber);
+    }
+
+    private static string BuildScheduleKnockoutPhase(int entrantCount, string phasePrefix)
+    {
+        var core = entrantCount switch
+        {
+            2 => "决赛",
+            4 => "半决赛",
+            _ => $"{entrantCount}进{entrantCount / 2}"
+        };
+
+        return string.IsNullOrWhiteSpace(phasePrefix) ? core : $"{phasePrefix}{core}";
     }
 
     private static void WriteGroupBands(
@@ -830,6 +839,240 @@ public sealed class DrawResultExcelWriter
         return groupStartRow + matchIndex * step + offset;
     }
 
+    private static void WriteKnockoutScheduleAnnotations(
+        IXLWorksheet sheet,
+        DrawResult result,
+        IReadOnlyList<BracketSlot> bracketSlots,
+        IReadOnlyList<int> roundColumns,
+        int? qualifierRoundCount,
+        bool isGroupedChampionBracket,
+        SchedulePlan schedulePlan)
+    {
+        var scheduleByName = BuildScheduleLookup(schedulePlan);
+        if (scheduleByName.Count == 0 || roundColumns.Count == 0)
+        {
+            return;
+        }
+
+        WritePlayInScheduleAnnotations(sheet, bracketSlots, scheduleByName);
+
+        if (qualifierRoundCount.HasValue)
+        {
+            var qualifierFinalColumnIndex = qualifierRoundCount.Value - 1;
+            var qualifierMatchPhases = BracketStageLabels.BuildQualifierMatchPhases(
+                result.Groups
+                    .Select(group => bracketSlots.Count(slot => slot.GroupNumber == group.Number))
+                    .ToList());
+            WriteQualifierScheduleAnnotations(
+                sheet,
+                result,
+                bracketSlots,
+                roundColumns,
+                qualifierFinalColumnIndex,
+                qualifierMatchPhases,
+                scheduleByName);
+
+            if (isGroupedChampionBracket)
+            {
+                var championMatchPhases = BracketStageLabels.BuildChampionMatchPhases(result.Groups.Count);
+                WriteGroupedChampionScheduleAnnotations(
+                    sheet,
+                    result,
+                    bracketSlots,
+                    roundColumns,
+                    qualifierFinalColumnIndex,
+                    championMatchPhases,
+                    scheduleByName);
+            }
+        }
+        else
+        {
+            WriteSingleBracketScheduleAnnotations(sheet, result, bracketSlots.Count, roundColumns, scheduleByName);
+        }
+    }
+
+    private static void WritePlayInScheduleAnnotations(
+        IXLWorksheet sheet,
+        IReadOnlyList<BracketSlot> bracketSlots,
+        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName)
+    {
+        for (var i = 0; i < bracketSlots.Count; i++)
+        {
+            var slot = bracketSlots[i];
+            if (!slot.IsPlayIn || !slot.MainDrawName.EndsWith("胜者", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var matchName = slot.MainDrawName[..^"胜者".Length];
+            if (scheduleByName.TryGetValue(matchName, out var match))
+            {
+                AppendScheduleAnnotation(sheet, BracketStartRow + i * SlotRowGap, PlayInWinnerColumn, match);
+            }
+        }
+    }
+
+    private static void WriteSingleBracketScheduleAnnotations(
+        IXLWorksheet sheet,
+        DrawResult result,
+        int mainSlotCount,
+        IReadOnlyList<int> roundColumns,
+        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName)
+    {
+        var groupName = BuildScheduleGroupName(result.Groups.FirstOrDefault()?.Number ?? 1);
+
+        for (var roundIndex = 1; roundIndex < roundColumns.Count; roundIndex++)
+        {
+            var entrantCount = Math.Max(1, mainSlotCount / (int)Math.Pow(2, roundIndex - 1));
+            var matchCount = Math.Max(1, (int)Math.Ceiling(mainSlotCount / Math.Pow(2, roundIndex)));
+            var phase = BuildScheduleKnockoutPhase(entrantCount, phasePrefix: "");
+
+            for (var matchIndex = 0; matchIndex < matchCount; matchIndex++)
+            {
+                var matchName = $"{groupName}{phase}第{matchIndex + 1}场";
+                if (scheduleByName.TryGetValue(matchName, out var match))
+                {
+                    AppendScheduleAnnotation(
+                        sheet,
+                        GetFutureRoundRow(mainSlotCount, roundIndex, matchIndex),
+                        roundColumns[roundIndex],
+                        match);
+                }
+            }
+        }
+    }
+
+    private static void WriteQualifierScheduleAnnotations(
+        IXLWorksheet sheet,
+        DrawResult result,
+        IReadOnlyList<BracketSlot> bracketSlots,
+        IReadOnlyList<int> roundColumns,
+        int qualifierFinalColumnIndex,
+        IReadOnlyList<string> qualifierMatchPhases,
+        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName)
+    {
+        foreach (var group in result.Groups)
+        {
+            var firstIndex = bracketSlots.ToList().FindIndex(slot => slot.GroupNumber == group.Number);
+            if (firstIndex < 0)
+            {
+                continue;
+            }
+
+            var initialCount = bracketSlots.Count(slot => slot.GroupNumber == group.Number);
+            var roundCount = (int)Math.Log2(initialCount);
+            var groupStartRow = BracketStartRow + firstIndex * SlotRowGap;
+
+            for (var roundIndex = 1; roundIndex <= roundCount; roundIndex++)
+            {
+                var column = roundColumns[Math.Min(roundIndex, qualifierFinalColumnIndex)];
+                var survivorCount = Math.Max(1, initialCount / (int)Math.Pow(2, roundIndex));
+                var entrantCount = Math.Max(1, initialCount / (int)Math.Pow(2, roundIndex - 1));
+                var isGroupFinal = survivorCount == 1;
+
+                if (isGroupFinal && column != roundColumns[qualifierFinalColumnIndex])
+                {
+                    continue;
+                }
+
+                for (var matchIndex = 0; matchIndex < survivorCount; matchIndex++)
+                {
+                    var phase = roundIndex - 1 < qualifierMatchPhases.Count
+                        ? qualifierMatchPhases[roundIndex - 1]
+                        : BuildScheduleKnockoutPhase(entrantCount, phasePrefix: "");
+                    var matchName = $"{BuildScheduleGroupName(group.Number)}{phase}第{matchIndex + 1}场";
+                    if (scheduleByName.TryGetValue(matchName, out var match))
+                    {
+                        AppendScheduleAnnotation(
+                            sheet,
+                            GetGroupRoundRow(groupStartRow, roundIndex, matchIndex),
+                            column,
+                            match);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void WriteGroupedChampionScheduleAnnotations(
+        IXLWorksheet sheet,
+        DrawResult result,
+        IReadOnlyList<BracketSlot> bracketSlots,
+        IReadOnlyList<int> roundColumns,
+        int qualifierFinalColumnIndex,
+        IReadOnlyList<string> championMatchPhases,
+        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName)
+    {
+        var sourceRows = result.Groups
+            .Select(group => GetGroupQualifierRow(result, bracketSlots, group.Number))
+            .ToList();
+
+        for (var roundColumnIndex = qualifierFinalColumnIndex + 1; roundColumnIndex < roundColumns.Count; roundColumnIndex++)
+        {
+            var entrantCount = sourceRows.Count;
+            var phaseIndex = roundColumnIndex - qualifierFinalColumnIndex - 1;
+            var phase = phaseIndex < championMatchPhases.Count
+                ? championMatchPhases[phaseIndex]
+                : BuildScheduleKnockoutPhase(entrantCount, phasePrefix: "");
+            var targetRows = new List<int>();
+
+            for (var matchIndex = 0; matchIndex + 1 < sourceRows.Count; matchIndex += 2)
+            {
+                var targetRow = (sourceRows[matchIndex] + sourceRows[matchIndex + 1]) / 2;
+                targetRows.Add(targetRow);
+
+                var matchName = $"{BuildScheduleGroupName(0)}{phase}第{matchIndex / 2 + 1}场";
+                if (scheduleByName.TryGetValue(matchName, out var match))
+                {
+                    AppendScheduleAnnotation(sheet, targetRow, roundColumns[roundColumnIndex], match);
+                }
+            }
+
+            sourceRows = targetRows;
+        }
+    }
+
+    private static Dictionary<string, ScheduledMatch> BuildScheduleLookup(SchedulePlan schedulePlan)
+    {
+        return schedulePlan.Matches
+            .GroupBy(match => match.MatchName, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+    }
+
+    private static void AppendScheduleAnnotation(IXLWorksheet sheet, int row, int column, ScheduledMatch match)
+    {
+        var cell = sheet.Cell(row, column);
+        var mergedRange = cell.MergedRange();
+        var targetCell = mergedRange?.FirstCell() ?? cell;
+        var existing = targetCell.GetString();
+        var annotation = $"{match.DayLabel} {match.TimeRange}\n{match.Court}";
+
+        targetCell.Value = string.IsNullOrWhiteSpace(existing)
+            ? annotation
+            : $"{existing}\n{annotation}";
+
+        var range = mergedRange ?? targetCell.AsRange();
+        range.Style.Alignment.WrapText = true;
+        range.Style.Font.FontSize = Math.Min(range.Style.Font.FontSize, 9);
+
+        var desiredTotalHeight = CalculateScheduleAnnotationHeight(targetCell.GetString());
+        var rowCount = range.LastRow().RowNumber() - range.FirstRow().RowNumber() + 1;
+        var desiredRowHeight = rowCount > 1
+            ? Math.Max(18, desiredTotalHeight / rowCount)
+            : desiredTotalHeight;
+
+        for (var currentRow = range.FirstRow().RowNumber(); currentRow <= range.LastRow().RowNumber(); currentRow++)
+        {
+            sheet.Row(currentRow).Height = Math.Max(sheet.Row(currentRow).Height, desiredRowHeight);
+        }
+    }
+
+    private static double CalculateScheduleAnnotationHeight(string value)
+    {
+        var lineCount = Math.Max(1, value.Split('\n').Length);
+        return Math.Max(lineCount >= 3 ? 40 : 26, 6 + lineCount * 12);
+    }
+
     private static void DrawMatchConnector(
         IXLWorksheet sheet,
         int sourceColumn,
@@ -991,7 +1234,7 @@ public sealed class DrawResultExcelWriter
         return value > 0 && (value & (value - 1)) == 0;
     }
 
-    private static void WriteRoundRobinSheet(XLWorkbook workbook, DrawResult result)
+    private static void WriteRoundRobinSheet(XLWorkbook workbook, DrawResult result, SchedulePlan? schedulePlan)
     {
         var sheet = workbook.Worksheets.Add("对阵表");
         var maxGroupSize = Math.Max(1, result.Groups.Select(group => group.Participants.Count).DefaultIfEmpty(0).Max());
@@ -1009,7 +1252,7 @@ public sealed class DrawResultExcelWriter
 
         foreach (var group in result.Groups)
         {
-            row = WriteRoundRobinGroup(sheet, group, row, layout);
+            row = WriteRoundRobinGroup(sheet, group, row, layout, schedulePlan);
             row++;
         }
 
@@ -1110,13 +1353,17 @@ public sealed class DrawResultExcelWriter
         IXLWorksheet sheet,
         DrawGroup group,
         int startRow,
-        RoundRobinLayout layout)
+        RoundRobinLayout layout,
+        SchedulePlan? schedulePlan)
     {
         var participants = group.Participants;
         var groupSize = participants.Count;
         var groupColumnCount = Math.Max(4, groupSize + 4);
         var lastRow = startRow + Math.Max(groupSize, 1);
         var schedule = BuildRoundRobinSchedule(participants);
+        var timedScheduleByName = schedulePlan is null
+            ? new Dictionary<string, ScheduledMatch>(StringComparer.Ordinal)
+            : BuildScheduleLookup(schedulePlan);
         var scheduleByPair = schedule.ToDictionary(
             match => BuildPairKey(match.FirstIndex, match.SecondIndex),
             match => match.Order);
@@ -1163,13 +1410,26 @@ public sealed class DrawResultExcelWriter
                             && scheduleByPair.TryGetValue(BuildPairKey(rowIndex, columnIndex), out var matchOrder)
                             ? $"第{matchOrder}场"
                             : "";
+                        if (rowIndex < columnIndex
+                            && scheduleByPair.TryGetValue(BuildPairKey(rowIndex, columnIndex), out matchOrder)
+                            && timedScheduleByName.TryGetValue(BuildRoundRobinScheduleMatchName(group.Number, matchOrder), out var timedMatch))
+                        {
+                            AppendScheduleAnnotation(sheet, row, columnIndex + 2, timedMatch);
+                        }
                     }
                 }
             }
         }
 
         ApplyRoundRobinGroupStyle(sheet, startRow, lastRow, groupColumnCount, groupSize, layout);
-        var scheduleLastRow = WriteRoundRobinSchedule(sheet, participants, schedule, lastRow + 2, groupColumnCount);
+        var scheduleLastRow = WriteRoundRobinSchedule(
+            sheet,
+            participants,
+            schedule,
+            lastRow + 2,
+            groupColumnCount,
+            group.Number,
+            timedScheduleByName);
         return Math.Max(lastRow, scheduleLastRow) + 1;
     }
 
@@ -1237,7 +1497,9 @@ public sealed class DrawResultExcelWriter
         IReadOnlyList<DrawParticipant> participants,
         IReadOnlyList<RoundRobinMatch> schedule,
         int startRow,
-        int lastColumn)
+        int lastColumn,
+        int groupNumber,
+        IReadOnlyDictionary<string, ScheduledMatch> timedScheduleByName)
     {
         if (schedule.Count == 0)
         {
@@ -1275,6 +1537,10 @@ public sealed class DrawResultExcelWriter
                 opponentLastColumn,
                 $"{participants[match.FirstIndex].DisplayName}  vs  {participants[match.SecondIndex].DisplayName}");
             sheet.Cell(row, noteColumn).Value = match.SameUnit ? "同单位优先" : "";
+            if (timedScheduleByName.TryGetValue(BuildRoundRobinScheduleMatchName(groupNumber, match.Order), out var timedMatch))
+            {
+                AppendScheduleAnnotation(sheet, row, opponentFirstColumn, timedMatch);
+            }
         }
 
         ApplyRoundRobinScheduleStyle(sheet, startRow, lastRow, noteColumn);
@@ -1319,7 +1585,7 @@ public sealed class DrawResultExcelWriter
 
         for (var row = firstRow; row <= lastRow; row++)
         {
-            sheet.Row(row).Height = row == firstRow ? 22 : 20;
+            sheet.Row(row).Height = Math.Max(sheet.Row(row).Height, row == firstRow ? 22 : 28);
         }
     }
 
@@ -1328,6 +1594,11 @@ public sealed class DrawResultExcelWriter
         var first = Math.Min(firstIndex, secondIndex);
         var second = Math.Max(firstIndex, secondIndex);
         return $"{first}:{second}";
+    }
+
+    private static string BuildRoundRobinScheduleMatchName(int groupNumber, int matchOrder)
+    {
+        return $"第{groupNumber}组第{matchOrder}场";
     }
 
     private static void ApplyRoundRobinGroupStyle(
@@ -1359,7 +1630,9 @@ public sealed class DrawResultExcelWriter
 
         for (var row = firstRow; row <= lastRow; row++)
         {
-            sheet.Row(row).Height = row == firstRow ? layout.HeaderRowHeight : layout.BodyRowHeight;
+            sheet.Row(row).Height = Math.Max(
+                sheet.Row(row).Height,
+                row == firstRow ? layout.HeaderRowHeight : layout.BodyRowHeight);
         }
     }
 
