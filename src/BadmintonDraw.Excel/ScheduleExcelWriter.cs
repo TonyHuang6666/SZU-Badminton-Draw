@@ -337,12 +337,28 @@ public sealed class ScheduleExcelWriter
         var rows = new List<(string Key, string Value)>
         {
             ("赛程日数量", plan.Settings.Days.Count.ToString()),
-            ("单场比赛耗时", $"{plan.Settings.MatchMinutes} 分钟"),
-            ("场次间隔", $"{plan.Settings.BreakMinutes} 分钟"),
-            ("单名选手每日最多场次", plan.Settings.MaxMatchesPerEntrantPerDay.ToString()),
             ("生成场次数", plan.Matches.Count.ToString()),
             ("预计比赛日", $"{plan.DayCount} 个")
         };
+        if (plan.Settings.HasKnockoutTimingSplit)
+        {
+            rows.InsertRange(1, new[]
+            {
+                ("赛程分界线", $"{plan.Settings.KnockoutTimingBoundaryEntrants}强"),
+                ("分界线前单场耗时", $"{plan.Settings.BeforeBoundaryTiming!.MatchMinutes} 分钟"),
+                ("分界线前每日最多场次", plan.Settings.BeforeBoundaryTiming.MaxMatchesPerEntrantPerDay.ToString()),
+                ("分界线后单场耗时", $"{plan.Settings.MatchMinutes} 分钟"),
+                ("分界线后每日最多场次", plan.Settings.MaxMatchesPerEntrantPerDay.ToString())
+            });
+        }
+        else
+        {
+            rows.InsertRange(1, new[]
+            {
+                ("单场比赛耗时", $"{plan.Settings.MatchMinutes} 分钟"),
+                ("单名选手每日最多场次", plan.Settings.MaxMatchesPerEntrantPerDay.ToString())
+            });
+        }
         rows.AddRange(plan.Settings.Days
             .OrderBy(day => day.Date)
             .Select((day, index) => (

@@ -372,7 +372,7 @@ public partial class MainWindow : Window
             else
             {
                 SetStatus(
-                    $"赛程资源不足：已安排 {_latestSchedule.Matches.Count} 场，仍有 {_latestSchedule.UnscheduledMatches.Count} 场无法安排。预览已保留，未安排行已标红；请增加比赛日、场地、时间段，或提高单名选手每日最多场次。",
+                    $"赛程资源不足：已安排 {_latestSchedule.Matches.Count} 场，仍有 {_latestSchedule.UnscheduledMatches.Count} 场无法安排。预览已保留，未安排行已标红；请增加比赛日、场地、时间段，或提高对应阶段单名选手每日最多场次。",
                     StatusKind.Warning);
             }
             return true;
@@ -386,15 +386,30 @@ public partial class MainWindow : Window
 
     private ScheduleSettings BuildScheduleSettings()
     {
-        var matchMinutes = ParsePositiveScheduleInt(ScheduleMatchMinutesBox.Text, "单场比赛耗时");
-        var breakMinutes = ParseNonNegativeScheduleInt(ScheduleBreakMinutesBox.Text, "场次间隔");
-        var maxMatchesPerDay = ParsePositiveScheduleInt(GetSelectedComboBoxText(MaxMatchesPerDayBox), "单名选手每日最多场次");
+        var matchMinutes = ParsePositiveScheduleInt(ScheduleMatchMinutesBox.Text, "分界线后单场比赛耗时");
+        var maxMatchesPerDay = ParsePositiveScheduleInt(GetSelectedComboBoxText(MaxMatchesPerDayBox), "分界线后单名选手每日最多场次");
+        var boundaryEntrants = GetSelectedComboBoxTagInt(ScheduleTimingBoundaryBox);
+        ScheduleTimingSettings? beforeBoundaryTiming = null;
+        if (boundaryEntrants > 0)
+        {
+            var beforeMatchMinutes = ParsePositiveScheduleInt(BeforeBoundaryMatchMinutesBox.Text, "分界线前单场比赛耗时");
+            var beforeMaxMatchesPerDay = ParsePositiveScheduleInt(
+                GetSelectedComboBoxText(BeforeBoundaryMaxMatchesPerDayBox),
+                "分界线前单名选手每日最多场次");
+            beforeBoundaryTiming = new ScheduleTimingSettings(beforeMatchMinutes, beforeMaxMatchesPerDay);
+        }
+
         var days = _scheduleDays
             .OrderBy(day => day.DateValue)
             .Select(day => new ScheduleDaySettings(day.DateValue, day.StartTime, day.EndTime, day.Courts))
             .ToList();
 
-        return new ScheduleSettings(days, matchMinutes, breakMinutes, maxMatchesPerDay);
+        return new ScheduleSettings(
+            days,
+            matchMinutes,
+            maxMatchesPerDay,
+            boundaryEntrants > 0 ? boundaryEntrants : null,
+            beforeBoundaryTiming);
     }
 
     private void AddCurrentScheduleDay()
@@ -432,6 +447,17 @@ public partial class MainWindow : Window
         return comboBox.SelectedItem is ComboBoxItem item
             ? item.Content?.ToString() ?? string.Empty
             : comboBox.Text;
+    }
+
+    private static int GetSelectedComboBoxTagInt(ComboBox comboBox)
+    {
+        if (comboBox.SelectedItem is ComboBoxItem item
+            && int.TryParse(item.Tag?.ToString(), out var value))
+        {
+            return value;
+        }
+
+        return 0;
     }
 
     private static IReadOnlyList<string> ParseCourts(string value)
@@ -481,15 +507,26 @@ public partial class MainWindow : Window
 
     private static string BuildScheduleCapacityText(ScheduleSettings settings)
     {
-        var capacity = settings.Days
-            .Select(day =>
-            {
-                var minutes = (day.DayEnd - day.DayStart).TotalMinutes;
-                var slots = Math.Max(0, (int)Math.Floor((minutes + settings.BreakMinutes) / settings.SlotMinutes));
-                return $"{day.DayLabel} {day.Courts.Count}片/{slots * day.Courts.Count}场";
-            });
+        string BuildCapacity(int matchMinutes)
+        {
+            var capacity = settings.Days
+                .Select(day =>
+                {
+                    var minutes = (day.DayEnd - day.DayStart).TotalMinutes;
+                    var slots = Math.Max(0, (int)Math.Floor(minutes / matchMinutes));
+                    return $"{day.DayLabel} {day.Courts.Count}片/{slots * day.Courts.Count}场";
+                });
 
-        return $"每日上限{settings.MaxMatchesPerEntrantPerDay}场；" + string.Join("；", capacity);
+            return string.Join("；", capacity);
+        }
+
+        if (!settings.HasKnockoutTimingSplit)
+        {
+            return $"每日上限{settings.MaxMatchesPerEntrantPerDay}场；" + BuildCapacity(settings.MatchMinutes);
+        }
+
+        return $"分界线前每日上限{settings.BeforeBoundaryTiming!.MaxMatchesPerEntrantPerDay}场、每场{settings.BeforeBoundaryTiming.MatchMinutes}分钟：{BuildCapacity(settings.BeforeBoundaryTiming.MatchMinutes)}；"
+            + $"分界线后每日上限{settings.MaxMatchesPerEntrantPerDay}场、每场{settings.MatchMinutes}分钟：{BuildCapacity(settings.MatchMinutes)}";
     }
 
     private void ClearSchedulePreview()
@@ -776,7 +813,7 @@ public partial class MainWindow : Window
 
     private static IReadOnlyList<string> BuildYuehaiEastCourts()
     {
-        return "ABCD"
+        return "BC"
             .SelectMany(prefix => Enumerable.Range(1, 8).Select(index => $"{prefix}{index}"))
             .ToList();
     }

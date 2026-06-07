@@ -535,8 +535,8 @@
 
                                     <Label Content="选择场馆" Margin="0,18,0,8" />
                                     <ComboBox x:Name="ScheduleVenueBox" SelectionChanged="ScheduleVenueBox_SelectionChanged">
-                                        <ComboBoxItem Content="全部" Tag="All" IsSelected="True" />
-                                        <ComboBoxItem Content="运动广场东馆羽毛球场" Tag="YuehaiEast" />
+                                        <ComboBoxItem Content="全部" Tag="All" />
+                                        <ComboBoxItem Content="运动广场东馆羽毛球场" Tag="YuehaiEast" IsSelected="True" />
                                         <ComboBoxItem Content="至快体育馆" Tag="Zhikuai" />
                                         <ComboBoxItem Content="至畅体育馆" Tag="Zhichang" />
                                         <ComboBoxItem Content="自定义场地" Tag="Custom" />
@@ -578,32 +578,62 @@
                                         </DataGrid.Columns>
                                     </DataGrid>
 
-                                    <Label Content="耗时设置（分钟）" Margin="0,18,0,8" />
+                                    <Label Content="淘汰赛赛程分界线" Margin="0,18,0,8" />
+                                    <ComboBox x:Name="ScheduleTimingBoundaryBox">
+                                        <ComboBoxItem Content="不分段（统一设置）" Tag="0" />
+                                        <ComboBoxItem Content="4强" Tag="4" />
+                                        <ComboBoxItem Content="8强" Tag="8" IsSelected="True" />
+                                        <ComboBoxItem Content="16强" Tag="16" />
+                                    </ComboBox>
+
+                                    <Label Content="分界线前设置" Margin="0,18,0,8" />
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="42" />
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="62" />
+                                            <ColumnDefinition Width="78" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="每场"
+                                                   Foreground="{StaticResource MutedBrush}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBox x:Name="BeforeBoundaryMatchMinutesBox" Grid.Column="1" Text="20" />
+                                        <TextBlock Grid.Column="3"
+                                                   Text="每日最多"
+                                                   Foreground="{StaticResource MutedBrush}"
+                                                   VerticalAlignment="Center" />
+                                        <ComboBox x:Name="BeforeBoundaryMaxMatchesPerDayBox" Grid.Column="4">
+                                            <ComboBoxItem Content="1" />
+                                            <ComboBoxItem Content="2" />
+                                            <ComboBoxItem Content="3" IsSelected="True" />
+                                            <ComboBoxItem Content="4" />
+                                        </ComboBox>
+                                    </Grid>
+
+                                    <Label Content="分界线后设置" Margin="0,18,0,8" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="42" />
                                             <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="62" />
+                                            <ColumnDefinition Width="78" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Text="每场"
                                                    Foreground="{StaticResource MutedBrush}"
                                                    VerticalAlignment="Center" />
                                         <TextBox x:Name="ScheduleMatchMinutesBox" Grid.Column="1" Text="30" />
                                         <TextBlock Grid.Column="3"
-                                                   Text="间隔"
+                                                   Text="每日最多"
                                                    Foreground="{StaticResource MutedBrush}"
                                                    VerticalAlignment="Center" />
-                                        <TextBox x:Name="ScheduleBreakMinutesBox" Grid.Column="4" Text="0" />
+                                        <ComboBox x:Name="MaxMatchesPerDayBox" Grid.Column="4">
+                                            <ComboBoxItem Content="1" />
+                                            <ComboBoxItem Content="2" IsSelected="True" />
+                                            <ComboBoxItem Content="3" />
+                                        </ComboBox>
                                     </Grid>
-
-                                    <Label Content="单名选手每日最多场次" Margin="0,18,0,8" />
-                                    <ComboBox x:Name="MaxMatchesPerDayBox">
-                                        <ComboBoxItem Content="1" />
-                                        <ComboBoxItem Content="2" IsSelected="True" />
-                                        <ComboBoxItem Content="3" />
-                                    </ComboBox>
 
                                     <Button Margin="0,22,0,0"
                                             Style="{StaticResource RoundedButton}"

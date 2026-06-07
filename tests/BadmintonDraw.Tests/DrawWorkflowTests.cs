@@ -494,6 +494,113 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void ScheduleServiceUsesBoundaryTimingForKnockoutStages()
+    {
+        var participants = CreateParticipants(16);
+        var result = new DrawService().Generate(
+            participants,
+            CreateSettings(
+                groupCount: 1,
+                mode: CompetitionMode.SinglesKnockout,
+                knockoutGoal: KnockoutGoal.Champion));
+
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(
+                        new DateOnly(2026, 6, 6),
+                        new TimeOnly(14, 0),
+                        new TimeOnly(16, 0),
+                        Enumerable.Range(1, 8).Select(index => $"A{index}").ToList()),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 7), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2,
+                KnockoutTimingBoundaryEntrants: 8,
+                BeforeBoundaryTiming: new ScheduleTimingSettings(MatchMinutes: 20, MaxMatchesPerEntrantPerDay: 3)));
+
+        Assert.True(schedule.IsComplete);
+        Assert.Contains(schedule.Matches, match => match.Phase == "16进8"
+            && match.TimeRange == "14:00-14:20");
+        Assert.Contains(schedule.Matches, match => match.Phase == "8进4"
+            && match.TimeRange == "14:20-14:50");
+    }
+
+    [Fact]
+    public void ScheduleServiceClearsEarlierKnockoutStagesBeforeAdvancingDeeply()
+    {
+        var participants = CreateParticipants(159);
+        var result = new DrawService().Generate(
+            participants,
+            CreateSettings(
+                groupCount: 8,
+                mode: CompetitionMode.SinglesKnockout,
+                eventKind: EventKind.Doubles,
+                knockoutGoal: KnockoutGoal.OneQualifierPerGroup));
+
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(
+                        new DateOnly(2026, 6, 6),
+                        new TimeOnly(14, 0),
+                        new TimeOnly(18, 0),
+                        Enumerable.Range(1, 16).Select(index => $"B{index}").ToList())
+                ],
+                MatchMinutes: 20,
+                MaxMatchesPerEntrantPerDay: 6));
+
+        Assert.True(schedule.IsComplete);
+
+        var lastPlayInEnd = schedule.Matches
+            .Where(match => match.Phase == "首轮赛")
+            .Max(match => match.EndTime);
+        var firstRoundOf64Start = schedule.Matches
+            .Where(match => match.Phase == "64进32")
+            .Min(match => match.StartTime);
+
+        Assert.True(lastPlayInEnd <= firstRoundOf64Start);
+    }
+
+    [Fact]
+    public void ScheduleServiceKeepsPlacementPlayoffsNoLaterThanChampionFinal()
+    {
+        var participants = CreateParticipants(8);
+        var result = new DrawService().Generate(
+            participants,
+            CreateSettings(
+                groupCount: 1,
+                mode: CompetitionMode.SinglesKnockout,
+                knockoutGoal: KnockoutGoal.Champion,
+                placementPlayoff: PlacementPlayoff.ThirdToEighth));
+
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(14, 30), ["A1", "A2", "A3", "A4"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 20), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1", "A2", "A3"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 21), new TimeOnly(14, 0), new TimeOnly(14, 30), ["A1", "A2", "A3"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        Assert.True(schedule.IsComplete);
+
+        var championFinal = schedule.Matches.Single(match => match.Note == "胜者为冠军");
+        var championFinalDate = DateOnly.Parse(championFinal.DayLabel);
+        var lastPlacementDate = schedule.Matches
+            .Where(match => match.GroupName == PlacementPlayoffLabels.GroupName)
+            .Select(match => DateOnly.Parse(match.DayLabel))
+            .Max();
+
+        Assert.Equal(new DateOnly(2026, 6, 21), championFinalDate);
+        Assert.True(lastPlacementDate <= championFinalDate);
+    }
+
+    [Fact]
     public void SeedPlayersAreHighlightedInExportedWorkbook()
     {
         var participants = new List<DrawParticipant>

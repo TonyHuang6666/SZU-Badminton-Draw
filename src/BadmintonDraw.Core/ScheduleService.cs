@@ -36,6 +36,8 @@ public sealed class ScheduleService
                 group,
                 matches,
                 groupPhaseLabels,
+                forceBeforeTimingBoundary: result.Settings.KnockoutGoal == KnockoutGoal.Champion && result.Groups.Count > 1,
+                isChampionshipBracket: result.Settings.KnockoutGoal == KnockoutGoal.Champion && result.Groups.Count == 1,
                 result.Settings.KnockoutGoal == KnockoutGoal.Champion && result.Groups.Count == 1
                     ? championshipBracketMatches
                     : null));
@@ -54,6 +56,8 @@ public sealed class ScheduleService
                 finalWinnerNote: "胜者为冠军",
                 phasePrefix: "",
                 phaseLabels: championPhaseLabels,
+                forceBeforeTimingBoundary: false,
+                isChampionshipBracket: true,
                 bracketMatches: championshipBracketMatches);
         }
 
@@ -67,6 +71,8 @@ public sealed class ScheduleService
         DrawGroup group,
         List<UnscheduledMatch> matches,
         IReadOnlyList<string> groupPhaseLabels,
+        bool forceBeforeTimingBoundary,
+        bool isChampionshipBracket,
         List<ScheduleBracketMatch>? bracketMatches)
     {
         var groupName = BuildGroupName(group.Number);
@@ -94,7 +100,8 @@ public sealed class ScheduleService
                 "胜者进入正赛",
                 OfficialDrawRules.HaveSameUnit(first, second),
                 [],
-                entrantPaths);
+                entrantPaths,
+                forceBeforeTimingBoundary: forceBeforeTimingBoundary || isChampionshipBracket);
             bracketEntries.Add(new ScheduleBracketEntry(
                 $"{matchName}胜者",
                 MinSeedRank(first, second),
@@ -131,6 +138,8 @@ public sealed class ScheduleService
                 : result.Groups.Count == 1 ? "胜者为冠军" : "胜者进入总决赛",
             phasePrefix: "",
             phaseLabels: groupPhaseLabels,
+            forceBeforeTimingBoundary: forceBeforeTimingBoundary,
+            isChampionshipBracket: isChampionshipBracket,
             bracketMatches: bracketMatches);
     }
 
@@ -142,6 +151,8 @@ public sealed class ScheduleService
         string finalWinnerNote,
         string phasePrefix,
         IReadOnlyList<string>? phaseLabels = null,
+        bool forceBeforeTimingBoundary = false,
+        bool isChampionshipBracket = false,
         List<ScheduleBracketMatch>? bracketMatches = null)
     {
         var currentRound = entries.ToList();
@@ -183,7 +194,11 @@ public sealed class ScheduleService
                         && second.Participant is not null
                         && OfficialDrawRules.HaveSameUnit(first.Participant, second.Participant),
                     dependencyIds,
-                    entrantPaths);
+                    entrantPaths,
+                    knockoutEntrantCount: entrantCount,
+                    forceBeforeTimingBoundary: forceBeforeTimingBoundary,
+                    isChampionshipBracket: isChampionshipBracket,
+                    isChampionshipFinal: isChampionshipBracket && isFinalInThisBracket);
 
                 bracketMatches?.Add(new ScheduleBracketMatch(
                     matchId,
@@ -237,7 +252,8 @@ public sealed class ScheduleService
                 note: "胜者为第3名，负者为第4名",
                 sameUnit: false,
                 dependencyIds: semiFinals.Select(match => match.Id).ToList(),
-                entrantPaths: entrantPaths);
+                entrantPaths: entrantPaths,
+                isPlacementPlayoff: true);
         }
 
         if (placementPlayoff != PlacementPlayoff.ThirdToEighth)
@@ -275,7 +291,8 @@ public sealed class ScheduleService
                 note: "胜者进入5/6名赛，负者进入7/8名赛",
                 sameUnit: false,
                 dependencyIds: [first.Id, second.Id],
-                entrantPaths: entrantPaths);
+                entrantPaths: entrantPaths,
+                isPlacementPlayoff: true);
 
             fifthToEighthSemiFinalIds.Add(matchId);
             fifthToEighthSemiFinalPaths.Add(entrantPaths);
@@ -296,7 +313,8 @@ public sealed class ScheduleService
             note: "胜者为第5名，负者为第6名",
             sameUnit: false,
             dependencyIds: finalDependencyIds,
-            entrantPaths: fifthPlaceEntrantPaths);
+            entrantPaths: fifthPlaceEntrantPaths,
+            isPlacementPlayoff: true);
         var seventhPlaceEntrantPaths = MergeEntrantPaths(
             WithOutcome(fifthToEighthSemiFinalPaths[0], fifthToEighthSemiFinalIds[0], MatchOutcome.Loser),
             WithOutcome(fifthToEighthSemiFinalPaths[1], fifthToEighthSemiFinalIds[1], MatchOutcome.Loser));
@@ -311,7 +329,8 @@ public sealed class ScheduleService
             note: "胜者为第7名，负者为第8名",
             sameUnit: false,
             dependencyIds: finalDependencyIds,
-            entrantPaths: seventhPlaceEntrantPaths);
+            entrantPaths: seventhPlaceEntrantPaths,
+            isPlacementPlayoff: true);
     }
 
     private static int CountMainDrawEntries(DrawResult result, DrawGroup group)
@@ -334,7 +353,12 @@ public sealed class ScheduleService
         string note,
         bool sameUnit,
         IReadOnlyList<int> dependencyIds,
-        IReadOnlyList<EntrantPath> entrantPaths)
+        IReadOnlyList<EntrantPath> entrantPaths,
+        int? knockoutEntrantCount = null,
+        bool forceBeforeTimingBoundary = false,
+        bool isChampionshipBracket = false,
+        bool isChampionshipFinal = false,
+        bool isPlacementPlayoff = false)
     {
         var id = matches.Count + 1;
         matches.Add(new UnscheduledMatch(
@@ -348,7 +372,12 @@ public sealed class ScheduleService
             note,
             sameUnit,
             dependencyIds,
-            DistinctEntrantPaths(entrantPaths)));
+            DistinctEntrantPaths(entrantPaths),
+            knockoutEntrantCount,
+            forceBeforeTimingBoundary,
+            isChampionshipBracket,
+            isChampionshipFinal,
+            isPlacementPlayoff));
         return id;
     }
 
@@ -496,54 +525,85 @@ public sealed class ScheduleService
         ScheduleSettings settings)
     {
         var remaining = matches.ToDictionary(match => match.Id);
-        var completed = new HashSet<int>();
+        var scheduledById = new Dictionary<int, ScheduledAssignment>();
         var scheduled = new List<ScheduledMatch>(matches.Count);
         var order = 1;
 
         foreach (var day in settings.Days.OrderBy(day => day.Date))
         {
-            var dailyMatches = new List<IReadOnlyList<EntrantPath>>();
-            foreach (var slotStart in BuildSlotStarts(day, settings))
-            {
-                var slotEntrants = new List<EntrantPath>();
-                var scheduledThisSlot = new List<UnscheduledMatch>();
+            var dailyAssignments = new List<ScheduledAssignment>();
+            var courtAvailableAt = day.Courts.ToDictionary(court => court, _ => day.DayStart, StringComparer.Ordinal);
 
-                foreach (var court in day.Courts)
+            while (remaining.Count > 0)
+            {
+                var availableCourtTimes = courtAvailableAt.Values
+                    .Where(time => (day.DayEnd - time).TotalMinutes >= settings.MinimumMatchMinutes)
+                    .ToList();
+                if (availableCourtTimes.Count == 0)
+                {
+                    break;
+                }
+
+                var currentStart = availableCourtTimes.Min();
+                var currentCourts = day.Courts
+                    .Where(court => courtAvailableAt[court] == currentStart)
+                    .ToList();
+                var idleCourts = new List<string>();
+
+                foreach (var court in currentCourts)
                 {
                     var candidate = remaining.Values
-                        .Where(match => IsEligible(match, completed, dailyMatches, slotEntrants, settings.MaxMatchesPerEntrantPerDay))
-                        .OrderBy(match => match.Id)
+                        .Select(match => new CandidateMatch(match, ResolveTiming(match, settings)))
+                        .Where(candidate => IsEligible(
+                            candidate.Match,
+                            candidate.Timing,
+                            day,
+                            currentStart,
+                            remaining.Values,
+                            scheduledById,
+                            dailyAssignments))
+                        .OrderBy(candidate => GetSchedulingStageRank(candidate.Match))
+                        .ThenBy(candidate => GetRestSortKey(candidate.Match, currentStart, dailyAssignments))
+                        .ThenBy(candidate => candidate.Match.Id)
                         .FirstOrDefault();
                     if (candidate is null)
                     {
+                        idleCourts.Add(court);
                         continue;
                     }
 
-                    var slotEnd = slotStart.AddMinutes(settings.MatchMinutes);
+                    var slotEnd = currentStart.AddMinutes(candidate.Timing.MatchMinutes);
                     scheduled.Add(new ScheduledMatch(
                         order++,
                         day.DayLabel,
-                        slotStart,
+                        currentStart,
                         slotEnd,
                         court,
-                        candidate.GroupNumber,
-                        candidate.GroupName,
-                        candidate.Phase,
-                        candidate.MatchName,
-                        candidate.SideA,
-                        candidate.SideB,
-                        candidate.Note,
-                        candidate.SameUnit));
+                        candidate.Match.GroupNumber,
+                        candidate.Match.GroupName,
+                        candidate.Match.Phase,
+                        candidate.Match.MatchName,
+                        candidate.Match.SideA,
+                        candidate.Match.SideB,
+                        candidate.Match.Note,
+                        candidate.Match.SameUnit));
 
-                    scheduledThisSlot.Add(candidate);
-                    remaining.Remove(candidate.Id);
-                    slotEntrants.AddRange(candidate.EntrantPaths);
+                    var assignment = new ScheduledAssignment(
+                        candidate.Match.Id,
+                        day.Date,
+                        currentStart,
+                        slotEnd,
+                        candidate.Match.EntrantPaths,
+                        candidate.Timing.Bucket);
+                    scheduledById[candidate.Match.Id] = assignment;
+                    dailyAssignments.Add(assignment);
+                    remaining.Remove(candidate.Match.Id);
+                    courtAvailableAt[court] = slotEnd;
                 }
 
-                foreach (var match in scheduledThisSlot)
+                foreach (var court in idleCourts)
                 {
-                    completed.Add(match.Id);
-                    dailyMatches.Add(match.EntrantPaths);
+                    courtAvailableAt[court] = FindNextWakeTime(currentStart, day, courtAvailableAt, dailyAssignments);
                 }
 
                 if (remaining.Count == 0)
@@ -553,7 +613,10 @@ public sealed class ScheduleService
             }
         }
 
-        return new SchedulePlan(scheduled, settings, BuildUnscheduledPreviews(remaining.Values, completed, scheduled.Count));
+        return new SchedulePlan(
+            scheduled,
+            settings,
+            BuildUnscheduledPreviews(remaining.Values, scheduledById.Keys.ToHashSet(), scheduled.Count));
     }
 
     private static IReadOnlyList<UnscheduledMatchPreview> BuildUnscheduledPreviews(
@@ -581,14 +644,196 @@ public sealed class ScheduleService
 
     private static bool IsEligible(
         UnscheduledMatch match,
-        IReadOnlySet<int> completed,
-        IReadOnlyList<IReadOnlyList<EntrantPath>> dailyMatches,
-        IReadOnlyList<EntrantPath> slotEntrants,
-        int maxMatchesPerEntrantPerDay)
+        ResolvedScheduleTiming timing,
+        ScheduleDaySettings day,
+        TimeOnly start,
+        IEnumerable<UnscheduledMatch> remaining,
+        IReadOnlyDictionary<int, ScheduledAssignment> scheduledById,
+        IReadOnlyList<ScheduledAssignment> dailyAssignments)
     {
-        return match.DependencyIds.All(completed.Contains)
-            && !HasCompatibleEntrantOverlap(match.EntrantPaths, slotEntrants)
-            && !WouldExceedDailyLimit(match, dailyMatches, maxMatchesPerEntrantPerDay);
+        if ((day.DayEnd - start).TotalMinutes < timing.MatchMinutes)
+        {
+            return false;
+        }
+
+        var end = start.AddMinutes(timing.MatchMinutes);
+
+        if (match.IsChampionshipFinal && remaining.Any(item => item.Id != match.Id && item.IsPlacementPlayoff))
+        {
+            return false;
+        }
+
+        if (!match.DependencyIds.All(id => IsDependencyCompleted(id, scheduledById, day.Date, start)))
+        {
+            return false;
+        }
+
+        var overlappingEntrants = dailyAssignments
+            .Where(assignment => assignment.StartTime < end && start < assignment.EndTime)
+            .SelectMany(assignment => assignment.EntrantPaths)
+            .ToList();
+        if (HasCompatibleEntrantOverlap(match.EntrantPaths, overlappingEntrants))
+        {
+            return false;
+        }
+
+        var sameTimingBucketMatches = dailyAssignments
+            .Where(assignment => assignment.TimingBucket == timing.Bucket)
+            .Select(assignment => assignment.EntrantPaths)
+            .ToList();
+        return !WouldExceedDailyLimit(match, sameTimingBucketMatches, timing.MaxMatchesPerEntrantPerDay);
+    }
+
+    private static bool IsDependencyCompleted(
+        int dependencyId,
+        IReadOnlyDictionary<int, ScheduledAssignment> scheduledById,
+        DateOnly date,
+        TimeOnly start)
+    {
+        return scheduledById.TryGetValue(dependencyId, out var dependency)
+            && (dependency.Date < date || dependency.Date == date && dependency.EndTime <= start);
+    }
+
+    private static ResolvedScheduleTiming ResolveTiming(UnscheduledMatch match, ScheduleSettings settings)
+    {
+        if (settings.HasKnockoutTimingSplit && IsBeforeBoundaryTiming(match, settings))
+        {
+            var timing = settings.BeforeBoundaryTiming!;
+            return new ResolvedScheduleTiming(
+                ScheduleTimingBucket.BeforeBoundary,
+                timing.MatchMinutes,
+                timing.MaxMatchesPerEntrantPerDay);
+        }
+
+        return new ResolvedScheduleTiming(
+            ScheduleTimingBucket.Default,
+            settings.MatchMinutes,
+            settings.MaxMatchesPerEntrantPerDay);
+    }
+
+    private static bool IsBeforeBoundaryTiming(UnscheduledMatch match, ScheduleSettings settings)
+    {
+        if (match.IsPlacementPlayoff)
+        {
+            return false;
+        }
+
+        if (match.ForceBeforeTimingBoundary)
+        {
+            return true;
+        }
+
+        return match.KnockoutEntrantCount.HasValue
+            && match.KnockoutEntrantCount.Value > settings.KnockoutTimingBoundaryEntrants!.Value;
+    }
+
+    private static int GetSchedulingStageRank(UnscheduledMatch match)
+    {
+        if (match.IsPlacementPlayoff)
+        {
+            return GetPlacementStageRank(match.Phase);
+        }
+
+        if (match.IsChampionshipFinal)
+        {
+            return 10_000;
+        }
+
+        if (match.Phase.Contains("首轮", StringComparison.Ordinal))
+        {
+            return 0;
+        }
+
+        if (match.KnockoutEntrantCount.HasValue)
+        {
+            return 1_000 - match.KnockoutEntrantCount.Value;
+        }
+
+        if (TryParseKnockoutEntrantCount(match.Phase, out var entrantCount))
+        {
+            return 1_000 - entrantCount;
+        }
+
+        return 5_000;
+    }
+
+    private static int GetPlacementStageRank(string phase)
+    {
+        if (string.Equals(phase, PlacementPlayoffLabels.FifthToEighthSemiPhase, StringComparison.Ordinal))
+        {
+            return 995;
+        }
+
+        return 997;
+    }
+
+    private static bool TryParseKnockoutEntrantCount(string phase, out int entrantCount)
+    {
+        entrantCount = 0;
+        var separatorIndex = phase.IndexOf('进', StringComparison.Ordinal);
+        return separatorIndex > 0
+            && int.TryParse(phase[..separatorIndex], out entrantCount);
+    }
+
+    private static int GetRestSortKey(
+        UnscheduledMatch match,
+        TimeOnly start,
+        IReadOnlyList<ScheduledAssignment> dailyAssignments)
+    {
+        return -GetMinimumRestMinutes(match.EntrantPaths, start, dailyAssignments);
+    }
+
+    private static int GetMinimumRestMinutes(
+        IReadOnlyList<EntrantPath> entrantPaths,
+        TimeOnly start,
+        IReadOnlyList<ScheduledAssignment> dailyAssignments)
+    {
+        var minimumRestMinutes = int.MaxValue;
+        foreach (var entrantPath in entrantPaths)
+        {
+            TimeOnly? latestPreviousEnd = null;
+            foreach (var assignment in dailyAssignments)
+            {
+                if (!assignment.EntrantPaths.Any(previousPath =>
+                    string.Equals(previousPath.EntrantKey, entrantPath.EntrantKey, StringComparison.Ordinal)
+                    && AreConditionsCompatible(previousPath.Conditions, entrantPath.Conditions)))
+                {
+                    continue;
+                }
+
+                if (!latestPreviousEnd.HasValue || assignment.EndTime > latestPreviousEnd.Value)
+                {
+                    latestPreviousEnd = assignment.EndTime;
+                }
+            }
+
+            if (latestPreviousEnd.HasValue)
+            {
+                var restMinutes = (int)Math.Max(0, (start - latestPreviousEnd.Value).TotalMinutes);
+                minimumRestMinutes = Math.Min(minimumRestMinutes, restMinutes);
+            }
+        }
+
+        return minimumRestMinutes == int.MaxValue ? 24 * 60 : minimumRestMinutes;
+    }
+
+    private static TimeOnly FindNextWakeTime(
+        TimeOnly current,
+        ScheduleDaySettings day,
+        IReadOnlyDictionary<string, TimeOnly> courtAvailableAt,
+        IReadOnlyList<ScheduledAssignment> dailyAssignments)
+    {
+        var nextCourtTime = courtAvailableAt.Values
+            .Where(time => time > current)
+            .DefaultIfEmpty(day.DayEnd)
+            .Min();
+        var nextMatchEnd = dailyAssignments
+            .Select(assignment => assignment.EndTime)
+            .Where(time => time > current)
+            .DefaultIfEmpty(day.DayEnd)
+            .Min();
+        var next = nextCourtTime < nextMatchEnd ? nextCourtTime : nextMatchEnd;
+        return next > current ? next : day.DayEnd;
     }
 
     private static bool HasCompatibleEntrantOverlap(
@@ -690,16 +935,6 @@ public sealed class ScheduleService
             left.MatchId == right.MatchId && left.Outcome != right.Outcome));
     }
 
-    private static IEnumerable<TimeOnly> BuildSlotStarts(ScheduleDaySettings day, ScheduleSettings settings)
-    {
-        var current = day.DayStart;
-        while (current.AddMinutes(settings.MatchMinutes) <= day.DayEnd)
-        {
-            yield return current;
-            current = current.AddMinutes(settings.SlotMinutes);
-        }
-    }
-
     private static EntrantPath CreateEntrantPath(DrawParticipant participant)
     {
         return new EntrantPath(participant.NormalizedDisplayName, []);
@@ -773,14 +1008,27 @@ public sealed class ScheduleService
             throw new DrawValidationException("单场比赛耗时必须大于 0 分钟。");
         }
 
-        if (settings.BreakMinutes < 0)
-        {
-            throw new DrawValidationException("场次间隔不能小于 0 分钟。");
-        }
-
         if (settings.MaxMatchesPerEntrantPerDay <= 0)
         {
             throw new DrawValidationException("单名选手每日最多场次必须大于 0。");
+        }
+
+        if (settings.HasKnockoutTimingSplit)
+        {
+            if (settings.KnockoutTimingBoundaryEntrants < 2)
+            {
+                throw new DrawValidationException("赛程分界线至少应为 2 强。");
+            }
+
+            if (settings.BeforeBoundaryTiming!.MatchMinutes <= 0)
+            {
+                throw new DrawValidationException("分界线前单场比赛耗时必须大于 0 分钟。");
+            }
+
+            if (settings.BeforeBoundaryTiming.MaxMatchesPerEntrantPerDay <= 0)
+            {
+                throw new DrawValidationException("分界线前单名选手每日最多场次必须大于 0。");
+            }
         }
 
         foreach (var day in settings.Days)
@@ -795,7 +1043,7 @@ public sealed class ScheduleService
                 throw new DrawValidationException($"{day.DayLabel} 的结束时间必须晚于开始时间。");
             }
 
-            if (!BuildSlotStarts(day, settings).Any())
+            if ((day.DayEnd - day.DayStart).TotalMinutes < settings.MinimumMatchMinutes)
             {
                 throw new DrawValidationException($"{day.DayLabel} 的时间段无法容纳一场比赛。");
             }
@@ -860,7 +1108,35 @@ public sealed class ScheduleService
         string Note,
         bool SameUnit,
         IReadOnlyList<int> DependencyIds,
-        IReadOnlyList<EntrantPath> EntrantPaths);
+        IReadOnlyList<EntrantPath> EntrantPaths,
+        int? KnockoutEntrantCount = null,
+        bool ForceBeforeTimingBoundary = false,
+        bool IsChampionshipBracket = false,
+        bool IsChampionshipFinal = false,
+        bool IsPlacementPlayoff = false);
+
+    private sealed record CandidateMatch(
+        UnscheduledMatch Match,
+        ResolvedScheduleTiming Timing);
+
+    private sealed record ScheduledAssignment(
+        int MatchId,
+        DateOnly Date,
+        TimeOnly StartTime,
+        TimeOnly EndTime,
+        IReadOnlyList<EntrantPath> EntrantPaths,
+        ScheduleTimingBucket TimingBucket);
+
+    private readonly record struct ResolvedScheduleTiming(
+        ScheduleTimingBucket Bucket,
+        int MatchMinutes,
+        int MaxMatchesPerEntrantPerDay);
+
+    private enum ScheduleTimingBucket
+    {
+        Default,
+        BeforeBoundary
+    }
 
     private sealed record EntrantPath(
         string EntrantKey,

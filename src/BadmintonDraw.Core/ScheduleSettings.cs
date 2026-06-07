@@ -3,25 +3,36 @@ namespace BadmintonDraw.Core;
 public sealed record ScheduleSettings(
     IReadOnlyList<ScheduleDaySettings> Days,
     int MatchMinutes,
-    int BreakMinutes = 0,
-    int MaxMatchesPerEntrantPerDay = 2)
+    int MaxMatchesPerEntrantPerDay = 2,
+    int? KnockoutTimingBoundaryEntrants = null,
+    ScheduleTimingSettings? BeforeBoundaryTiming = null)
 {
-    public int SlotMinutes => MatchMinutes + BreakMinutes;
+    public bool HasKnockoutTimingSplit => KnockoutTimingBoundaryEntrants is > 0 && BeforeBoundaryTiming is not null;
+
+    public int MinimumMatchMinutes => HasKnockoutTimingSplit
+        ? Math.Min(MatchMinutes, BeforeBoundaryTiming!.MatchMinutes)
+        : MatchMinutes;
+
+    public int MaximumMatchMinutes => HasKnockoutTimingSplit
+        ? Math.Max(MatchMinutes, BeforeBoundaryTiming!.MatchMinutes)
+        : MatchMinutes;
 
     public ScheduleSettings(
         IReadOnlyList<string> Courts,
         TimeOnly DayStart,
         TimeOnly DayEnd,
         int MatchMinutes,
-        int BreakMinutes = 0,
         string DayLabelPrefix = "比赛日",
         DateOnly? StartDate = null,
-        int MaxMatchesPerEntrantPerDay = 2)
+        int MaxMatchesPerEntrantPerDay = 2,
+        int? KnockoutTimingBoundaryEntrants = null,
+        ScheduleTimingSettings? BeforeBoundaryTiming = null)
         : this(
             [new ScheduleDaySettings(StartDate ?? DateOnly.FromDateTime(DateTime.Today), DayStart, DayEnd, Courts)],
             MatchMinutes,
-            BreakMinutes,
-            MaxMatchesPerEntrantPerDay)
+            MaxMatchesPerEntrantPerDay,
+            KnockoutTimingBoundaryEntrants,
+            BeforeBoundaryTiming)
     {
     }
 
