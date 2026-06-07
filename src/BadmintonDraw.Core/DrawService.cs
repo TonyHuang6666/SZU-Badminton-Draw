@@ -8,7 +8,7 @@ public sealed class DrawService
     public DrawResult Generate(IReadOnlyList<DrawParticipant> participants, DrawSettings settings)
     {
         Validate(participants, settings);
-        settings = NormalizeSettings(settings);
+        settings = NormalizeSettings(participants, settings);
 
         var rng = new StableRandom(settings.RandomSeed);
         var groups = BuildBalancedGroups(participants, settings.GroupCount, rng);
@@ -256,6 +256,7 @@ public sealed class DrawService
         builder.AppendLine(settings.GroupCount.ToString());
         builder.AppendLine(settings.AlgorithmVersion.ToString());
         builder.AppendLine(settings.KnockoutGoal.ToString());
+        builder.AppendLine(settings.PlacementPlayoff.ToString());
 
         foreach (var participant in participants)
         {
@@ -302,17 +303,60 @@ public sealed class DrawService
         ValidateSeedRanks(participants);
     }
 
-    private static DrawSettings NormalizeSettings(DrawSettings settings)
+    private static DrawSettings NormalizeSettings(IReadOnlyList<DrawParticipant> participants, DrawSettings settings)
     {
-        if (settings.IsKnockout
-            && settings.GroupCount > 1
-            && !IsPowerOfTwo(settings.GroupCount)
-            && settings.KnockoutGoal == KnockoutGoal.Champion)
+        if (!settings.IsKnockout)
         {
-            return settings with { KnockoutGoal = KnockoutGoal.OneQualifierPerGroup };
+            return settings with { PlacementPlayoff = PlacementPlayoff.None };
+        }
+
+        if (settings.GroupCount == 1)
+        {
+            settings = settings with { KnockoutGoal = KnockoutGoal.Champion };
+        }
+        else if (!IsPowerOfTwo(settings.GroupCount) && settings.KnockoutGoal == KnockoutGoal.Champion)
+        {
+            settings = settings with { KnockoutGoal = KnockoutGoal.OneQualifierPerGroup };
+        }
+
+        if (settings.KnockoutGoal != KnockoutGoal.Champion)
+        {
+            return settings with { PlacementPlayoff = PlacementPlayoff.None };
+        }
+
+        var championshipEntrantCount = settings.GroupCount == 1
+            ? CalculateMainDrawEntryCount(participants.Count)
+            : settings.GroupCount;
+
+        if (settings.PlacementPlayoff == PlacementPlayoff.ThirdToEighth && championshipEntrantCount < 8)
+        {
+            return championshipEntrantCount >= 4
+                ? settings with { PlacementPlayoff = PlacementPlayoff.ThirdPlace }
+                : settings with { PlacementPlayoff = PlacementPlayoff.None };
+        }
+
+        if (settings.PlacementPlayoff == PlacementPlayoff.ThirdPlace && championshipEntrantCount < 4)
+        {
+            return settings with { PlacementPlayoff = PlacementPlayoff.None };
         }
 
         return settings;
+    }
+
+    private static int CalculateMainDrawEntryCount(int participantCount)
+    {
+        if (participantCount <= 1)
+        {
+            return participantCount;
+        }
+
+        var power = 1;
+        while (power * 2 <= participantCount)
+        {
+            power *= 2;
+        }
+
+        return power;
     }
 
     private static bool IsPowerOfTwo(int value)

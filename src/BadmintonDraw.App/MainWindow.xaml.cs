@@ -158,6 +158,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!_latestSchedule.IsComplete)
+        {
+            SetStatus(
+                $"当前赛程资源不足，仍有 {_latestSchedule.UnscheduledMatches.Count} 场无法安排；不支持导出不完整赛程。",
+                StatusKind.Warning);
+            return;
+        }
+
         var exportFormat = GetScheduleExportFormat();
         var dialog = new SaveFileDialog
         {
@@ -196,6 +204,14 @@ public partial class MainWindow : Window
         {
             UpdateEventKindForMode();
             UpdateKnockoutGoalVisibility();
+        }
+    }
+
+    private void KnockoutGoalBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (IsLoaded)
+        {
+            UpdatePlacementPlayoffVisibility();
         }
     }
 
@@ -291,7 +307,8 @@ public partial class MainWindow : Window
                 GetEventKind(),
                 groupCount,
                 SeedBox.Text,
-                KnockoutGoal: GetKnockoutGoal());
+                KnockoutGoal: GetKnockoutGoal(),
+                PlacementPlayoff: GetPlacementPlayoff());
 
             ApplyImportResult(_reader.ReadParticipantsWithWarnings(InputPathBox.Text, settings.EventKind));
             _latestResult = _drawService.Generate(_participants, settings);
@@ -343,10 +360,21 @@ public partial class MainWindow : Window
 
             var settings = BuildScheduleSettings();
             _latestSchedule = _scheduleService.Generate(_latestResult, settings);
-            ScheduleGrid.ItemsSource = ToScheduleRows(_latestSchedule.Matches);
-            ScheduleSummaryText.Text = $"已生成 {_latestSchedule.Matches.Count} 场，预计 {_latestSchedule.DayCount} 个比赛日";
+            ScheduleGrid.ItemsSource = ToScheduleRows(_latestSchedule);
+            ScheduleSummaryText.Text = _latestSchedule.IsComplete
+                ? $"已生成 {_latestSchedule.Matches.Count} 场，预计 {_latestSchedule.DayCount} 个比赛日"
+                : $"已安排 {_latestSchedule.Matches.Count} 场，未安排 {_latestSchedule.UnscheduledMatches.Count} 场，共 {_latestSchedule.TotalMatchCount} 场";
             ScheduleCapacityText.Text = BuildScheduleCapacityText(settings);
-            SetStatus($"赛程预览已生成：共 {_latestSchedule.Matches.Count} 场，预计 {_latestSchedule.DayCount} 个比赛日。");
+            if (_latestSchedule.IsComplete)
+            {
+                SetStatus($"赛程预览已生成：共 {_latestSchedule.Matches.Count} 场，预计 {_latestSchedule.DayCount} 个比赛日。");
+            }
+            else
+            {
+                SetStatus(
+                    $"赛程资源不足：已安排 {_latestSchedule.Matches.Count} 场，仍有 {_latestSchedule.UnscheduledMatches.Count} 场无法安排。预览已保留，未安排行已标红；请增加比赛日、场地、时间段，或提高单名选手每日最多场次。",
+                    StatusKind.Warning);
+            }
             return true;
         }
         catch (Exception ex) when (ex is DrawValidationException or InvalidOperationException or IOException)
@@ -555,9 +583,27 @@ public partial class MainWindow : Window
             return KnockoutGoal.Champion;
         }
 
-        return TryGetGroupCount(out var groupCount) && groupCount > 1 && IsPowerOfTwo(groupCount)
+        if (!TryGetGroupCount(out var groupCount))
+        {
+            return KnockoutGoal.OneQualifierPerGroup;
+        }
+
+        if (groupCount <= 1)
+        {
+            return KnockoutGoal.Champion;
+        }
+
+        return IsPowerOfTwo(groupCount)
             ? Enum.Parse<KnockoutGoal>(GetSelectedTag(KnockoutGoalBox))
             : KnockoutGoal.OneQualifierPerGroup;
+    }
+
+    private PlacementPlayoff GetPlacementPlayoff()
+    {
+        return GetCompetitionMode() is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout
+            && GetKnockoutGoal() == KnockoutGoal.Champion
+            ? Enum.Parse<PlacementPlayoff>(GetSelectedTag(PlacementPlayoffBox))
+            : PlacementPlayoff.None;
     }
 
     private EventKind? TryApplyDetectedEventKind()
@@ -654,14 +700,15 @@ public partial class MainWindow : Window
         return rows;
     }
 
-    private static ObservableCollection<ScheduleRow> ToScheduleRows(IReadOnlyList<ScheduledMatch> matches)
+    private static ObservableCollection<ScheduleRow> ToScheduleRows(SchedulePlan plan)
     {
         var rows = new ObservableCollection<ScheduleRow>();
 
-        foreach (var match in matches)
+        foreach (var match in plan.Matches)
         {
             rows.Add(new ScheduleRow(
                 match.Order,
+                "已安排",
                 match.DayLabel,
                 match.TimeRange,
                 match.Court,
@@ -670,7 +717,27 @@ public partial class MainWindow : Window
                 match.MatchName,
                 match.SideA,
                 match.SideB,
-                match.Note));
+                match.Note,
+                false,
+                ""));
+        }
+
+        foreach (var match in plan.UnscheduledMatches)
+        {
+            rows.Add(new ScheduleRow(
+                match.Order,
+                "未安排",
+                "未安排",
+                "未安排",
+                "未安排",
+                match.GroupName,
+                match.Phase,
+                match.MatchName,
+                match.SideA,
+                match.SideB,
+                string.IsNullOrWhiteSpace(match.Note) ? match.Reason : $"{match.Note}；{match.Reason}",
+                true,
+                match.Reason));
         }
 
         return rows;
@@ -749,6 +816,12 @@ public partial class MainWindow : Window
             parts.Add(knockoutGoalPart);
         }
 
+        var placementPlayoffPart = GetPlacementPlayoffFileNamePart(result.Settings);
+        if (!string.IsNullOrWhiteSpace(placementPlayoffPart))
+        {
+            parts.Add(placementPlayoffPart);
+        }
+
         parts.Add(result.Audit.GeneratedAt.LocalDateTime.ToString("yyyyMMdd_HHmm"));
         parts.Add($"seed{GetSeedTail(result.Audit.RandomSeed)}");
 
@@ -767,6 +840,7 @@ public partial class MainWindow : Window
             GetCompetitionModeFileNamePart(result.Settings.CompetitionMode),
             GetEventScaleFileNamePart(result.Settings.EventKind, result.Audit.ParticipantCount),
             $"{result.Audit.GroupCount}组",
+            GetPlacementPlayoffFileNamePart(result.Settings) ?? "",
             DateTime.Now.ToString("yyyyMMdd_HHmm")
         };
 
@@ -836,6 +910,16 @@ public partial class MainWindow : Window
         }
 
         return "每组出线";
+    }
+
+    private static string? GetPlacementPlayoffFileNamePart(DrawSettings settings)
+    {
+        return settings.PlacementPlayoff switch
+        {
+            PlacementPlayoff.ThirdPlace => "排3-4名",
+            PlacementPlayoff.ThirdToEighth => "排3-8名",
+            _ => null
+        };
     }
 
     private static string GetSeedTail(string randomSeed)
@@ -1053,7 +1137,8 @@ public partial class MainWindow : Window
 
     private void UpdateKnockoutGoalVisibility()
     {
-        var showGoalOptions = GetCompetitionMode() is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout
+        var isKnockout = GetCompetitionMode() is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout;
+        var showGoalOptions = isKnockout
             && TryGetGroupCount(out var groupCount)
             && groupCount > 1
             && IsPowerOfTwo(groupCount);
@@ -1061,7 +1146,22 @@ public partial class MainWindow : Window
         KnockoutGoalPanel.Visibility = showGoalOptions ? Visibility.Visible : Visibility.Collapsed;
         if (!showGoalOptions)
         {
-            SelectKnockoutGoal(KnockoutGoal.OneQualifierPerGroup);
+            SelectKnockoutGoal(isKnockout && TryGetGroupCount(out groupCount) && groupCount <= 1
+                ? KnockoutGoal.Champion
+                : KnockoutGoal.OneQualifierPerGroup);
+        }
+
+        UpdatePlacementPlayoffVisibility();
+    }
+
+    private void UpdatePlacementPlayoffVisibility()
+    {
+        var showPlacementOptions = GetCompetitionMode() is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout
+            && GetKnockoutGoal() == KnockoutGoal.Champion;
+        PlacementPlayoffPanel.Visibility = showPlacementOptions ? Visibility.Visible : Visibility.Collapsed;
+        if (!showPlacementOptions)
+        {
+            SelectPlacementPlayoff(PlacementPlayoff.None);
         }
     }
 
@@ -1087,6 +1187,20 @@ public partial class MainWindow : Window
         }
 
         throw new InvalidOperationException("缺少淘汰赛目标选项配置。");
+    }
+
+    private void SelectPlacementPlayoff(PlacementPlayoff placementPlayoff)
+    {
+        foreach (ComboBoxItem item in PlacementPlayoffBox.Items)
+        {
+            if (string.Equals(item.Tag?.ToString(), placementPlayoff.ToString(), StringComparison.Ordinal))
+            {
+                PlacementPlayoffBox.SelectedItem = item;
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("缺少名次附加赛选项配置。");
     }
 
     private static int GetPdfTileValue(TextBox textBox, string name)
@@ -1183,6 +1297,7 @@ public partial class MainWindow : Window
 
     private sealed record ScheduleRow(
         int Order,
+        string Status,
         string DayLabel,
         string TimeRange,
         string Court,
@@ -1191,7 +1306,9 @@ public partial class MainWindow : Window
         string MatchName,
         string SideA,
         string SideB,
-        string Note);
+        string Note,
+        bool IsUnscheduled,
+        string Reason);
 
     private sealed record ScheduleDayRow(
         DateOnly DateValue,

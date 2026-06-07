@@ -12,6 +12,7 @@ public sealed class DrawResultExcelWriter
     private const int MainDrawFirstColumn = 5;
     private const int RoundColumnGap = 4;
     private const int MergedCellWidth = 2;
+    private const int PlacementFirstColumn = MainDrawFirstColumn;
 
     private static readonly XLColor TitleFill = XLColor.FromHtml("#1F4E78");
     private static readonly XLColor HeaderFill = XLColor.FromHtml("#305496");
@@ -20,6 +21,7 @@ public sealed class DrawResultExcelWriter
     private static readonly XLColor ByeFill = XLColor.FromHtml("#E2F0D9");
     private static readonly XLColor FutureFill = XLColor.FromHtml("#E7E6E6");
     private static readonly XLColor QualifiedFill = XLColor.FromHtml("#00B050");
+    private static readonly XLColor PlacementFill = XLColor.FromHtml("#EADCF8");
     private static readonly XLColor GroupFill = XLColor.FromHtml("#D9EAF7");
     private static readonly XLColor NoteFill = XLColor.FromHtml("#EEF2FF");
     private static readonly XLColor SeedFontColor = XLColor.FromHtml("#C00000");
@@ -69,10 +71,17 @@ public sealed class DrawResultExcelWriter
         var customHeaders = qualifierHeaders is null
             ? null
             : qualifierHeaders.Concat(championHeaders ?? []).ToList();
+        var placementRows = BuildPlacementPlayoffRows(result, bracketSlots);
         var lastColumn = roundColumns.Count > 0
             ? roundColumns[^1] + MergedCellWidth - 1
             : MainDrawFirstColumn + MergedCellWidth - 1;
-        var noteRow = BracketStartRow + mainSlotCount * SlotRowGap + 2;
+        var placementStartRow = BracketStartRow + mainSlotCount * SlotRowGap + 2;
+        var placementLastRowOffset = placementRows.Count > 0
+            ? GetPlacementPlayoffLastRowOffset(placementRows)
+            : 0;
+        var noteRow = placementRows.Count > 0
+            ? placementStartRow + placementLastRowOffset + 2
+            : placementStartRow;
 
         ConfigureBracketSheet(sheet, lastColumn, noteRow);
         WriteBracketTitle(
@@ -112,6 +121,11 @@ public sealed class DrawResultExcelWriter
                 qualifierHeaders?.Count,
                 isGroupedChampionBracket,
                 schedulePlan);
+        }
+
+        if (placementRows.Count > 0)
+        {
+            WritePlacementPlayoffSection(sheet, placementStartRow, lastColumn, placementRows, schedulePlan);
         }
 
         WriteBracketNote(sheet, noteRow, lastColumn);
@@ -693,6 +707,277 @@ public sealed class DrawResultExcelWriter
         }
     }
 
+    private static IReadOnlyList<PlacementPlayoffRow> BuildPlacementPlayoffRows(
+        DrawResult result,
+        IReadOnlyList<BracketSlot> bracketSlots)
+    {
+        if (!result.Settings.HasPlacementPlayoff)
+        {
+            return [];
+        }
+
+        var championshipEntrantCount = GetChampionshipEntrantCount(result, bracketSlots);
+        if (championshipEntrantCount < 4)
+        {
+            return [];
+        }
+
+        var rows = new List<PlacementPlayoffRow>
+        {
+            new(
+                PlacementPlayoffLabels.ThirdPlacePhase,
+                PlacementPlayoffLabels.ThirdPlaceMatchName,
+                PlacementPlayoffLabels.LoserOf(BuildChampionshipMatchName(result, 4, 1)),
+                PlacementPlayoffLabels.LoserOf(BuildChampionshipMatchName(result, 4, 2)),
+                "胜者为第3名，负者为第4名")
+        };
+
+        if (result.Settings.PlacementPlayoff != PlacementPlayoff.ThirdToEighth || championshipEntrantCount < 8)
+        {
+            return rows;
+        }
+
+        rows.Add(new PlacementPlayoffRow(
+            PlacementPlayoffLabels.FifthToEighthSemiPhase,
+            PlacementPlayoffLabels.FifthToEighthSemiMatchName(1),
+            PlacementPlayoffLabels.LoserOf(BuildChampionshipMatchName(result, 8, 1)),
+            PlacementPlayoffLabels.LoserOf(BuildChampionshipMatchName(result, 8, 2)),
+            "胜者进入5/6名赛，负者进入7/8名赛"));
+        rows.Add(new PlacementPlayoffRow(
+            PlacementPlayoffLabels.FifthToEighthSemiPhase,
+            PlacementPlayoffLabels.FifthToEighthSemiMatchName(2),
+            PlacementPlayoffLabels.LoserOf(BuildChampionshipMatchName(result, 8, 3)),
+            PlacementPlayoffLabels.LoserOf(BuildChampionshipMatchName(result, 8, 4)),
+            "胜者进入5/6名赛，负者进入7/8名赛"));
+        rows.Add(new PlacementPlayoffRow(
+            PlacementPlayoffLabels.FifthPlacePhase,
+            PlacementPlayoffLabels.FifthPlaceMatchName,
+            PlacementPlayoffLabels.WinnerOf(PlacementPlayoffLabels.FifthToEighthSemiMatchName(1)),
+            PlacementPlayoffLabels.WinnerOf(PlacementPlayoffLabels.FifthToEighthSemiMatchName(2)),
+            "胜者为第5名，负者为第6名"));
+        rows.Add(new PlacementPlayoffRow(
+            PlacementPlayoffLabels.SeventhPlacePhase,
+            PlacementPlayoffLabels.SeventhPlaceMatchName,
+            PlacementPlayoffLabels.LoserOf(PlacementPlayoffLabels.FifthToEighthSemiMatchName(1)),
+            PlacementPlayoffLabels.LoserOf(PlacementPlayoffLabels.FifthToEighthSemiMatchName(2)),
+            "胜者为第7名，负者为第8名"));
+
+        return rows;
+    }
+
+    private static int GetChampionshipEntrantCount(DrawResult result, IReadOnlyList<BracketSlot> bracketSlots)
+    {
+        if (result.Settings.KnockoutGoal != KnockoutGoal.Champion)
+        {
+            return 0;
+        }
+
+        return result.Groups.Count > 1 && IsPowerOfTwo(result.Groups.Count)
+            ? result.Groups.Count
+            : bracketSlots.Count;
+    }
+
+    private static string BuildChampionshipMatchName(DrawResult result, int entrantCount, int matchNumber)
+    {
+        var isGroupedChampionBracket = result.Groups.Count > 1 && IsPowerOfTwo(result.Groups.Count);
+        var groupName = isGroupedChampionBracket
+            ? BuildScheduleGroupName(0)
+            : BuildScheduleGroupName(result.Groups.FirstOrDefault()?.Number ?? 1);
+        var phase = isGroupedChampionBracket
+            ? BuildGroupedChampionPhase(result.Groups.Count, entrantCount)
+            : BuildScheduleKnockoutPhase(entrantCount, phasePrefix: "");
+        return $"{groupName}{phase}第{matchNumber}场";
+    }
+
+    private static string BuildGroupedChampionPhase(int totalEntrantCount, int entrantCount)
+    {
+        var phases = BracketStageLabels.BuildChampionMatchPhases(totalEntrantCount);
+        var currentEntrantCount = Math.Max(1, totalEntrantCount);
+        for (var index = 0; index < phases.Count; index++)
+        {
+            if (currentEntrantCount == entrantCount)
+            {
+                return phases[index];
+            }
+
+            currentEntrantCount = Math.Max(1, currentEntrantCount / 2);
+        }
+
+        return BuildScheduleKnockoutPhase(entrantCount, phasePrefix: "");
+    }
+
+    private static void WritePlacementPlayoffSection(
+        IXLWorksheet sheet,
+        int startRow,
+        int lastColumn,
+        IReadOnlyList<PlacementPlayoffRow> rows,
+        SchedulePlan? schedulePlan)
+    {
+        var scheduleByName = schedulePlan is null
+            ? new Dictionary<string, ScheduledMatch>(StringComparer.Ordinal)
+            : BuildScheduleLookup(schedulePlan);
+        var hasFifthToEighth = rows.Any(row => row.MatchName == PlacementPlayoffLabels.FifthPlaceMatchName);
+        var sourceNoteRow = startRow + GetPlacementPlayoffLastRowOffset(rows);
+
+        WriteMergedCell(
+            sheet,
+            startRow,
+            1,
+            startRow,
+            lastColumn,
+            "名次附加赛",
+            HeaderFill,
+            XLColor.White,
+            isBold: true);
+
+        WriteThirdPlaceTree(sheet, startRow + 1, rows, scheduleByName);
+        if (hasFifthToEighth)
+        {
+            WriteFifthToEighthTree(sheet, startRow + 8, rows, scheduleByName);
+        }
+
+        WriteMergedCell(
+            sheet,
+            sourceNoteRow,
+            1,
+            sourceNoteRow,
+            lastColumn,
+            "规则依据：单淘汰赛只能产生第一、二名；若需要排出第一、二名以后的若干名次，应另行增加附加赛。",
+            NoteFill,
+            XLColor.FromHtml("#1F2937"),
+            fontSize: 9);
+
+        for (var row = startRow; row <= sourceNoteRow; row++)
+        {
+            sheet.Row(row).Height = Math.Max(sheet.Row(row).Height, row == sourceNoteRow ? 28 : 24);
+        }
+    }
+
+    private static int GetPlacementPlayoffLastRowOffset(IReadOnlyList<PlacementPlayoffRow> rows)
+    {
+        return rows.Any(row => row.MatchName == PlacementPlayoffLabels.FifthPlaceMatchName)
+            ? 21
+            : 8;
+    }
+
+    private static void WriteThirdPlaceTree(
+        IXLWorksheet sheet,
+        int headerRow,
+        IReadOnlyList<PlacementPlayoffRow> rows,
+        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName)
+    {
+        var playoff = FindPlacementPlayoffRow(rows, PlacementPlayoffLabels.ThirdPlaceMatchName);
+        const int sourceColumn = PlacementFirstColumn;
+        const int matchColumn = sourceColumn + RoundColumnGap;
+        var upperRow = headerRow + 2;
+        var lowerRow = headerRow + 5;
+        var matchRow = headerRow + 3;
+
+        WritePlacementBracketCell(sheet, headerRow, sourceColumn, "4强负者", GroupFill, isBold: true);
+        WritePlacementBracketCell(sheet, headerRow, matchColumn, "3,4名", GroupFill, isBold: true);
+        WritePlacementBracketCell(sheet, upperRow, sourceColumn, playoff.SideA, FutureFill);
+        WritePlacementBracketCell(sheet, lowerRow, sourceColumn, playoff.SideB, FutureFill);
+        WritePlacementBracketMatchCell(sheet, matchRow, matchColumn, playoff, scheduleByName);
+        DrawPlacementMatchConnector(sheet, sourceColumn, matchColumn, upperRow, lowerRow);
+    }
+
+    private static void WriteFifthToEighthTree(
+        IXLWorksheet sheet,
+        int headerRow,
+        IReadOnlyList<PlacementPlayoffRow> rows,
+        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName)
+    {
+        var firstSemi = FindPlacementPlayoffRow(rows, PlacementPlayoffLabels.FifthToEighthSemiMatchName(1));
+        var secondSemi = FindPlacementPlayoffRow(rows, PlacementPlayoffLabels.FifthToEighthSemiMatchName(2));
+        var fifthPlace = FindPlacementPlayoffRow(rows, PlacementPlayoffLabels.FifthPlaceMatchName);
+        var seventhPlace = FindPlacementPlayoffRow(rows, PlacementPlayoffLabels.SeventhPlaceMatchName);
+        const int sourceColumn = PlacementFirstColumn;
+        const int semiColumn = sourceColumn + RoundColumnGap;
+        const int seventhPlaceColumn = semiColumn + RoundColumnGap;
+        const int fifthPlaceColumn = seventhPlaceColumn + RoundColumnGap;
+        var firstUpperRow = headerRow + 2;
+        var firstLowerRow = headerRow + 5;
+        var secondUpperRow = headerRow + 8;
+        var secondLowerRow = headerRow + 11;
+        var firstSemiRow = headerRow + 3;
+        var secondSemiRow = headerRow + 9;
+        var fifthPlaceRow = headerRow + 5;
+        var seventhPlaceRow = headerRow + 7;
+
+        WritePlacementBracketCell(sheet, headerRow, sourceColumn, "8强负者", GroupFill, isBold: true);
+        WritePlacementBracketCell(sheet, headerRow, semiColumn, "5-8名", GroupFill, isBold: true);
+        WritePlacementBracketCell(sheet, headerRow, seventhPlaceColumn, "7,8名", GroupFill, isBold: true);
+        WritePlacementBracketCell(sheet, headerRow, fifthPlaceColumn, "5,6名", GroupFill, isBold: true);
+
+        WritePlacementBracketCell(sheet, firstUpperRow, sourceColumn, firstSemi.SideA, FutureFill);
+        WritePlacementBracketCell(sheet, firstLowerRow, sourceColumn, firstSemi.SideB, FutureFill);
+        WritePlacementBracketCell(sheet, secondUpperRow, sourceColumn, secondSemi.SideA, FutureFill);
+        WritePlacementBracketCell(sheet, secondLowerRow, sourceColumn, secondSemi.SideB, FutureFill);
+        WritePlacementBracketMatchCell(sheet, firstSemiRow, semiColumn, firstSemi, scheduleByName);
+        WritePlacementBracketMatchCell(sheet, secondSemiRow, semiColumn, secondSemi, scheduleByName);
+        WritePlacementBracketMatchCell(sheet, seventhPlaceRow, seventhPlaceColumn, seventhPlace, scheduleByName);
+        WritePlacementBracketMatchCell(sheet, fifthPlaceRow, fifthPlaceColumn, fifthPlace, scheduleByName);
+
+        DrawPlacementMatchConnector(sheet, sourceColumn, semiColumn, firstUpperRow, firstLowerRow);
+        DrawPlacementMatchConnector(sheet, sourceColumn, semiColumn, secondUpperRow, secondLowerRow);
+        DrawPlacementBranchConnector(
+            sheet,
+            semiColumn,
+            seventhPlaceColumn,
+            fifthPlaceColumn,
+            firstSemiRow,
+            secondSemiRow,
+            seventhPlaceRow,
+            fifthPlaceRow);
+    }
+
+    private static PlacementPlayoffRow FindPlacementPlayoffRow(IReadOnlyList<PlacementPlayoffRow> rows, string matchName)
+    {
+        return rows.First(row => string.Equals(row.MatchName, matchName, StringComparison.Ordinal));
+    }
+
+    private static void WritePlacementBracketMatchCell(
+        IXLWorksheet sheet,
+        int row,
+        int firstColumn,
+        PlacementPlayoffRow playoff,
+        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName)
+    {
+        WritePlacementBracketCell(
+            sheet,
+            row,
+            firstColumn,
+            $"{playoff.MatchName}\n{playoff.Note}",
+            PlacementFill,
+            isBold: true);
+
+        if (scheduleByName.TryGetValue(playoff.MatchName, out var scheduledMatch))
+        {
+            AppendScheduleAnnotation(sheet, row, firstColumn, scheduledMatch);
+        }
+    }
+
+    private static void WritePlacementBracketCell(
+        IXLWorksheet sheet,
+        int row,
+        int firstColumn,
+        string value,
+        XLColor fill,
+        bool isBold = false)
+    {
+        WriteMergedCell(
+            sheet,
+            row,
+            firstColumn,
+            row,
+            firstColumn + MergedCellWidth - 1,
+            value,
+            fill,
+            XLColor.FromHtml("#1F2937"),
+            isBold,
+            fontSize: 9);
+    }
+
     private static int GetGroupQualifierRow(
         DrawResult result,
         IReadOnlyList<BracketSlot> bracketSlots,
@@ -1093,6 +1378,60 @@ public sealed class DrawResultExcelWriter
         DrawVerticalConnector(sheet, trunkColumn, Math.Min(upperRow, lowerRow), Math.Max(upperRow, lowerRow));
     }
 
+    private static void DrawPlacementMatchConnector(
+        IXLWorksheet sheet,
+        int sourceColumn,
+        int targetColumn,
+        int upperRow,
+        int lowerRow)
+    {
+        if (targetColumn <= sourceColumn + MergedCellWidth)
+        {
+            return;
+        }
+
+        var firstGapColumn = sourceColumn + MergedCellWidth;
+        var trunkColumn = targetColumn - 1;
+        DrawPlacementHorizontalConnector(sheet, upperRow, firstGapColumn, trunkColumn, ConnectorBorderSide.Bottom);
+        DrawPlacementHorizontalConnector(sheet, lowerRow, firstGapColumn, trunkColumn, ConnectorBorderSide.Top);
+        DrawPlacementVerticalConnector(sheet, trunkColumn, Math.Min(upperRow, lowerRow), Math.Max(upperRow, lowerRow));
+    }
+
+    private static void DrawPlacementBranchConnector(
+        IXLWorksheet sheet,
+        int sourceColumn,
+        int nearTargetColumn,
+        int farTargetColumn,
+        int upperRow,
+        int lowerRow,
+        int nearTargetRow,
+        int farTargetRow)
+    {
+        if (nearTargetColumn <= sourceColumn + MergedCellWidth)
+        {
+            return;
+        }
+
+        var firstGapColumn = sourceColumn + MergedCellWidth;
+        var sharedTrunkColumn = nearTargetColumn - 1;
+        DrawPlacementHorizontalConnector(sheet, upperRow, firstGapColumn, sharedTrunkColumn, ConnectorBorderSide.Bottom);
+        DrawPlacementHorizontalConnector(sheet, lowerRow, firstGapColumn, sharedTrunkColumn, ConnectorBorderSide.Top);
+        DrawPlacementVerticalConnector(sheet, sharedTrunkColumn, Math.Min(upperRow, lowerRow), Math.Max(upperRow, lowerRow));
+
+        if (farTargetColumn > nearTargetColumn)
+        {
+            var farTargetSide = farTargetRow <= (upperRow + lowerRow) / 2
+                ? ConnectorBorderSide.Top
+                : ConnectorBorderSide.Bottom;
+            DrawPlacementHorizontalConnector(
+                sheet,
+                farTargetRow,
+                sharedTrunkColumn + 1,
+                farTargetColumn - 1,
+                farTargetSide);
+        }
+    }
+
     private static void DrawSingleConnector(
         IXLWorksheet sheet,
         int sourceColumn,
@@ -1139,6 +1478,29 @@ public sealed class DrawResultExcelWriter
         }
     }
 
+    private static void DrawPlacementHorizontalConnector(
+        IXLWorksheet sheet,
+        int row,
+        int firstColumn,
+        int lastColumn,
+        ConnectorBorderSide side)
+    {
+        for (var column = firstColumn; column <= lastColumn; column++)
+        {
+            var border = sheet.Cell(row, column).Style.Border;
+            if (side == ConnectorBorderSide.Top)
+            {
+                border.TopBorder = XLBorderStyleValues.Thin;
+                border.TopBorderColor = XLColor.FromHtml("#B8B8B8");
+            }
+            else
+            {
+                border.BottomBorder = XLBorderStyleValues.Thin;
+                border.BottomBorderColor = XLColor.FromHtml("#B8B8B8");
+            }
+        }
+    }
+
     private static void DrawVerticalConnector(IXLWorksheet sheet, int column, int firstRow, int lastRow)
     {
         var firstConnectorRow = firstRow + 1;
@@ -1148,6 +1510,18 @@ public sealed class DrawResultExcelWriter
             var border = sheet.Cell(row, column).Style.Border;
             border.RightBorder = XLBorderStyleValues.Thin;
             border.RightBorderColor = XLColor.FromHtml("#808080");
+        }
+    }
+
+    private static void DrawPlacementVerticalConnector(IXLWorksheet sheet, int column, int firstRow, int lastRow)
+    {
+        var firstConnectorRow = firstRow + 1;
+        var lastConnectorRow = lastRow - 1;
+        for (var row = firstConnectorRow; row <= lastConnectorRow; row++)
+        {
+            var border = sheet.Cell(row, column).Style.Border;
+            border.RightBorder = XLBorderStyleValues.Thin;
+            border.RightBorderColor = XLColor.FromHtml("#B8B8B8");
         }
     }
 
@@ -1713,7 +2087,9 @@ public sealed class DrawResultExcelWriter
             ("生成时间", result.Audit.GeneratedAt.ToString("yyyy-MM-dd HH:mm:ss zzz")),
             ("参赛数量", result.Audit.ParticipantCount.ToString()),
             ("种子数量", result.Audit.SeedCount.ToString()),
-            ("小组数量", result.Audit.GroupCount.ToString())
+            ("小组数量", result.Audit.GroupCount.ToString()),
+            ("淘汰赛目标", result.Settings.KnockoutGoal.ToString()),
+            ("名次附加赛", result.Settings.PlacementPlayoff.ToString())
         };
 
         sheet.Cell(1, 1).Value = "项目";
@@ -1796,6 +2172,13 @@ public sealed class DrawResultExcelWriter
         bool PlayInSecondIsSeed);
 
     private sealed record ColumnSpan(int FirstColumn, int LastColumn);
+
+    private sealed record PlacementPlayoffRow(
+        string Phase,
+        string MatchName,
+        string SideA,
+        string SideB,
+        string Note);
 
     private sealed record RoundRobinMatch(
         int Order,

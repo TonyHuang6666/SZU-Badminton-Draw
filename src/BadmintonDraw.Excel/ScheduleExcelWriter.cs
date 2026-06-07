@@ -24,6 +24,7 @@ public sealed class ScheduleExcelWriter
     private static readonly XLColor SemiFinalGridFill = XLColor.FromHtml("#E4DFEC");
     private static readonly XLColor FinalGridFill = XLColor.FromHtml("#FFF2CC");
     private static readonly XLColor GrandFinalGridFill = XLColor.FromHtml("#F4CCCC");
+    private static readonly XLColor PlacementGridFill = XLColor.FromHtml("#EADCF8");
     private static readonly XLColor[] RoundRobinGridFills =
     [
         XLColor.FromHtml("#EAF3FF"),
@@ -36,6 +37,12 @@ public sealed class ScheduleExcelWriter
 
     public void Write(string outputPath, SchedulePlan plan)
     {
+        if (!plan.IsComplete)
+        {
+            throw new InvalidOperationException(
+                $"当前赛程资源不足，仍有 {plan.UnscheduledMatches.Count} 场无法安排；不支持导出不完整赛程。");
+        }
+
         using var workbook = new XLWorkbook();
         WriteDetailSheet(workbook, plan);
         WriteGridSheet(workbook, plan);
@@ -190,13 +197,17 @@ public sealed class ScheduleExcelWriter
         ScheduledMatch currentMatch,
         IReadOnlyDictionary<string, ScheduledMatch> matchByName)
     {
-        const string winnerSuffix = "胜者";
-        if (!side.EndsWith(winnerSuffix, StringComparison.Ordinal))
+        var outcomeSuffix = side.EndsWith("胜者", StringComparison.Ordinal)
+            ? "胜者"
+            : side.EndsWith("负者", StringComparison.Ordinal)
+                ? "负者"
+                : null;
+        if (outcomeSuffix is null)
         {
             return side;
         }
 
-        var sourceMatchName = side[..^winnerSuffix.Length];
+        var sourceMatchName = side[..^outcomeSuffix.Length];
         if (!matchByName.TryGetValue(sourceMatchName, out var sourceMatch))
         {
             return side;
@@ -205,7 +216,7 @@ public sealed class ScheduleExcelWriter
         var sourceLabel = sourceMatch.DayLabel == currentMatch.DayLabel
             ? $"{sourceMatch.TimeRange} {sourceMatch.Court}"
             : $"{FormatShortDayLabel(sourceMatch.DayLabel)} {sourceMatch.TimeRange} {sourceMatch.Court}";
-        return $"{sourceLabel}胜";
+        return $"{sourceLabel}{(outcomeSuffix == "胜者" ? "胜" : "负")}";
     }
 
     private static string FormatShortDayLabel(string dayLabel)
@@ -253,6 +264,11 @@ public sealed class ScheduleExcelWriter
         if (phase.Contains("总决赛", StringComparison.Ordinal))
         {
             return GrandFinalGridFill;
+        }
+
+        if (phase.Contains("名", StringComparison.Ordinal))
+        {
+            return PlacementGridFill;
         }
 
         if (phase.Contains("半决赛", StringComparison.Ordinal))

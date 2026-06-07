@@ -149,6 +149,16 @@
         <Style x:Key="CenteredColumnHeader" TargetType="{x:Type DataGridColumnHeader}" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
             <Setter Property="HorizontalContentAlignment" Value="Center" />
         </Style>
+
+        <Style x:Key="ScheduleRowStyle" TargetType="{x:Type DataGridRow}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsUnscheduled}" Value="True">
+                    <Setter Property="Background" Value="#FFF1F2" />
+                    <Setter Property="Foreground" Value="#7F1D1D" />
+                    <Setter Property="ToolTip" Value="{Binding Reason}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -278,9 +288,18 @@
 
                             <StackPanel x:Name="KnockoutGoalPanel">
                                 <Label Content="淘汰赛目标" Margin="0,18,0,8" />
-                                <ComboBox x:Name="KnockoutGoalBox">
+                                <ComboBox x:Name="KnockoutGoalBox" SelectionChanged="KnockoutGoalBox_SelectionChanged">
                                     <ComboBoxItem Content="每组出线" Tag="OneQualifierPerGroup" IsSelected="True" />
                                     <ComboBoxItem Content="决出冠军" Tag="Champion" />
+                                </ComboBox>
+                            </StackPanel>
+
+                            <StackPanel x:Name="PlacementPlayoffPanel" Visibility="Collapsed">
+                                <Label Content="名次附加赛" Margin="0,18,0,8" />
+                                <ComboBox x:Name="PlacementPlayoffBox">
+                                    <ComboBoxItem Content="不进行附加赛" Tag="None" IsSelected="True" />
+                                    <ComboBoxItem Content="只排 3/4 名" Tag="ThirdPlace" />
+                                    <ComboBoxItem Content="排 3-8 名" Tag="ThirdToEighth" />
                                 </ComboBox>
                             </StackPanel>
 
@@ -638,9 +657,10 @@
                                     </WrapPanel>
                                 </Grid>
 
-                                <DataGrid Grid.Row="2" x:Name="ScheduleGrid" AutoGenerateColumns="False">
+                                <DataGrid Grid.Row="2" x:Name="ScheduleGrid" AutoGenerateColumns="False" RowStyle="{StaticResource ScheduleRowStyle}">
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="序号" Binding="{Binding Order}" Width="70" />
+                                        <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="90" />
                                         <DataGridTextColumn Header="日期/比赛日" Binding="{Binding DayLabel}" Width="120" />
                                         <DataGridTextColumn Header="时间" Binding="{Binding TimeRange}" Width="120" />
                                         <DataGridTextColumn Header="场地" Binding="{Binding Court}" Width="110" />

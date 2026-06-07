@@ -333,6 +333,167 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void PlacementPlayoffExportsAdditionalRankingMatches()
+    {
+        var participants = CreateParticipants(8);
+        var settings = CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout,
+            knockoutGoal: KnockoutGoal.Champion,
+            placementPlayoff: PlacementPlayoff.ThirdToEighth);
+        var result = new DrawService().Generate(participants, settings);
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-placement-playoff-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            Assert.Equal(KnockoutGoal.Champion, result.Settings.KnockoutGoal);
+            Assert.Equal(PlacementPlayoff.ThirdToEighth, result.Settings.PlacementPlayoff);
+
+            new DrawResultExcelWriter().Write(outputPath, result, participants);
+
+            using var workbook = new XLWorkbook(outputPath);
+            var usedTexts = workbook.Worksheet("对阵表").CellsUsed()
+                .Select(cell => cell.GetString())
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .ToArray();
+
+            Assert.Contains("名次附加赛", usedTexts);
+            Assert.Contains("4强负者", usedTexts);
+            Assert.Contains("8强负者", usedTexts);
+            Assert.Contains("7,8名", usedTexts);
+            Assert.Contains("5,6名", usedTexts);
+            Assert.Contains(usedTexts, text => text.Contains("3/4名赛", StringComparison.Ordinal));
+            Assert.Contains(usedTexts, text => text.Contains("5-8名半决赛第1场", StringComparison.Ordinal));
+            Assert.Contains("A组半决赛第1场负者", usedTexts);
+            Assert.Contains("A组8进4第4场负者", usedTexts);
+            Assert.Contains(usedTexts, text => text.Contains("单淘汰赛只能产生第一、二名", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public void ScheduleServiceAddsPlacementPlayoffMatches()
+    {
+        var participants = CreateParticipants(8);
+        var result = new DrawService().Generate(
+            participants,
+            CreateSettings(
+                groupCount: 1,
+                mode: CompetitionMode.SinglesKnockout,
+                knockoutGoal: KnockoutGoal.Champion,
+                placementPlayoff: PlacementPlayoff.ThirdToEighth));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(18, 0), ["A1", "A2", "A3", "A4"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 7), new TimeOnly(14, 0), new TimeOnly(18, 0), ["A1", "A2", "A3", "A4"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 6));
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-placement-schedule-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            Assert.Equal(12, schedule.Matches.Count);
+            Assert.Contains(schedule.Matches, match => match.MatchName == "3/4名赛"
+                && match.SideA == "A组半决赛第1场负者"
+                && match.SideB == "A组半决赛第2场负者");
+            Assert.Contains(schedule.Matches, match => match.MatchName == "5/6名赛"
+                && match.SideA == "5-8名半决赛第1场胜者"
+                && match.SideB == "5-8名半决赛第2场胜者");
+            Assert.Contains(schedule.Matches, match => match.MatchName == "7/8名赛"
+                && match.SideA == "5-8名半决赛第1场负者"
+                && match.SideB == "5-8名半决赛第2场负者");
+
+            new ScheduleExcelWriter().Write(outputPath, schedule);
+
+            using var workbook = new XLWorkbook(outputPath);
+            var gridText = string.Join('\n', workbook.Worksheet("时间场地网格").CellsUsed().Select(cell => cell.GetString()));
+            Assert.Contains("3/4名赛", gridText);
+            Assert.Contains("负", gridText);
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public void ScheduleServiceAllowsMutuallyExclusivePlacementFinalsOnSameDay()
+    {
+        var participants = CreateParticipants(8);
+        var result = new DrawService().Generate(
+            participants,
+            CreateSettings(
+                groupCount: 1,
+                mode: CompetitionMode.SinglesKnockout,
+                knockoutGoal: KnockoutGoal.Champion,
+                placementPlayoff: PlacementPlayoff.ThirdToEighth));
+
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(14, 30), ["A1", "A2", "A3", "A4"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 20), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1", "A2", "A3", "A4"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        Assert.True(schedule.IsComplete);
+        Assert.Equal(12, schedule.Matches.Count);
+        Assert.Empty(schedule.UnscheduledMatches);
+        Assert.Contains(schedule.Matches, match => match.MatchName == "5/6名赛"
+            && match.DayLabel == "2026-06-20"
+            && match.TimeRange == "14:30-15:00");
+        Assert.Contains(schedule.Matches, match => match.MatchName == "7/8名赛"
+            && match.DayLabel == "2026-06-20"
+            && match.TimeRange == "14:30-15:00");
+    }
+
+    [Fact]
+    public void ScheduleServiceCompletesLargePlacementPlayoffWhenFinalDayHasEnoughTime()
+    {
+        var participants = CreateParticipants(159);
+        var result = new DrawService().Generate(
+            participants,
+            CreateSettings(
+                groupCount: 8,
+                mode: CompetitionMode.SinglesKnockout,
+                eventKind: EventKind.Doubles,
+                knockoutGoal: KnockoutGoal.Champion,
+                placementPlayoff: PlacementPlayoff.ThirdToEighth));
+        var days = new[]
+            {
+                new DateOnly(2026, 6, 6),
+                new DateOnly(2026, 6, 7),
+                new DateOnly(2026, 6, 13),
+                new DateOnly(2026, 6, 14),
+                new DateOnly(2026, 6, 20)
+            }
+            .Select(day => new ScheduleDaySettings(
+                day,
+                new TimeOnly(14, 0),
+                new TimeOnly(18, 0),
+                Enumerable.Range(1, 16).Select(index => $"B{index}").ToList()))
+            .ToList();
+
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(days, MatchMinutes: 30, MaxMatchesPerEntrantPerDay: 2));
+
+        Assert.True(schedule.IsComplete);
+        Assert.Equal(163, schedule.TotalMatchCount);
+        Assert.Equal(163, schedule.Matches.Count);
+        Assert.Contains(schedule.Matches, match => match.MatchName == "5/6名赛");
+        Assert.Contains(schedule.Matches, match => match.MatchName == "7/8名赛");
+    }
+
+    [Fact]
     public void SeedPlayersAreHighlightedInExportedWorkbook()
     {
         var participants = new List<DrawParticipant>
@@ -782,22 +943,54 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
-    public void ScheduleServiceRejectsInsufficientKnockoutResources()
+    public void ScheduleServiceReturnsPartialPreviewWhenKnockoutResourcesAreInsufficient()
     {
         var participants = CreateParticipants(8);
         var result = new DrawService().Generate(participants, CreateSettings(
             groupCount: 1,
             mode: CompetitionMode.SinglesKnockout));
 
-        var error = Assert.Throws<DrawValidationException>(() =>
-            new ScheduleService().Generate(
-                result,
-                new ScheduleSettings(
-                    [new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1", "A2"])],
-                    MatchMinutes: 30,
-                    MaxMatchesPerEntrantPerDay: 2)));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1", "A2"])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
 
-        Assert.Contains("资源不足", error.Message);
+        Assert.False(schedule.IsComplete);
+        Assert.Equal(4, schedule.Matches.Count);
+        Assert.Equal(3, schedule.UnscheduledMatches.Count);
+        Assert.Equal(7, schedule.TotalMatchCount);
+        Assert.Contains(schedule.UnscheduledMatches, match => match.Phase == "决赛");
+        Assert.All(schedule.UnscheduledMatches, match => Assert.Contains("安排", match.Reason));
+    }
+
+    [Fact]
+    public void ScheduleExcelWriterRejectsPartialSchedule()
+    {
+        var participants = CreateParticipants(8);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1", "A2"])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-partial-schedule-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            var error = Assert.Throws<InvalidOperationException>(() =>
+                new ScheduleExcelWriter().Write(outputPath, schedule));
+
+            Assert.Contains("不支持导出不完整赛程", error.Message);
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
     }
 
     [Fact]
@@ -1450,9 +1643,10 @@ public sealed class DrawWorkflowTests
         string seed = "test-seed",
         CompetitionMode mode = CompetitionMode.SinglesRoundRobin,
         EventKind eventKind = EventKind.Singles,
-        KnockoutGoal knockoutGoal = KnockoutGoal.OneQualifierPerGroup)
+        KnockoutGoal knockoutGoal = KnockoutGoal.OneQualifierPerGroup,
+        PlacementPlayoff placementPlayoff = PlacementPlayoff.None)
     {
-        return new DrawSettings(mode, eventKind, groupCount, seed, KnockoutGoal: knockoutGoal);
+        return new DrawSettings(mode, eventKind, groupCount, seed, KnockoutGoal: knockoutGoal, PlacementPlayoff: placementPlayoff);
     }
 
     private static string Signature(IReadOnlyList<DrawGroup> groups)

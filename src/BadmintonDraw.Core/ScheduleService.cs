@@ -14,13 +14,14 @@ public sealed class ScheduleService
             throw new DrawValidationException("当前抽签结果没有可编排的比赛场次。");
         }
 
-        return new SchedulePlan(AssignTimeAndCourts(unscheduled, settings), settings);
+        return AssignTimeAndCourts(unscheduled, settings);
     }
 
     private static List<UnscheduledMatch> BuildKnockoutMatches(DrawResult result)
     {
         var matches = new List<UnscheduledMatch>();
         var groupQualifierEntries = new List<ScheduleBracketEntry>();
+        var championshipBracketMatches = new List<ScheduleBracketMatch>();
         var groupSlotCounts = result.Groups
             .Select(group => CountMainDrawEntries(result, group))
             .ToList();
@@ -30,7 +31,14 @@ public sealed class ScheduleService
 
         foreach (var group in result.Groups)
         {
-            groupQualifierEntries.Add(BuildGroupKnockoutMatches(result, group, matches, groupPhaseLabels));
+            groupQualifierEntries.Add(BuildGroupKnockoutMatches(
+                result,
+                group,
+                matches,
+                groupPhaseLabels,
+                result.Settings.KnockoutGoal == KnockoutGoal.Champion && result.Groups.Count == 1
+                    ? championshipBracketMatches
+                    : null));
         }
 
         if (result.Settings.KnockoutGoal == KnockoutGoal.Champion
@@ -45,8 +53,11 @@ public sealed class ScheduleService
                 entries: groupQualifierEntries,
                 finalWinnerNote: "胜者为冠军",
                 phasePrefix: "",
-                phaseLabels: championPhaseLabels);
+                phaseLabels: championPhaseLabels,
+                bracketMatches: championshipBracketMatches);
         }
+
+        AddPlacementPlayoffMatches(matches, result.Settings.PlacementPlayoff, championshipBracketMatches);
 
         return matches;
     }
@@ -55,7 +66,8 @@ public sealed class ScheduleService
         DrawResult result,
         DrawGroup group,
         List<UnscheduledMatch> matches,
-        IReadOnlyList<string> groupPhaseLabels)
+        IReadOnlyList<string> groupPhaseLabels,
+        List<ScheduleBracketMatch>? bracketMatches)
     {
         var groupName = BuildGroupName(group.Number);
         var roundOneGroup = result.RoundOneGroups.FirstOrDefault(item => item.Number == group.Number);
@@ -70,6 +82,7 @@ public sealed class ScheduleService
             var second = roundOneParticipants[index + 1];
             var matchNumber = index / 2 + 1;
             var matchName = $"第{group.Number}组首轮赛{matchNumber}";
+            var entrantPaths = CreateEntrantPaths(first, second);
             var matchId = AddMatch(
                 matches,
                 group.Number,
@@ -81,13 +94,13 @@ public sealed class ScheduleService
                 "胜者进入正赛",
                 OfficialDrawRules.HaveSameUnit(first, second),
                 [],
-                [first.DisplayName, second.DisplayName]);
+                entrantPaths);
             bracketEntries.Add(new ScheduleBracketEntry(
                 $"{matchName}胜者",
                 MinSeedRank(first, second),
                 null,
                 matchId,
-                [first.DisplayName, second.DisplayName]));
+                WithOutcome(entrantPaths, matchId, MatchOutcome.Winner)));
         }
 
         foreach (var participant in byeParticipants)
@@ -97,7 +110,7 @@ public sealed class ScheduleService
                 participant.SeedRank,
                 participant,
                 null,
-                [participant.DisplayName]));
+                [CreateEntrantPath(participant)]));
         }
 
         bracketEntries = ArrangeBracketEntriesBySeedProtection(bracketEntries);
@@ -117,7 +130,8 @@ public sealed class ScheduleService
                 ? "胜者获得本组出线名额"
                 : result.Groups.Count == 1 ? "胜者为冠军" : "胜者进入总决赛",
             phasePrefix: "",
-            phaseLabels: groupPhaseLabels);
+            phaseLabels: groupPhaseLabels,
+            bracketMatches: bracketMatches);
     }
 
     private static ScheduleBracketEntry BuildPlaceholderBracketMatches(
@@ -127,7 +141,8 @@ public sealed class ScheduleService
         IReadOnlyList<ScheduleBracketEntry> entries,
         string finalWinnerNote,
         string phasePrefix,
-        IReadOnlyList<string>? phaseLabels = null)
+        IReadOnlyList<string>? phaseLabels = null,
+        List<ScheduleBracketMatch>? bracketMatches = null)
     {
         var currentRound = entries.ToList();
         var roundIndex = 0;
@@ -154,10 +169,7 @@ public sealed class ScheduleService
                     .Select(id => id!.Value)
                     .Distinct()
                     .ToList();
-                var entrantKeys = first.EntrantKeys
-                    .Concat(second.EntrantKeys)
-                    .Distinct(StringComparer.Ordinal)
-                    .ToList();
+                var entrantPaths = MergeEntrantPaths(first.EntrantPaths, second.EntrantPaths);
                 var matchId = AddMatch(
                     matches,
                     groupNumber,
@@ -171,9 +183,21 @@ public sealed class ScheduleService
                         && second.Participant is not null
                         && OfficialDrawRules.HaveSameUnit(first.Participant, second.Participant),
                     dependencyIds,
-                    entrantKeys);
+                    entrantPaths);
 
-                nextRound.Add(new ScheduleBracketEntry($"{matchName}胜者", null, null, matchId, entrantKeys));
+                bracketMatches?.Add(new ScheduleBracketMatch(
+                    matchId,
+                    phase,
+                    matchName,
+                    entrantCount,
+                    matchNumber,
+                    entrantPaths));
+                nextRound.Add(new ScheduleBracketEntry(
+                    $"{matchName}胜者",
+                    null,
+                    null,
+                    matchId,
+                    WithOutcome(entrantPaths, matchId, MatchOutcome.Winner)));
             }
 
             currentRound = nextRound;
@@ -181,6 +205,113 @@ public sealed class ScheduleService
         }
 
         return currentRound[0];
+    }
+
+    private static void AddPlacementPlayoffMatches(
+        List<UnscheduledMatch> matches,
+        PlacementPlayoff placementPlayoff,
+        IReadOnlyList<ScheduleBracketMatch> championshipBracketMatches)
+    {
+        if (placementPlayoff == PlacementPlayoff.None)
+        {
+            return;
+        }
+
+        var semiFinals = championshipBracketMatches
+            .Where(match => match.EntrantCount == 4)
+            .OrderBy(match => match.MatchNumber)
+            .ToList();
+        if (semiFinals.Count >= 2)
+        {
+            var entrantPaths = MergeEntrantPaths(
+                WithOutcome(semiFinals[0].EntrantPaths, semiFinals[0].Id, MatchOutcome.Loser),
+                WithOutcome(semiFinals[1].EntrantPaths, semiFinals[1].Id, MatchOutcome.Loser));
+            AddMatch(
+                matches,
+                groupNumber: 0,
+                groupName: PlacementPlayoffLabels.GroupName,
+                phase: PlacementPlayoffLabels.ThirdPlacePhase,
+                matchName: PlacementPlayoffLabels.ThirdPlaceMatchName,
+                sideA: PlacementPlayoffLabels.LoserOf(semiFinals[0].MatchName),
+                sideB: PlacementPlayoffLabels.LoserOf(semiFinals[1].MatchName),
+                note: "胜者为第3名，负者为第4名",
+                sameUnit: false,
+                dependencyIds: semiFinals.Select(match => match.Id).ToList(),
+                entrantPaths: entrantPaths);
+        }
+
+        if (placementPlayoff != PlacementPlayoff.ThirdToEighth)
+        {
+            return;
+        }
+
+        var quarterFinals = championshipBracketMatches
+            .Where(match => match.EntrantCount == 8)
+            .OrderBy(match => match.MatchNumber)
+            .ToList();
+        if (quarterFinals.Count < 4)
+        {
+            return;
+        }
+
+        var fifthToEighthSemiFinalIds = new List<int>();
+        var fifthToEighthSemiFinalPaths = new List<IReadOnlyList<EntrantPath>>();
+        for (var index = 0; index < 2; index++)
+        {
+            var first = quarterFinals[index * 2];
+            var second = quarterFinals[index * 2 + 1];
+            var entrantPaths = MergeEntrantPaths(
+                WithOutcome(first.EntrantPaths, first.Id, MatchOutcome.Loser),
+                WithOutcome(second.EntrantPaths, second.Id, MatchOutcome.Loser));
+            var matchName = PlacementPlayoffLabels.FifthToEighthSemiMatchName(index + 1);
+            var matchId = AddMatch(
+                matches,
+                groupNumber: 0,
+                groupName: PlacementPlayoffLabels.GroupName,
+                phase: PlacementPlayoffLabels.FifthToEighthSemiPhase,
+                matchName: matchName,
+                sideA: PlacementPlayoffLabels.LoserOf(first.MatchName),
+                sideB: PlacementPlayoffLabels.LoserOf(second.MatchName),
+                note: "胜者进入5/6名赛，负者进入7/8名赛",
+                sameUnit: false,
+                dependencyIds: [first.Id, second.Id],
+                entrantPaths: entrantPaths);
+
+            fifthToEighthSemiFinalIds.Add(matchId);
+            fifthToEighthSemiFinalPaths.Add(entrantPaths);
+        }
+
+        var finalDependencyIds = fifthToEighthSemiFinalIds.ToList();
+        var fifthPlaceEntrantPaths = MergeEntrantPaths(
+            WithOutcome(fifthToEighthSemiFinalPaths[0], fifthToEighthSemiFinalIds[0], MatchOutcome.Winner),
+            WithOutcome(fifthToEighthSemiFinalPaths[1], fifthToEighthSemiFinalIds[1], MatchOutcome.Winner));
+        AddMatch(
+            matches,
+            groupNumber: 0,
+            groupName: PlacementPlayoffLabels.GroupName,
+            phase: PlacementPlayoffLabels.FifthPlacePhase,
+            matchName: PlacementPlayoffLabels.FifthPlaceMatchName,
+            sideA: PlacementPlayoffLabels.WinnerOf(PlacementPlayoffLabels.FifthToEighthSemiMatchName(1)),
+            sideB: PlacementPlayoffLabels.WinnerOf(PlacementPlayoffLabels.FifthToEighthSemiMatchName(2)),
+            note: "胜者为第5名，负者为第6名",
+            sameUnit: false,
+            dependencyIds: finalDependencyIds,
+            entrantPaths: fifthPlaceEntrantPaths);
+        var seventhPlaceEntrantPaths = MergeEntrantPaths(
+            WithOutcome(fifthToEighthSemiFinalPaths[0], fifthToEighthSemiFinalIds[0], MatchOutcome.Loser),
+            WithOutcome(fifthToEighthSemiFinalPaths[1], fifthToEighthSemiFinalIds[1], MatchOutcome.Loser));
+        AddMatch(
+            matches,
+            groupNumber: 0,
+            groupName: PlacementPlayoffLabels.GroupName,
+            phase: PlacementPlayoffLabels.SeventhPlacePhase,
+            matchName: PlacementPlayoffLabels.SeventhPlaceMatchName,
+            sideA: PlacementPlayoffLabels.LoserOf(PlacementPlayoffLabels.FifthToEighthSemiMatchName(1)),
+            sideB: PlacementPlayoffLabels.LoserOf(PlacementPlayoffLabels.FifthToEighthSemiMatchName(2)),
+            note: "胜者为第7名，负者为第8名",
+            sameUnit: false,
+            dependencyIds: finalDependencyIds,
+            entrantPaths: seventhPlaceEntrantPaths);
     }
 
     private static int CountMainDrawEntries(DrawResult result, DrawGroup group)
@@ -203,7 +334,7 @@ public sealed class ScheduleService
         string note,
         bool sameUnit,
         IReadOnlyList<int> dependencyIds,
-        IReadOnlyList<string> entrantKeys)
+        IReadOnlyList<EntrantPath> entrantPaths)
     {
         var id = matches.Count + 1;
         matches.Add(new UnscheduledMatch(
@@ -217,7 +348,7 @@ public sealed class ScheduleService
             note,
             sameUnit,
             dependencyIds,
-            entrantKeys));
+            DistinctEntrantPaths(entrantPaths)));
         return id;
     }
 
@@ -291,7 +422,7 @@ public sealed class ScheduleService
                     match.SameUnit ? "同单位优先" : "",
                     match.SameUnit,
                     [],
-                    [first.DisplayName, second.DisplayName]);
+                    CreateEntrantPaths(first, second));
             }
         }
 
@@ -360,7 +491,7 @@ public sealed class ScheduleService
         slots[1] = last;
     }
 
-    private static IReadOnlyList<ScheduledMatch> AssignTimeAndCourts(
+    private static SchedulePlan AssignTimeAndCourts(
         IReadOnlyList<UnscheduledMatch> matches,
         ScheduleSettings settings)
     {
@@ -371,16 +502,16 @@ public sealed class ScheduleService
 
         foreach (var day in settings.Days.OrderBy(day => day.Date))
         {
-            var dailyCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            var dailyMatches = new List<IReadOnlyList<EntrantPath>>();
             foreach (var slotStart in BuildSlotStarts(day, settings))
             {
-                var slotUsedEntrants = new HashSet<string>(StringComparer.Ordinal);
+                var slotEntrants = new List<EntrantPath>();
                 var scheduledThisSlot = new List<UnscheduledMatch>();
 
                 foreach (var court in day.Courts)
                 {
                     var candidate = remaining.Values
-                        .Where(match => IsEligible(match, completed, dailyCounts, slotUsedEntrants, settings.MaxMatchesPerEntrantPerDay))
+                        .Where(match => IsEligible(match, completed, dailyMatches, slotEntrants, settings.MaxMatchesPerEntrantPerDay))
                         .OrderBy(match => match.Id)
                         .FirstOrDefault();
                     if (candidate is null)
@@ -406,42 +537,157 @@ public sealed class ScheduleService
 
                     scheduledThisSlot.Add(candidate);
                     remaining.Remove(candidate.Id);
-                    foreach (var entrant in candidate.EntrantKeys)
-                    {
-                        slotUsedEntrants.Add(entrant);
-                    }
+                    slotEntrants.AddRange(candidate.EntrantPaths);
                 }
 
                 foreach (var match in scheduledThisSlot)
                 {
                     completed.Add(match.Id);
-                    foreach (var entrant in match.EntrantKeys)
-                    {
-                        dailyCounts[entrant] = dailyCounts.GetValueOrDefault(entrant) + 1;
-                    }
+                    dailyMatches.Add(match.EntrantPaths);
                 }
 
                 if (remaining.Count == 0)
                 {
-                    return scheduled;
+                    return new SchedulePlan(scheduled, settings);
                 }
             }
         }
 
-        throw new DrawValidationException(
-            $"当前赛程资源不足，仍有 {remaining.Count} 场无法安排。请增加比赛日、场地、时间段，或提高单名选手每日最多场次。");
+        return new SchedulePlan(scheduled, settings, BuildUnscheduledPreviews(remaining.Values, completed, scheduled.Count));
+    }
+
+    private static IReadOnlyList<UnscheduledMatchPreview> BuildUnscheduledPreviews(
+        IEnumerable<UnscheduledMatch> remaining,
+        IReadOnlySet<int> completed,
+        int scheduledCount)
+    {
+        return remaining
+            .OrderBy(match => match.Id)
+            .Select((match, index) => new UnscheduledMatchPreview(
+                scheduledCount + index + 1,
+                match.GroupNumber,
+                match.GroupName,
+                match.Phase,
+                match.MatchName,
+                match.SideA,
+                match.SideB,
+                match.Note,
+                match.SameUnit,
+                match.DependencyIds.All(completed.Contains)
+                    ? "资源不足，未能安排到时间和场地"
+                    : "前置比赛未能全部安排"))
+            .ToList();
     }
 
     private static bool IsEligible(
         UnscheduledMatch match,
         IReadOnlySet<int> completed,
-        IReadOnlyDictionary<string, int> dailyCounts,
-        IReadOnlySet<string> slotUsedEntrants,
+        IReadOnlyList<IReadOnlyList<EntrantPath>> dailyMatches,
+        IReadOnlyList<EntrantPath> slotEntrants,
         int maxMatchesPerEntrantPerDay)
     {
         return match.DependencyIds.All(completed.Contains)
-            && match.EntrantKeys.All(entrant => !slotUsedEntrants.Contains(entrant))
-            && match.EntrantKeys.All(entrant => dailyCounts.GetValueOrDefault(entrant) < maxMatchesPerEntrantPerDay);
+            && !HasCompatibleEntrantOverlap(match.EntrantPaths, slotEntrants)
+            && !WouldExceedDailyLimit(match, dailyMatches, maxMatchesPerEntrantPerDay);
+    }
+
+    private static bool HasCompatibleEntrantOverlap(
+        IReadOnlyList<EntrantPath> first,
+        IReadOnlyList<EntrantPath> second)
+    {
+        return first.Any(left => second.Any(right =>
+            string.Equals(left.EntrantKey, right.EntrantKey, StringComparison.Ordinal)
+            && AreConditionsCompatible(left.Conditions, right.Conditions)));
+    }
+
+    private static bool WouldExceedDailyLimit(
+        UnscheduledMatch candidate,
+        IReadOnlyList<IReadOnlyList<EntrantPath>> dailyMatches,
+        int maxMatchesPerEntrantPerDay)
+    {
+        var entrantKeys = candidate.EntrantPaths
+            .Select(path => path.EntrantKey)
+            .Distinct(StringComparer.Ordinal);
+        foreach (var entrantKey in entrantKeys)
+        {
+            var appearances = dailyMatches
+                .SelectMany(paths => paths)
+                .Where(path => string.Equals(path.EntrantKey, entrantKey, StringComparison.Ordinal))
+                .Concat(candidate.EntrantPaths.Where(path => string.Equals(path.EntrantKey, entrantKey, StringComparison.Ordinal)))
+                .ToList();
+            if (CanSelectCompatibleAppearances(
+                appearances,
+                maxMatchesPerEntrantPerDay + 1,
+                startIndex: 0,
+                conditions: new Dictionary<int, MatchOutcome>()))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool CanSelectCompatibleAppearances(
+        IReadOnlyList<EntrantPath> appearances,
+        int targetCount,
+        int startIndex,
+        IReadOnlyDictionary<int, MatchOutcome> conditions)
+    {
+        if (targetCount <= 0)
+        {
+            return true;
+        }
+
+        if (appearances.Count - startIndex < targetCount)
+        {
+            return false;
+        }
+
+        for (var index = startIndex; index < appearances.Count; index++)
+        {
+            if (!TryMergeConditions(conditions, appearances[index].Conditions, out var mergedConditions))
+            {
+                continue;
+            }
+
+            if (CanSelectCompatibleAppearances(appearances, targetCount - 1, index + 1, mergedConditions))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryMergeConditions(
+        IReadOnlyDictionary<int, MatchOutcome> existingConditions,
+        IReadOnlyList<OutcomeCondition> candidateConditions,
+        out IReadOnlyDictionary<int, MatchOutcome> mergedConditions)
+    {
+        var merged = new Dictionary<int, MatchOutcome>(existingConditions);
+        foreach (var condition in candidateConditions)
+        {
+            if (merged.TryGetValue(condition.MatchId, out var existingOutcome)
+                && existingOutcome != condition.Outcome)
+            {
+                mergedConditions = existingConditions;
+                return false;
+            }
+
+            merged[condition.MatchId] = condition.Outcome;
+        }
+
+        mergedConditions = merged;
+        return true;
+    }
+
+    private static bool AreConditionsCompatible(
+        IReadOnlyList<OutcomeCondition> first,
+        IReadOnlyList<OutcomeCondition> second)
+    {
+        return !first.Any(left => second.Any(right =>
+            left.MatchId == right.MatchId && left.Outcome != right.Outcome));
     }
 
     private static IEnumerable<TimeOnly> BuildSlotStarts(ScheduleDaySettings day, ScheduleSettings settings)
@@ -452,6 +698,67 @@ public sealed class ScheduleService
             yield return current;
             current = current.AddMinutes(settings.SlotMinutes);
         }
+    }
+
+    private static EntrantPath CreateEntrantPath(DrawParticipant participant)
+    {
+        return new EntrantPath(participant.NormalizedDisplayName, []);
+    }
+
+    private static IReadOnlyList<EntrantPath> CreateEntrantPaths(params DrawParticipant[] participants)
+    {
+        return participants.Select(CreateEntrantPath).ToList();
+    }
+
+    private static IReadOnlyList<EntrantPath> MergeEntrantPaths(
+        IReadOnlyList<EntrantPath> first,
+        IReadOnlyList<EntrantPath> second)
+    {
+        return DistinctEntrantPaths(first.Concat(second));
+    }
+
+    private static IReadOnlyList<EntrantPath> WithOutcome(
+        IReadOnlyList<EntrantPath> paths,
+        int matchId,
+        MatchOutcome outcome)
+    {
+        return DistinctEntrantPaths(paths
+            .Select(path => TryAddCondition(path, matchId, outcome))
+            .Where(path => path is not null)
+            .Select(path => path!));
+    }
+
+    private static EntrantPath? TryAddCondition(EntrantPath path, int matchId, MatchOutcome outcome)
+    {
+        if (path.Conditions.Any(condition => condition.MatchId == matchId && condition.Outcome != outcome))
+        {
+            return null;
+        }
+
+        if (path.Conditions.Any(condition => condition.MatchId == matchId && condition.Outcome == outcome))
+        {
+            return path;
+        }
+
+        var conditions = path.Conditions
+            .Append(new OutcomeCondition(matchId, outcome))
+            .OrderBy(condition => condition.MatchId)
+            .ToList();
+        return path with { Conditions = conditions };
+    }
+
+    private static IReadOnlyList<EntrantPath> DistinctEntrantPaths(IEnumerable<EntrantPath> paths)
+    {
+        return paths
+            .GroupBy(BuildEntrantPathKey, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToList();
+    }
+
+    private static string BuildEntrantPathKey(EntrantPath path)
+    {
+        var conditions = string.Join(",", path.Conditions.Select(condition => $"{condition.MatchId}:{(int)condition.Outcome}"));
+        return $"{path.EntrantKey}|{conditions}";
     }
 
     private static void Validate(ScheduleSettings settings)
@@ -529,10 +836,18 @@ public sealed class ScheduleService
         int? ProtectedSeedRank = null,
         DrawParticipant? Participant = null,
         int? SourceMatchId = null,
-        IReadOnlyList<string>? EntrantKeys = null)
+        IReadOnlyList<EntrantPath>? EntrantPaths = null)
     {
-        public IReadOnlyList<string> EntrantKeys { get; init; } = EntrantKeys ?? [];
+        public IReadOnlyList<EntrantPath> EntrantPaths { get; init; } = EntrantPaths ?? [];
     }
+
+    private sealed record ScheduleBracketMatch(
+        int Id,
+        string Phase,
+        string MatchName,
+        int EntrantCount,
+        int MatchNumber,
+        IReadOnlyList<EntrantPath> EntrantPaths);
 
     private sealed record UnscheduledMatch(
         int Id,
@@ -545,7 +860,19 @@ public sealed class ScheduleService
         string Note,
         bool SameUnit,
         IReadOnlyList<int> DependencyIds,
-        IReadOnlyList<string> EntrantKeys);
+        IReadOnlyList<EntrantPath> EntrantPaths);
+
+    private sealed record EntrantPath(
+        string EntrantKey,
+        IReadOnlyList<OutcomeCondition> Conditions);
+
+    private readonly record struct OutcomeCondition(int MatchId, MatchOutcome Outcome);
+
+    private enum MatchOutcome
+    {
+        Winner,
+        Loser
+    }
 
     private sealed record RoundRobinMatch(
         int Order,

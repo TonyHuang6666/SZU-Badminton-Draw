@@ -25,3 +25,10 @@ public enum KnockoutGoal
     Champion = 1,
     OneQualifierPerGroup = 2
 }
+
+public enum PlacementPlayoff
+{
+    None = 0,
+    ThirdPlace = 1,
+    ThirdToEighth = 2
+}
