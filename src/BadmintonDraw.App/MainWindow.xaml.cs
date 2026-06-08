@@ -31,15 +31,24 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ApplyInitialWindowSize();
         SeedBox.Text = GenerateSeed();
         UpdateEventKindForMode();
         UpdateKnockoutGoalVisibility();
+        UpdateScheduleTimingSplitVisibility();
         UpdatePreviewBadges();
         UpdateExportOptionsVisibility();
         ScheduleDatePicker.SelectedDate = DateTime.Today;
         ApplyScheduleCourtPreset();
         ScheduleDaysGrid.ItemsSource = _scheduleDays;
         AddCurrentScheduleDay();
+    }
+
+    private void ApplyInitialWindowSize()
+    {
+        var workArea = SystemParameters.WorkArea;
+        Width = Math.Max(MinWidth, Math.Min(Width, workArea.Width * 0.92));
+        Height = Math.Max(MinHeight, Math.Min(Height, workArea.Height * 0.9));
     }
 
     private void BrowseInput_Click(object sender, RoutedEventArgs e)
@@ -198,6 +207,56 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ExportMatchRecord_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGenerateSchedule())
+        {
+            return;
+        }
+
+        if (_latestSchedule is null)
+        {
+            return;
+        }
+
+        if (!_latestSchedule.IsComplete)
+        {
+            SetStatus(
+                $"当前赛程资源不足，仍有 {_latestSchedule.UnscheduledMatches.Count} 场无法安排；不支持导出不完整赛程。",
+                StatusKind.Warning);
+            return;
+        }
+
+        var dayLabel = GetSelectedMatchRecordDayLabel(_latestSchedule);
+        if (string.IsNullOrWhiteSpace(dayLabel))
+        {
+            SetStatus("当前赛程没有可导出的比赛日。", isError: true);
+            return;
+        }
+
+        var dialog = new SaveFileDialog
+        {
+            Filter = "Excel 文件 (*.xlsx)|*.xlsx",
+            DefaultExt = ".xlsx",
+            AddExtension = true,
+            FileName = BuildDefaultMatchRecordFileName(dayLabel),
+            Title = "保存赛程记录表"
+        };
+
+        if (dialog.ShowDialog(this) == true)
+        {
+            try
+            {
+                _scheduleWriter.WriteMatchRecord(dialog.FileName, _latestSchedule, dayLabel);
+                SetStatus($"赛程记录表已导出：{dialog.FileName}");
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or DrawValidationException)
+            {
+                SetStatus(ex.Message, isError: true);
+            }
+        }
+    }
+
     private void CompetitionModeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (IsLoaded)
@@ -212,6 +271,7 @@ public partial class MainWindow : Window
         if (IsLoaded)
         {
             UpdatePlacementPlayoffVisibility();
+            UpdateScheduleTimingSplitVisibility();
         }
     }
 
@@ -313,6 +373,7 @@ public partial class MainWindow : Window
             ApplyImportResult(_reader.ReadParticipantsWithWarnings(InputPathBox.Text, settings.EventKind));
             _latestResult = _drawService.Generate(_participants, settings);
             ClearSchedulePreview();
+            UpdateScheduleTimingSplitVisibility();
 
             GroupsGrid.ItemsSource = ToRows(_latestResult.Groups);
             RoundOneGrid.ItemsSource = ToRows(_latestResult.RoundOneGroups);
@@ -386,9 +447,14 @@ public partial class MainWindow : Window
 
     private ScheduleSettings BuildScheduleSettings()
     {
-        var matchMinutes = ParsePositiveScheduleInt(ScheduleMatchMinutesBox.Text, "分界线后单场比赛耗时");
-        var maxMatchesPerDay = ParsePositiveScheduleInt(GetSelectedComboBoxText(MaxMatchesPerDayBox), "分界线后单名选手每日最多场次");
-        var boundaryEntrants = GetSelectedComboBoxTagInt(ScheduleTimingBoundaryBox);
+        var useTimingSplit = ShouldShowScheduleTimingSplit();
+        var matchMinutes = ParsePositiveScheduleInt(
+            ScheduleMatchMinutesBox.Text,
+            useTimingSplit ? "分界线后单场比赛耗时" : "单场比赛耗时");
+        var maxMatchesPerDay = ParsePositiveScheduleInt(
+            GetSelectedComboBoxText(MaxMatchesPerDayBox),
+            useTimingSplit ? "分界线后单名选手每日最多场次" : "单名选手每日最多场次");
+        var boundaryEntrants = useTimingSplit ? GetSelectedComboBoxTagInt(ScheduleTimingBoundaryBox) : 0;
         ScheduleTimingSettings? beforeBoundaryTiming = null;
         if (boundaryEntrants > 0)
         {
@@ -535,6 +601,7 @@ public partial class MainWindow : Window
         ScheduleGrid.ItemsSource = null;
         ScheduleSummaryText.Text = "尚未生成赛程。";
         ScheduleCapacityText.Text = "待选择日期、时间段与场地";
+        UpdateScheduleTimingSplitVisibility();
     }
 
     private bool IsCurrentInputLoaded()
@@ -837,6 +904,31 @@ public partial class MainWindow : Window
         return $"SZUBA-{DateTime.Now:yyyyMMdd-HHmmss}-{Random.Shared.Next(1000, 9999)}";
     }
 
+    private string? GetSelectedMatchRecordDayLabel(SchedulePlan plan)
+    {
+        if (ScheduleDaysGrid.SelectedItem is ScheduleDayRow selectedDay
+            && plan.Matches.Any(match => match.DayLabel == selectedDay.Date))
+        {
+            return selectedDay.Date;
+        }
+
+        return plan.Matches
+            .FirstOrDefault(HasExplicitScheduleSides)
+            ?.DayLabel
+            ?? plan.Matches.FirstOrDefault()?.DayLabel;
+    }
+
+    private static bool HasExplicitScheduleSides(ScheduledMatch match)
+    {
+        return !IsOutcomeReference(match.SideA) && !IsOutcomeReference(match.SideB);
+    }
+
+    private static bool IsOutcomeReference(string side)
+    {
+        return side.EndsWith("胜者", StringComparison.Ordinal)
+            || side.EndsWith("负者", StringComparison.Ordinal);
+    }
+
     private static string BuildDefaultExportFileName(DrawResult result, string inputPath, ExportFormat format)
     {
         var parts = new List<string>
@@ -885,6 +977,15 @@ public partial class MainWindow : Window
         stem = LimitFileNameLength(stem, maxLength: 150);
 
         return $"{stem}{GetExportExtension(format)}";
+    }
+
+    private static string BuildDefaultMatchRecordFileName(string dayLabel)
+    {
+        var stem = DateOnly.TryParse(dayLabel, out var date)
+            ? $"{date.Month}月{date.Day}日赛程记录表"
+            : $"{dayLabel}赛程记录表";
+
+        return $"{SanitizeFileNamePart(stem)}.xlsx";
     }
 
     private static string BuildTimedBracketPath(string scheduleOutputPath, ExportFormat format)
@@ -1189,6 +1290,7 @@ public partial class MainWindow : Window
         }
 
         UpdatePlacementPlayoffVisibility();
+        UpdateScheduleTimingSplitVisibility();
     }
 
     private void UpdatePlacementPlayoffVisibility()
@@ -1200,6 +1302,21 @@ public partial class MainWindow : Window
         {
             SelectPlacementPlayoff(PlacementPlayoff.None);
         }
+    }
+
+    private void UpdateScheduleTimingSplitVisibility()
+    {
+        var showTimingSplit = ShouldShowScheduleTimingSplit();
+        ScheduleTimingSplitPanel.Visibility = showTimingSplit ? Visibility.Visible : Visibility.Collapsed;
+        ScheduleDefaultTimingLabel.Content = showTimingSplit ? "分界线后设置" : "统一赛程设置";
+    }
+
+    private bool ShouldShowScheduleTimingSplit()
+    {
+        return GetCompetitionMode() is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout
+            && GetKnockoutGoal() == KnockoutGoal.Champion
+            && _latestResult?.Settings.IsKnockout == true
+            && _latestResult.Settings.KnockoutGoal == KnockoutGoal.Champion;
     }
 
     private bool TryGetGroupCount(out int groupCount)

@@ -1148,8 +1148,36 @@ public sealed class DrawWorkflowTests
             using var workbook = new XLWorkbook(outputPath);
             Assert.Contains(workbook.Worksheets, worksheet => worksheet.Name == "赛程明细");
             Assert.Contains(workbook.Worksheets, worksheet => worksheet.Name == "时间场地网格");
+            Assert.Contains(workbook.Worksheets, worksheet => worksheet.Name == "对阵记录表");
             Assert.Contains("比赛赛程明细表", workbook.Worksheet("赛程明细").Cell(1, 1).GetString());
             Assert.Equal("时间", workbook.Worksheet("时间场地网格").Cell(2, 1).GetString());
+            var recordSheet = workbook.Worksheet("对阵记录表");
+            Assert.Equal("对阵数据", recordSheet.Cell(4, 6).GetString());
+            Assert.Equal("比分", recordSheet.Cell(4, 9).GetString());
+            Assert.Equal("用时", recordSheet.Cell(4, 10).GetString());
+            Assert.Equal("胜方", recordSheet.Cell(4, 12).GetString());
+            Assert.Equal("示例", recordSheet.Cell(5, 1).GetString());
+            Assert.Equal("15-10, 15-12", recordSheet.Cell(5, 9).GetString());
+            Assert.Equal("vs", recordSheet.Cell(6, 7).GetString());
+            Assert.True(string.IsNullOrWhiteSpace(recordSheet.Cell(6, 9).GetString()));
+            Assert.True(string.IsNullOrWhiteSpace(recordSheet.Cell(6, 10).GetString()));
+            Assert.True(string.IsNullOrWhiteSpace(recordSheet.Cell(6, 12).GetString()));
+            var recordLastRow = schedule.Matches.Count + 5;
+            Assert.Equal(
+                schedule.Matches.Count,
+                recordSheet.Range(6, 14, recordLastRow, 14).Cells().Count(cell => !string.IsNullOrWhiteSpace(cell.GetString())));
+            Assert.Contains(
+                "胜者",
+                string.Join('\n', recordSheet.Range(6, 6, recordLastRow, 8).Cells().Select(cell => cell.GetString())),
+                StringComparison.Ordinal);
+            var hiddenFormulaText = string.Join(
+                '\n',
+                recordSheet.Range(6, 15, recordLastRow, 16).Cells().Select(cell => cell.FormulaA1));
+            Assert.Contains("$L$", hiddenFormulaText, StringComparison.OrdinalIgnoreCase);
+            Assert.True(recordSheet.Column(14).IsHidden);
+            Assert.True(recordSheet.Column(15).IsHidden);
+            Assert.True(recordSheet.Column(16).IsHidden);
+            Assert.Contains("$O$6:$P$6", recordSheet.Cell(6, 12).GetDataValidation().Value, StringComparison.OrdinalIgnoreCase);
             var gridSheet = workbook.Worksheet("时间场地网格");
             var gridText = string.Join('\n', gridSheet.CellsUsed().Select(cell => cell.GetString()));
             var playInCell = gridSheet.CellsUsed()

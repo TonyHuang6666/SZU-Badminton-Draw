@@ -1,5 +1,6 @@
 using BadmintonDraw.Core;
 using ClosedXML.Excel;
+using System.Text.RegularExpressions;
 
 namespace BadmintonDraw.Excel;
 
@@ -9,6 +10,20 @@ public sealed class ScheduleExcelWriter
     private const double GridLineHeight = 16;
     private const double GridVerticalPadding = 10;
     private const double GridMinBodyRowHeight = 70;
+    private const int RecordHeaderRow = 4;
+    private const int RecordExampleRow = 5;
+    private const int RecordFirstDataRow = 6;
+    private const int RecordSideAColumn = 6;
+    private const int RecordVsColumn = 7;
+    private const int RecordSideBColumn = 8;
+    private const int RecordScoreColumn = 9;
+    private const int RecordDurationColumn = 10;
+    private const int RecordCourtColumn = 11;
+    private const int RecordWinnerColumn = 12;
+    private const int RecordNoteColumn = 13;
+    private const int RecordMatchIdColumn = 14;
+    private const int RecordWinnerOptionAColumn = 15;
+    private const int RecordWinnerOptionBColumn = 16;
 
     private static readonly XLColor TitleFill = XLColor.FromHtml("#1F4E78");
     private static readonly XLColor HeaderFill = XLColor.FromHtml("#305496");
@@ -37,19 +52,36 @@ public sealed class ScheduleExcelWriter
 
     public void Write(string outputPath, SchedulePlan plan)
     {
+        EnsureCompleteSchedule(plan);
+
+        using var workbook = new XLWorkbook();
+        WriteDetailSheet(workbook, plan);
+        WriteGridSheet(workbook, plan);
+        WriteMatchRecordSheet(workbook, plan);
+        WriteSettingsSheet(workbook, plan);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
+        workbook.SaveAs(outputPath);
+    }
+
+    public void WriteMatchRecord(string outputPath, SchedulePlan plan, string? dayLabel = null)
+    {
+        EnsureCompleteSchedule(plan);
+
+        using var workbook = new XLWorkbook();
+        WriteMatchRecordSheet(workbook, plan, dayLabel);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
+        workbook.SaveAs(outputPath);
+    }
+
+    private static void EnsureCompleteSchedule(SchedulePlan plan)
+    {
         if (!plan.IsComplete)
         {
             throw new InvalidOperationException(
                 $"当前赛程资源不足，仍有 {plan.UnscheduledMatches.Count} 场无法安排；不支持导出不完整赛程。");
         }
-
-        using var workbook = new XLWorkbook();
-        WriteDetailSheet(workbook, plan);
-        WriteGridSheet(workbook, plan);
-        WriteSettingsSheet(workbook, plan);
-
-        Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
-        workbook.SaveAs(outputPath);
     }
 
     private static void WriteDetailSheet(XLWorkbook workbook, SchedulePlan plan)
@@ -181,6 +213,274 @@ public sealed class ScheduleExcelWriter
         sheet.ShowGridLines = false;
         sheet.PageSetup.PageOrientation = XLPageOrientation.Landscape;
         sheet.PageSetup.FitToPages(1, 0);
+    }
+
+    private static void WriteMatchRecordSheet(XLWorkbook workbook, SchedulePlan plan, string? dayLabel = null)
+    {
+        var sheet = workbook.Worksheets.Add("对阵记录表");
+        var recordMatches = plan.Matches
+            .Where(match => string.IsNullOrWhiteSpace(dayLabel) || match.DayLabel == dayLabel)
+            .ToList();
+        var rowByMatchName = recordMatches
+            .Select((match, index) => (match.MatchName, Row: RecordFirstDataRow + index))
+            .GroupBy(item => item.MatchName, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().Row, StringComparer.Ordinal);
+        var lastVisibleColumn = RecordMatchIdColumn;
+        var lastRow = Math.Max(RecordExampleRow, RecordFirstDataRow + recordMatches.Count - 1);
+
+        sheet.Range(1, 1, 1, lastVisibleColumn).Merge().Value = BuildRecordTitle(dayLabel);
+        sheet.Range(2, 1, 2, lastVisibleColumn).Merge().Value =
+            "第5行为填写示例；比分、用时首次导出时留空。胜方可点击下拉选择，后续占空对阵会随前序胜负自动更新。";
+
+        WriteRecordHeaders(sheet);
+        WriteRecordExampleRow(sheet);
+
+        for (var i = 0; i < recordMatches.Count; i++)
+        {
+            WriteRecordMatchRow(sheet, RecordFirstDataRow + i, recordMatches[i], rowByMatchName);
+        }
+
+        ApplySheetTitleStyle(sheet, lastVisibleColumn);
+        ApplyTableStyle(sheet.Range(RecordHeaderRow, 1, lastRow, lastVisibleColumn));
+        sheet.Range(RecordHeaderRow, 1, RecordHeaderRow, lastVisibleColumn).Style.Fill.BackgroundColor = HeaderFill;
+        sheet.Range(RecordHeaderRow, 1, RecordHeaderRow, lastVisibleColumn).Style.Font.FontColor = XLColor.White;
+        sheet.Range(RecordHeaderRow, 1, RecordHeaderRow, lastVisibleColumn).Style.Font.Bold = true;
+        sheet.Range(RecordExampleRow, 1, RecordExampleRow, lastVisibleColumn).Style.Fill.BackgroundColor = XLColor.FromHtml("#F2F2F2");
+        sheet.Range(RecordExampleRow, 1, RecordExampleRow, lastVisibleColumn).Style.Font.Italic = true;
+        sheet.Range(RecordExampleRow, 1, RecordExampleRow, lastVisibleColumn).Style.Font.FontColor = XLColor.FromHtml("#5B677A");
+        sheet.Range(RecordExampleRow, RecordScoreColumn, lastRow, RecordWinnerColumn).Style.Fill.BackgroundColor = XLColor.White;
+
+        if (recordMatches.Count > 0)
+        {
+            foreach (var row in sheet.Rows(RecordFirstDataRow, lastRow))
+            {
+                var phase = row.Cell(4).GetString();
+                row.Cell(4).Style.Fill.BackgroundColor = GetGridPhaseFill(phase);
+            }
+        }
+
+        sheet.Columns(RecordSideAColumn, RecordSideBColumn).Style.Font.Bold = true;
+        sheet.Columns(RecordSideAColumn, RecordSideBColumn).Style.Alignment.WrapText = true;
+        sheet.Columns(RecordSideAColumn, RecordSideBColumn).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        sheet.Column(RecordVsColumn).Style.Font.Bold = true;
+        sheet.Column(RecordVsColumn).Style.Font.FontSize = 12;
+        sheet.Column(RecordVsColumn).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+        sheet.Column(1).Width = 7;
+        sheet.Column(2).Width = 12;
+        sheet.Column(3).Width = 15;
+        sheet.Column(4).Width = 12;
+        sheet.Column(5).Width = 10;
+        sheet.Column(RecordSideAColumn).Width = 26;
+        sheet.Column(RecordVsColumn).Width = 6;
+        sheet.Column(RecordSideBColumn).Width = 26;
+        sheet.Column(RecordScoreColumn).Width = 18;
+        sheet.Column(RecordDurationColumn).Width = 10;
+        sheet.Column(RecordCourtColumn).Width = 10;
+        sheet.Column(RecordWinnerColumn).Width = 24;
+        sheet.Column(RecordNoteColumn).Width = 24;
+        sheet.Column(RecordMatchIdColumn).Width = 26;
+        sheet.Column(RecordMatchIdColumn).Hide();
+        sheet.Column(RecordWinnerOptionAColumn).Hide();
+        sheet.Column(RecordWinnerOptionBColumn).Hide();
+        sheet.Rows(RecordExampleRow, lastRow).Height = 42;
+        sheet.SheetView.FreezeRows(RecordHeaderRow);
+        sheet.PageSetup.PageOrientation = XLPageOrientation.Landscape;
+        sheet.PageSetup.FitToPages(1, 0);
+    }
+
+    private static void WriteRecordHeaders(IXLWorksheet sheet)
+    {
+        sheet.Cell(RecordHeaderRow, 1).Value = "序号";
+        sheet.Cell(RecordHeaderRow, 2).Value = "日期";
+        sheet.Cell(RecordHeaderRow, 3).Value = "时间";
+        sheet.Cell(RecordHeaderRow, 4).Value = "进度";
+        sheet.Cell(RecordHeaderRow, 5).Value = "组别";
+        sheet.Range(RecordHeaderRow, RecordSideAColumn, RecordHeaderRow, RecordSideBColumn).Merge().Value = "对阵数据";
+        sheet.Cell(RecordHeaderRow, RecordScoreColumn).Value = "比分";
+        sheet.Cell(RecordHeaderRow, RecordDurationColumn).Value = "用时";
+        sheet.Cell(RecordHeaderRow, RecordCourtColumn).Value = "场地";
+        sheet.Cell(RecordHeaderRow, RecordWinnerColumn).Value = "胜方";
+        sheet.Cell(RecordHeaderRow, RecordNoteColumn).Value = "备注";
+        sheet.Cell(RecordHeaderRow, RecordMatchIdColumn).Value = "场次标识";
+    }
+
+    private static void WriteRecordExampleRow(IXLWorksheet sheet)
+    {
+        sheet.Cell(RecordExampleRow, 1).Value = "示例";
+        sheet.Cell(RecordExampleRow, 2).Value = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
+        sheet.Cell(RecordExampleRow, 3).Value = "14:00-14:20";
+        sheet.Cell(RecordExampleRow, 4).Value = "首轮赛";
+        sheet.Cell(RecordExampleRow, 5).Value = "A组";
+        sheet.Cell(RecordExampleRow, RecordSideAColumn).Value = "A【张三\n李四】";
+        sheet.Cell(RecordExampleRow, RecordVsColumn).Value = "vs";
+        sheet.Cell(RecordExampleRow, RecordSideBColumn).Value = "B【王五\n赵六】";
+        sheet.Cell(RecordExampleRow, RecordScoreColumn).Value = "15-10, 15-12";
+        sheet.Cell(RecordExampleRow, RecordDurationColumn).Value = "18m";
+        sheet.Cell(RecordExampleRow, RecordCourtColumn).Value = "B1";
+        sheet.Cell(RecordExampleRow, RecordWinnerColumn).Value = "A【张三 李四】";
+        sheet.Cell(RecordExampleRow, RecordNoteColumn).Value = "胜者进入下一轮";
+        sheet.Cell(RecordExampleRow, RecordWinnerOptionAColumn).Value = "A【张三 李四】";
+        sheet.Cell(RecordExampleRow, RecordWinnerOptionBColumn).Value = "B【王五 赵六】";
+        ApplyRecordWinnerValidation(sheet, RecordExampleRow);
+    }
+
+    private static void WriteRecordMatchRow(
+        IXLWorksheet sheet,
+        int row,
+        ScheduledMatch match,
+        IReadOnlyDictionary<string, int> rowByMatchName)
+    {
+        sheet.Cell(row, 1).Value = match.Order;
+        sheet.Cell(row, 2).Value = match.DayLabel;
+        sheet.Cell(row, 3).Value = match.TimeRange;
+        sheet.Cell(row, 4).Value = match.Phase;
+        sheet.Cell(row, 5).Value = match.GroupName;
+        sheet.Cell(row, RecordVsColumn).Value = "vs";
+        sheet.Cell(row, RecordCourtColumn).Value = match.Court;
+        sheet.Cell(row, RecordNoteColumn).Value = match.Note;
+        sheet.Cell(row, RecordMatchIdColumn).Value = match.MatchName;
+        WriteRecordSide(sheet, row, RecordSideAColumn, RecordWinnerOptionAColumn, "A", match.SideA, rowByMatchName);
+        WriteRecordSide(sheet, row, RecordSideBColumn, RecordWinnerOptionBColumn, "B", match.SideB, rowByMatchName);
+        ApplyRecordWinnerValidation(sheet, row);
+    }
+
+    private static void WriteRecordSide(
+        IXLWorksheet sheet,
+        int row,
+        int displayColumn,
+        int optionColumn,
+        string prefix,
+        string side,
+        IReadOnlyDictionary<string, int> rowByMatchName)
+    {
+        if (TryParseOutcomeReference(side, out var sourceMatchName, out var outcome)
+            && rowByMatchName.TryGetValue(sourceMatchName, out var sourceRow))
+        {
+            sheet.Cell(row, optionColumn).FormulaA1 = BuildRecordResolvedOptionFormula(prefix, side, sourceRow, outcome);
+            sheet.Cell(row, displayColumn).FormulaA1 =
+                $"SUBSTITUTE({RecordCellAddress(row, optionColumn)},\" \",CHAR(10))";
+            return;
+        }
+
+        var recordSide = BuildRecordSideText(prefix, side);
+        sheet.Cell(row, displayColumn).Value = recordSide.DisplayText;
+        sheet.Cell(row, optionColumn).Value = recordSide.OptionText;
+    }
+
+    private static void ApplyRecordWinnerValidation(IXLWorksheet sheet, int row)
+    {
+        var validation = sheet.Cell(row, RecordWinnerColumn).CreateDataValidation();
+        validation.List($"=$O${row}:$P${row}", inCellDropdown: true);
+        validation.IgnoreBlanks = true;
+        validation.ShowInputMessage = true;
+        validation.InputTitle = "选择胜方";
+        validation.InputMessage = "请选择本场获胜的一方。";
+        validation.ShowErrorMessage = true;
+        validation.ErrorTitle = "胜方不在候选列表中";
+        validation.ErrorMessage = "请从下拉列表选择左侧或右侧选手/组合。";
+    }
+
+    private static string BuildRecordResolvedOptionFormula(
+        string prefix,
+        string unresolvedSide,
+        int sourceRow,
+        string outcome)
+    {
+        var unresolvedOption = ExcelStringLiteral(BuildRecordSideText(prefix, unresolvedSide).OptionText);
+        var sourceWinner = RecordCellAddress(sourceRow, RecordWinnerColumn);
+        var sourceOptionA = RecordCellAddress(sourceRow, RecordWinnerOptionAColumn);
+        var sourceOptionB = RecordCellAddress(sourceRow, RecordWinnerOptionBColumn);
+
+        if (outcome == "胜者")
+        {
+            return $"IF({sourceWinner}=\"\",{unresolvedOption},{BuildRecordRePrefixFormula(prefix, sourceWinner)})";
+        }
+
+        return
+            $"IF({sourceWinner}=\"\",{unresolvedOption}," +
+            $"IF({sourceWinner}={sourceOptionA},{BuildRecordRePrefixFormula(prefix, sourceOptionB)}," +
+            $"IF({sourceWinner}={sourceOptionB},{BuildRecordRePrefixFormula(prefix, sourceOptionA)},{unresolvedOption})))";
+    }
+
+    private static string BuildRecordRePrefixFormula(string prefix, string sourceCellReference)
+    {
+        return
+            $"{ExcelStringLiteral($"{prefix}【")}&" +
+            $"MID({sourceCellReference},FIND(\"【\",{sourceCellReference})+1,FIND(\"】\",{sourceCellReference})-FIND(\"【\",{sourceCellReference})-1)&" +
+            $"{ExcelStringLiteral("】")}";
+    }
+
+    private static bool TryParseOutcomeReference(string side, out string sourceMatchName, out string outcome)
+    {
+        if (side.EndsWith("胜者", StringComparison.Ordinal))
+        {
+            sourceMatchName = side[..^"胜者".Length];
+            outcome = "胜者";
+            return true;
+        }
+
+        if (side.EndsWith("负者", StringComparison.Ordinal))
+        {
+            sourceMatchName = side[..^"负者".Length];
+            outcome = "负者";
+            return true;
+        }
+
+        sourceMatchName = "";
+        outcome = "";
+        return false;
+    }
+
+    private static string ExcelStringLiteral(string value)
+    {
+        return $"\"{value.Replace("\"", "\"\"", StringComparison.Ordinal)}\"";
+    }
+
+    private static string RecordCellAddress(int row, int column)
+    {
+        return $"${GetColumnLetter(column)}${row}";
+    }
+
+    private static string GetColumnLetter(int column)
+    {
+        var value = column;
+        var chars = new Stack<char>();
+        while (value > 0)
+        {
+            value--;
+            chars.Push((char)('A' + value % 26));
+            value /= 26;
+        }
+
+        return new string(chars.ToArray());
+    }
+
+    private static string BuildRecordTitle(string? dayLabel)
+    {
+        return DateOnly.TryParse(dayLabel, out var date)
+            ? $"{date.Month}月{date.Day}日赛程记录表"
+            : "深大羽协比赛对阵记录表";
+    }
+
+    private static (string DisplayText, string OptionText) BuildRecordSideText(string prefix, string side)
+    {
+        var (normalized, isBracketedPair) = NormalizeRecordSideText(side);
+        var display = isBracketedPair ? normalized.Replace(" ", "\n", StringComparison.Ordinal) : normalized;
+        return ($"{prefix}【{display}】", $"{prefix}【{normalized}】");
+    }
+
+    private static (string Text, bool IsBracketedPair) NormalizeRecordSideText(string side)
+    {
+        var trimmed = side.Trim();
+        var isBracketedPair = false;
+        if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[^1] == ']')
+        {
+            trimmed = trimmed[1..^1].Trim();
+            isBracketedPair = true;
+        }
+
+        return (Regex.Replace(trimmed, @"\s+", " "), isBracketedPair);
     }
 
     private static string BuildGridMatchText(
