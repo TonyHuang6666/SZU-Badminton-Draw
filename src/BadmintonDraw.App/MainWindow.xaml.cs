@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     private readonly ParticipantTemplateWriter _templateWriter = new();
     private readonly ScheduleService _scheduleService = new();
     private readonly ScheduleExcelWriter _scheduleWriter = new();
+    private readonly MatchRecordReader _matchRecordReader = new();
     private IReadOnlyList<DrawParticipant> _participants = Array.Empty<DrawParticipant>();
     private IReadOnlyList<ParticipantImportWarning> _importWarnings = Array.Empty<ParticipantImportWarning>();
     private readonly ObservableCollection<ScheduleDayRow> _scheduleDays = [];
@@ -254,6 +255,80 @@ public partial class MainWindow : Window
             {
                 SetStatus(ex.Message, isError: true);
             }
+        }
+    }
+
+    private void ImportMatchRecordAndExportNext_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGenerateSchedule())
+        {
+            return;
+        }
+
+        if (_latestSchedule is null)
+        {
+            return;
+        }
+
+        if (!_latestSchedule.IsComplete)
+        {
+            SetStatus(
+                $"当前赛程资源不足，仍有 {_latestSchedule.UnscheduledMatches.Count} 场无法安排；不支持导出不完整赛程。",
+                StatusKind.Warning);
+            return;
+        }
+
+        var importDialog = new OpenFileDialog
+        {
+            Filter = "Excel 文件 (*.xlsx)|*.xlsx",
+            DefaultExt = ".xlsx",
+            CheckFileExists = true,
+            Title = "选择已填写的赛程记录表"
+        };
+
+        if (importDialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var importResult = _matchRecordReader.Read(importDialog.FileName);
+            if (importResult.Results.Count == 0)
+            {
+                SetStatus("记录表中没有读取到已填写胜方的比赛。", isError: true);
+                return;
+            }
+
+            var nextDayLabel = GetNextMatchRecordDayLabel(_latestSchedule, importResult);
+            if (string.IsNullOrWhiteSpace(nextDayLabel))
+            {
+                SetStatus("已读取比赛结果，但当前赛程没有下一比赛日可导出。", StatusKind.Warning);
+                return;
+            }
+
+            var exportDialog = new SaveFileDialog
+            {
+                Filter = "Excel 文件 (*.xlsx)|*.xlsx",
+                DefaultExt = ".xlsx",
+                AddExtension = true,
+                FileName = BuildDefaultMatchRecordFileName(nextDayLabel),
+                Title = "保存下一比赛日赛程记录表"
+            };
+
+            if (exportDialog.ShowDialog(this) == true)
+            {
+                _scheduleWriter.WriteMatchRecord(
+                    exportDialog.FileName,
+                    _latestSchedule,
+                    nextDayLabel,
+                    importResult.Results);
+                SetStatus($"已读取 {importResult.Results.Count} 场结果，并导出下一比赛日记录表：{exportDialog.FileName}");
+            }
+        }
+        catch (Exception ex) when (ex is ExcelImportException or IOException or InvalidOperationException or DrawValidationException)
+        {
+            SetStatus(ex.Message, isError: true);
         }
     }
 
@@ -916,6 +991,43 @@ public partial class MainWindow : Window
             .FirstOrDefault(HasExplicitScheduleSides)
             ?.DayLabel
             ?? plan.Matches.FirstOrDefault()?.DayLabel;
+    }
+
+    private static string? GetNextMatchRecordDayLabel(SchedulePlan plan, MatchRecordImportResult importResult)
+    {
+        var scheduleDays = plan.Matches
+            .Select(match => match.DayLabel)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (scheduleDays.Count == 0 || importResult.DayLabels.Count == 0)
+        {
+            return null;
+        }
+
+        var importedDaySet = importResult.DayLabels.ToHashSet(StringComparer.Ordinal);
+        var importedIndexes = scheduleDays
+            .Select((day, index) => importedDaySet.Contains(day) ? index : -1)
+            .Where(index => index >= 0)
+            .ToList();
+        if (importedIndexes.Count > 0)
+        {
+            var nextIndex = importedIndexes.Max() + 1;
+            return nextIndex < scheduleDays.Count ? scheduleDays[nextIndex] : null;
+        }
+
+        var latestImportedDate = importResult.DayLabels
+            .Select(day => DateOnly.TryParse(day, out var date) ? date : (DateOnly?)null)
+            .Where(date => date.HasValue)
+            .Select(date => date!.Value)
+            .DefaultIfEmpty()
+            .Max();
+        if (latestImportedDate == default)
+        {
+            return null;
+        }
+
+        return scheduleDays.FirstOrDefault(day =>
+            DateOnly.TryParse(day, out var date) && date > latestImportedDate);
     }
 
     private static bool HasExplicitScheduleSides(ScheduledMatch match)

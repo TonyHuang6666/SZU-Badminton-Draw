@@ -64,12 +64,16 @@ public sealed class ScheduleExcelWriter
         workbook.SaveAs(outputPath);
     }
 
-    public void WriteMatchRecord(string outputPath, SchedulePlan plan, string? dayLabel = null)
+    public void WriteMatchRecord(
+        string outputPath,
+        SchedulePlan plan,
+        string? dayLabel = null,
+        IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null)
     {
         EnsureCompleteSchedule(plan);
 
         using var workbook = new XLWorkbook();
-        WriteMatchRecordSheet(workbook, plan, dayLabel);
+        WriteMatchRecordSheet(workbook, plan, dayLabel, completedResults);
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
         workbook.SaveAs(outputPath);
@@ -215,9 +219,14 @@ public sealed class ScheduleExcelWriter
         sheet.PageSetup.FitToPages(1, 0);
     }
 
-    private static void WriteMatchRecordSheet(XLWorkbook workbook, SchedulePlan plan, string? dayLabel = null)
+    private static void WriteMatchRecordSheet(
+        XLWorkbook workbook,
+        SchedulePlan plan,
+        string? dayLabel = null,
+        IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null)
     {
         var sheet = workbook.Worksheets.Add("对阵记录表");
+        completedResults ??= new Dictionary<string, MatchRecordResult>(StringComparer.Ordinal);
         var recordMatches = plan.Matches
             .Where(match => string.IsNullOrWhiteSpace(dayLabel) || match.DayLabel == dayLabel)
             .ToList();
@@ -237,7 +246,7 @@ public sealed class ScheduleExcelWriter
 
         for (var i = 0; i < recordMatches.Count; i++)
         {
-            WriteRecordMatchRow(sheet, RecordFirstDataRow + i, recordMatches[i], rowByMatchName);
+            WriteRecordMatchRow(sheet, RecordFirstDataRow + i, recordMatches[i], rowByMatchName, completedResults);
         }
 
         ApplySheetTitleStyle(sheet, lastVisibleColumn);
@@ -329,7 +338,8 @@ public sealed class ScheduleExcelWriter
         IXLWorksheet sheet,
         int row,
         ScheduledMatch match,
-        IReadOnlyDictionary<string, int> rowByMatchName)
+        IReadOnlyDictionary<string, int> rowByMatchName,
+        IReadOnlyDictionary<string, MatchRecordResult> completedResults)
     {
         sheet.Cell(row, 1).Value = match.Order;
         sheet.Cell(row, 2).Value = match.DayLabel;
@@ -340,8 +350,8 @@ public sealed class ScheduleExcelWriter
         sheet.Cell(row, RecordCourtColumn).Value = match.Court;
         sheet.Cell(row, RecordNoteColumn).Value = match.Note;
         sheet.Cell(row, RecordMatchIdColumn).Value = match.MatchName;
-        WriteRecordSide(sheet, row, RecordSideAColumn, RecordWinnerOptionAColumn, "A", match.SideA, rowByMatchName);
-        WriteRecordSide(sheet, row, RecordSideBColumn, RecordWinnerOptionBColumn, "B", match.SideB, rowByMatchName);
+        WriteRecordSide(sheet, row, RecordSideAColumn, RecordWinnerOptionAColumn, "A", match.SideA, rowByMatchName, completedResults);
+        WriteRecordSide(sheet, row, RecordSideBColumn, RecordWinnerOptionBColumn, "B", match.SideB, rowByMatchName, completedResults);
         ApplyRecordWinnerValidation(sheet, row);
     }
 
@@ -352,15 +362,26 @@ public sealed class ScheduleExcelWriter
         int optionColumn,
         string prefix,
         string side,
-        IReadOnlyDictionary<string, int> rowByMatchName)
+        IReadOnlyDictionary<string, int> rowByMatchName,
+        IReadOnlyDictionary<string, MatchRecordResult> completedResults)
     {
-        if (TryParseOutcomeReference(side, out var sourceMatchName, out var outcome)
-            && rowByMatchName.TryGetValue(sourceMatchName, out var sourceRow))
+        if (TryParseOutcomeReference(side, out var sourceMatchName, out var outcome))
         {
-            sheet.Cell(row, optionColumn).FormulaA1 = BuildRecordResolvedOptionFormula(prefix, side, sourceRow, outcome);
-            sheet.Cell(row, displayColumn).FormulaA1 =
-                $"SUBSTITUTE({RecordCellAddress(row, optionColumn)},\" \",CHAR(10))";
-            return;
+            if (completedResults.TryGetValue(sourceMatchName, out var result))
+            {
+                var resolvedSide = BuildRecordSideText(prefix, outcome == "胜者" ? result.Winner : result.Loser);
+                sheet.Cell(row, displayColumn).Value = resolvedSide.DisplayText;
+                sheet.Cell(row, optionColumn).Value = resolvedSide.OptionText;
+                return;
+            }
+
+            if (rowByMatchName.TryGetValue(sourceMatchName, out var sourceRow))
+            {
+                sheet.Cell(row, optionColumn).FormulaA1 = BuildRecordResolvedOptionFormula(prefix, side, sourceRow, outcome);
+                sheet.Cell(row, displayColumn).FormulaA1 =
+                    $"SUBSTITUTE({RecordCellAddress(row, optionColumn)},\" \",CHAR(10))";
+                return;
+            }
         }
 
         var recordSide = BuildRecordSideText(prefix, side);

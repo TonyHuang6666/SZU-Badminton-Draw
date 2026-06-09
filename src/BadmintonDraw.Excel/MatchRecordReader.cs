@@ -1,0 +1,166 @@
+using ClosedXML.Excel;
+using System.Text.RegularExpressions;
+
+namespace BadmintonDraw.Excel;
+
+public sealed class MatchRecordReader
+{
+    private const string SheetName = "对阵记录表";
+    private const int FirstDataRow = 6;
+    private const int DayLabelColumn = 2;
+    private const int ScoreColumn = 9;
+    private const int DurationColumn = 10;
+    private const int WinnerColumn = 12;
+    private const int MatchIdColumn = 14;
+    private const int WinnerOptionAColumn = 15;
+    private const int WinnerOptionBColumn = 16;
+    private const int SideAColumn = 6;
+    private const int SideBColumn = 8;
+
+    public MatchRecordImportResult Read(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            throw new ExcelImportException("请选择赛程记录表 Excel。");
+        }
+
+        if (!File.Exists(filePath))
+        {
+            throw new ExcelImportException($"找不到赛程记录表：{filePath}");
+        }
+
+        try
+        {
+            using var workbook = new XLWorkbook(filePath);
+            var sheet = workbook.Worksheets.FirstOrDefault(worksheet =>
+                string.Equals(worksheet.Name, SheetName, StringComparison.Ordinal));
+            if (sheet is null)
+            {
+                throw new ExcelImportException($"赛程记录表缺少“{SheetName}”工作表。");
+            }
+
+            return ReadSheet(sheet);
+        }
+        catch (ExcelImportException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or FormatException)
+        {
+            throw new ExcelImportException($"无法读取赛程记录表：{ex.Message}");
+        }
+    }
+
+    private static MatchRecordImportResult ReadSheet(IXLWorksheet sheet)
+    {
+        var results = new Dictionary<string, MatchRecordResult>(StringComparer.Ordinal);
+        var dayLabels = new List<string>();
+        var lastRow = sheet.LastRowUsed()?.RowNumber() ?? 0;
+
+        for (var row = FirstDataRow; row <= lastRow; row++)
+        {
+            var matchName = NormalizeSpaces(sheet.Cell(row, MatchIdColumn).GetString());
+            if (string.IsNullOrWhiteSpace(matchName))
+            {
+                continue;
+            }
+
+            var dayLabel = NormalizeSpaces(sheet.Cell(row, DayLabelColumn).GetString());
+            if (!string.IsNullOrWhiteSpace(dayLabel)
+                && !dayLabels.Contains(dayLabel, StringComparer.Ordinal))
+            {
+                dayLabels.Add(dayLabel);
+            }
+
+            var winnerText = NormalizeSpaces(sheet.Cell(row, WinnerColumn).GetString());
+            if (string.IsNullOrWhiteSpace(winnerText))
+            {
+                continue;
+            }
+
+            var optionA = BuildOptionFromRow(sheet, row, WinnerOptionAColumn, SideAColumn);
+            var optionB = BuildOptionFromRow(sheet, row, WinnerOptionBColumn, SideBColumn);
+            var winnerOption = ResolveWinnerOption(row, winnerText, optionA, optionB);
+            var loserOption = string.Equals(winnerOption, optionA, StringComparison.Ordinal) ? optionB : optionA;
+
+            results[matchName] = new MatchRecordResult(
+                matchName,
+                dayLabel,
+                ExtractOptionName(winnerOption),
+                ExtractOptionName(loserOption),
+                sheet.Cell(row, ScoreColumn).GetString().Trim(),
+                sheet.Cell(row, DurationColumn).GetString().Trim());
+        }
+
+        return new MatchRecordImportResult(results, dayLabels);
+    }
+
+    private static string BuildOptionFromRow(IXLWorksheet sheet, int row, int optionColumn, int sideColumn)
+    {
+        var option = NormalizeOption(sheet.Cell(row, optionColumn).GetString());
+        if (!string.IsNullOrWhiteSpace(option))
+        {
+            return option;
+        }
+
+        option = NormalizeOption(sheet.Cell(row, sideColumn).GetString());
+        if (!string.IsNullOrWhiteSpace(option))
+        {
+            return option;
+        }
+
+        throw new ExcelImportException($"第 {row} 行缺少胜方候选，请重新导出赛程记录表。");
+    }
+
+    private static string ResolveWinnerOption(int row, string winnerText, string optionA, string optionB)
+    {
+        var winner = NormalizeOption(winnerText);
+        if (string.Equals(winner, "A", StringComparison.OrdinalIgnoreCase))
+        {
+            return optionA;
+        }
+
+        if (string.Equals(winner, "B", StringComparison.OrdinalIgnoreCase))
+        {
+            return optionB;
+        }
+
+        var winnerPlain = ExtractOptionName(winner);
+        if (string.Equals(winner, optionA, StringComparison.Ordinal)
+            || string.Equals(winnerPlain, ExtractOptionName(optionA), StringComparison.Ordinal))
+        {
+            return optionA;
+        }
+
+        if (string.Equals(winner, optionB, StringComparison.Ordinal)
+            || string.Equals(winnerPlain, ExtractOptionName(optionB), StringComparison.Ordinal))
+        {
+            return optionB;
+        }
+
+        throw new ExcelImportException($"第 {row} 行胜方不在本场候选列表中，请从下拉框选择。");
+    }
+
+    private static string ExtractOptionName(string option)
+    {
+        var normalized = NormalizeOption(option);
+        var start = normalized.IndexOf('【');
+        var end = normalized.LastIndexOf('】');
+        if (start >= 0 && end > start)
+        {
+            return normalized[(start + 1)..end].Trim();
+        }
+
+        return normalized.Trim();
+    }
+
+    private static string NormalizeOption(string value)
+    {
+        return NormalizeSpaces(value.Replace('\n', ' ').Replace('\r', ' '));
+    }
+
+    private static string NormalizeSpaces(string value)
+    {
+        return Regex.Replace(value.Trim(), @"\s+", " ");
+    }
+}

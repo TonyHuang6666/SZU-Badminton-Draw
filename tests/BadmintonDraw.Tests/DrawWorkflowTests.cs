@@ -1205,6 +1205,75 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void MatchRecordReaderCarriesResultsIntoNextDayRecord()
+    {
+        var participants = CreateParticipants(8);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(16, 0), ["A1"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 7), new TimeOnly(14, 0), new TimeOnly(18, 0), ["A1"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+        var dayOnePath = Path.Combine(Path.GetTempPath(), $"badminton-record-day1-{Guid.NewGuid():N}.xlsx");
+        var dayTwoPath = Path.Combine(Path.GetTempPath(), $"badminton-record-day2-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            Assert.True(schedule.IsComplete);
+            Assert.Contains(schedule.Matches, match => match.DayLabel == "2026-06-07"
+                && match.SideA.Contains("胜者", StringComparison.Ordinal));
+
+            var writer = new ScheduleExcelWriter();
+            writer.WriteMatchRecord(dayOnePath, schedule, "2026-06-06");
+
+            using (var workbook = new XLWorkbook(dayOnePath))
+            {
+                var sheet = workbook.Worksheet("对阵记录表");
+                var lastRow = sheet.LastRowUsed()!.RowNumber();
+                for (var row = 6; row <= lastRow; row++)
+                {
+                    var optionA = sheet.Cell(row, 15).GetString();
+                    if (!string.IsNullOrWhiteSpace(optionA))
+                    {
+                        sheet.Cell(row, 12).Value = optionA;
+                    }
+                }
+
+                workbook.Save();
+            }
+
+            var importResult = new MatchRecordReader().Read(dayOnePath);
+            Assert.Equal(4, importResult.Results.Count);
+            Assert.Contains("2026-06-06", importResult.DayLabels);
+
+            writer.WriteMatchRecord(dayTwoPath, schedule, "2026-06-07", importResult.Results);
+
+            using var nextWorkbook = new XLWorkbook(dayTwoPath);
+            var recordSheet = nextWorkbook.Worksheet("对阵记录表");
+            var nextText = string.Join(
+                '\n',
+                recordSheet.Range(6, 6, recordSheet.LastRowUsed()!.RowNumber(), 8)
+                    .Cells()
+                    .Select(cell => cell.GetString()));
+
+            Assert.DoesNotContain("8进4", nextText, StringComparison.Ordinal);
+            Assert.Contains("半决赛第1场胜者", nextText, StringComparison.Ordinal);
+            Assert.Contains("选手", nextText, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteIfExists(dayOnePath);
+            DeleteIfExists(dayTwoPath);
+        }
+    }
+
+    [Fact]
     public void ScheduleGridA4PdfSplitsOnePagePerCompetitionDay()
     {
         var participants = CreateParticipants(8);

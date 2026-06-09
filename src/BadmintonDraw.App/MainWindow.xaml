@@ -662,6 +662,10 @@
                                             Style="{StaticResource SecondaryButton}"
                                             Height="48"
                                             Click="ExportMatchRecord_Click">单独导出当日记录表</Button>
+                                    <Button Margin="0,10,0,0"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Height="48"
+                                            Click="ImportMatchRecordAndExportNext_Click">导入记录表并导出下一日</Button>
                                 </StackPanel>
                             </ScrollViewer>
                         </Border>
