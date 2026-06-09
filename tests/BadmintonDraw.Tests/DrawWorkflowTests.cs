@@ -1241,6 +1241,8 @@ public sealed class DrawWorkflowTests
                     var optionA = sheet.Cell(row, 15).GetString();
                     if (!string.IsNullOrWhiteSpace(optionA))
                     {
+                        sheet.Cell(row, 9).Value = "15-10, 15-12";
+                        sheet.Cell(row, 10).Value = "18m";
                         sheet.Cell(row, 12).Value = optionA;
                     }
                 }
@@ -1265,6 +1267,262 @@ public sealed class DrawWorkflowTests
             Assert.DoesNotContain("8进4", nextText, StringComparison.Ordinal);
             Assert.Contains("半决赛第1场胜者", nextText, StringComparison.Ordinal);
             Assert.Contains("选手", nextText, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteIfExists(dayOnePath);
+            DeleteIfExists(dayTwoPath);
+        }
+    }
+
+    [Fact]
+    public void MatchRecordReaderMergesMultipleRecordSheets()
+    {
+        var participants = CreateParticipants(8);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(16, 0), ["A1"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 7), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 8), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 1));
+        var dayOnePath = Path.Combine(Path.GetTempPath(), $"badminton-record-merge-day1-{Guid.NewGuid():N}.xlsx");
+        var dayTwoPath = Path.Combine(Path.GetTempPath(), $"badminton-record-merge-day2-{Guid.NewGuid():N}.xlsx");
+        var dayThreePath = Path.Combine(Path.GetTempPath(), $"badminton-record-merge-day3-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            Assert.True(schedule.IsComplete);
+            var writer = new ScheduleExcelWriter();
+            writer.WriteMatchRecord(dayOnePath, schedule, "2026-06-06");
+            FillMatchRecordWinners(dayOnePath, winnerOptionColumn: 15);
+
+            var reader = new MatchRecordReader();
+            var dayOneResults = reader.Read(dayOnePath);
+            writer.WriteMatchRecord(dayTwoPath, schedule, "2026-06-07", dayOneResults.Results);
+            FillMatchRecordWinners(dayTwoPath, winnerOptionColumn: 15);
+
+            var mergedResults = reader.ReadMany([dayOnePath, dayTwoPath]);
+            Assert.Equal(6, mergedResults.Results.Count);
+            Assert.Contains("2026-06-06", mergedResults.DayLabels);
+            Assert.Contains("2026-06-07", mergedResults.DayLabels);
+
+            writer.WriteMatchRecord(dayThreePath, schedule, "2026-06-08", mergedResults.Results);
+
+            using var workbook = new XLWorkbook(dayThreePath);
+            var sheet = workbook.Worksheet("对阵记录表");
+            var text = string.Join(
+                '\n',
+                sheet.Range(6, 6, sheet.LastRowUsed()!.RowNumber(), 8)
+                    .Cells()
+                    .Select(cell => cell.GetString()));
+
+            Assert.DoesNotContain("胜者", text, StringComparison.Ordinal);
+            Assert.Contains("选手", text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteIfExists(dayOnePath);
+            DeleteIfExists(dayTwoPath);
+            DeleteIfExists(dayThreePath);
+        }
+    }
+
+    [Fact]
+    public void MatchRecordReaderRejectsConflictingDuplicateResults()
+    {
+        var participants = CreateParticipants(2);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1"])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+        var firstPath = Path.Combine(Path.GetTempPath(), $"badminton-record-conflict-a-{Guid.NewGuid():N}.xlsx");
+        var secondPath = Path.Combine(Path.GetTempPath(), $"badminton-record-conflict-b-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            var writer = new ScheduleExcelWriter();
+            writer.WriteMatchRecord(firstPath, schedule, "2026-06-06");
+            writer.WriteMatchRecord(secondPath, schedule, "2026-06-06");
+            FillMatchRecordWinners(firstPath, winnerOptionColumn: 15);
+            FillMatchRecordWinners(secondPath, winnerOptionColumn: 16);
+
+            var error = Assert.Throws<ExcelImportException>(() =>
+                new MatchRecordReader().ReadMany([firstPath, secondPath]));
+
+            Assert.Contains("胜方不一致", error.Message);
+        }
+        finally
+        {
+            DeleteIfExists(firstPath);
+            DeleteIfExists(secondPath);
+        }
+    }
+
+    [Fact]
+    public void MatchRecordReaderReportsIncompleteRows()
+    {
+        var participants = CreateParticipants(2);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1"])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+        var recordPath = Path.Combine(Path.GetTempPath(), $"badminton-record-incomplete-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            new ScheduleExcelWriter().WriteMatchRecord(recordPath, schedule, "2026-06-06");
+
+            var importResult = new MatchRecordReader().Read(recordPath);
+
+            Assert.False(importResult.IsComplete);
+            Assert.Single(importResult.MissingResultRows);
+            Assert.Single(importResult.PendingMatchNames);
+            Assert.Empty(importResult.Results);
+        }
+        finally
+        {
+            DeleteIfExists(recordPath);
+        }
+    }
+
+    [Fact]
+    public void MatchRecordReaderAllowsWinnerWithoutScoreForWalkover()
+    {
+        var participants = CreateParticipants(2);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1"])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+        var recordPath = Path.Combine(Path.GetTempPath(), $"badminton-record-walkover-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            new ScheduleExcelWriter().WriteMatchRecord(recordPath, schedule, "2026-06-06");
+            using (var workbook = new XLWorkbook(recordPath))
+            {
+                var sheet = workbook.Worksheet("对阵记录表");
+                sheet.Cell(6, 12).Value = sheet.Cell(6, 15).GetString();
+                workbook.Save();
+            }
+
+            var importResult = new MatchRecordReader().Read(recordPath);
+
+            Assert.False(importResult.IsComplete);
+            Assert.Empty(importResult.MissingResultRows);
+            Assert.Empty(importResult.PendingMatchNames);
+            Assert.Single(importResult.Results);
+            Assert.Contains("未填写比分", importResult.ValidationIssues[0]);
+        }
+        finally
+        {
+            DeleteIfExists(recordPath);
+        }
+    }
+
+    [Fact]
+    public void MatchRecordReaderReportsScoreWinnerMismatch()
+    {
+        var participants = CreateParticipants(2);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1"])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+        var recordPath = Path.Combine(Path.GetTempPath(), $"badminton-record-score-mismatch-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            new ScheduleExcelWriter().WriteMatchRecord(recordPath, schedule, "2026-06-06");
+            using (var workbook = new XLWorkbook(recordPath))
+            {
+                var sheet = workbook.Worksheet("对阵记录表");
+                sheet.Cell(6, 9).Value = "15-10, 1-15, 11-15";
+                sheet.Cell(6, 10).Value = "33m";
+                sheet.Cell(6, 12).Value = sheet.Cell(6, 15).GetString();
+                workbook.Save();
+            }
+
+            var importResult = new MatchRecordReader().Read(recordPath);
+
+            Assert.False(importResult.IsComplete);
+            Assert.Single(importResult.ValidationIssues);
+            Assert.Contains("比分胜方为 B", importResult.ValidationIssues[0]);
+            Assert.Single(importResult.Results);
+        }
+        finally
+        {
+            DeleteIfExists(recordPath);
+        }
+    }
+
+    [Fact]
+    public void MatchRecordWriterCarriesPendingMatchesIntoNextDayRecord()
+    {
+        var participants = CreateParticipants(4);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 7), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+        var dayOnePath = Path.Combine(Path.GetTempPath(), $"badminton-record-pending-day1-{Guid.NewGuid():N}.xlsx");
+        var dayTwoPath = Path.Combine(Path.GetTempPath(), $"badminton-record-pending-day2-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            new ScheduleExcelWriter().WriteMatchRecord(dayOnePath, schedule, "2026-06-06");
+            var importResult = new MatchRecordReader().Read(dayOnePath);
+            Assert.NotEmpty(importResult.PendingMatchNames);
+
+            new ScheduleExcelWriter().WriteMatchRecord(
+                dayTwoPath,
+                schedule,
+                "2026-06-07",
+                importResult.Results,
+                importResult.PendingMatchNames);
+
+            using var workbook = new XLWorkbook(dayTwoPath);
+            var sheet = workbook.Worksheet("对阵记录表");
+            var firstPendingMatchName = importResult.PendingMatchNames[0];
+            var row = Enumerable.Range(6, sheet.LastRowUsed()!.RowNumber() - 5)
+                .First(index => sheet.Cell(index, 14).GetString() == firstPendingMatchName);
+
+            Assert.Equal("2026-06-07", sheet.Cell(row, 2).GetString());
+            Assert.Equal("待安排", sheet.Cell(row, 3).GetString());
+            Assert.Equal("待安排", sheet.Cell(row, 11).GetString());
+            Assert.Contains("顺延补赛", sheet.Cell(row, 13).GetString());
         }
         finally
         {
@@ -1833,6 +2091,31 @@ public sealed class DrawWorkflowTests
         }
 
         workbook.SaveAs(outputPath);
+    }
+
+    private static void FillMatchRecordWinners(string workbookPath, int winnerOptionColumn)
+    {
+        using var workbook = new XLWorkbook(workbookPath);
+        var sheet = workbook.Worksheet("对阵记录表");
+        var lastRow = sheet.LastRowUsed()!.RowNumber();
+        for (var row = 6; row <= lastRow; row++)
+        {
+            var matchName = sheet.Cell(row, 14).GetString();
+            if (string.IsNullOrWhiteSpace(matchName))
+            {
+                continue;
+            }
+
+            var winner = sheet.Cell(row, winnerOptionColumn).GetString();
+            if (!string.IsNullOrWhiteSpace(winner))
+            {
+                sheet.Cell(row, 9).Value = winnerOptionColumn == 15 ? "15-10, 15-12" : "10-15, 12-15";
+                sheet.Cell(row, 10).Value = "18m";
+                sheet.Cell(row, 12).Value = winner;
+            }
+        }
+
+        workbook.Save();
     }
 
     private static IReadOnlyList<DrawParticipant> CreateParticipants(int count)

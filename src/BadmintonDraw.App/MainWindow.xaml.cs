@@ -283,7 +283,8 @@ public partial class MainWindow : Window
             Filter = "Excel 文件 (*.xlsx)|*.xlsx",
             DefaultExt = ".xlsx",
             CheckFileExists = true,
-            Title = "选择已填写的赛程记录表"
+            Multiselect = true,
+            Title = "选择已填写的赛程记录表（可多选）"
         };
 
         if (importDialog.ShowDialog(this) != true)
@@ -293,10 +294,10 @@ public partial class MainWindow : Window
 
         try
         {
-            var importResult = _matchRecordReader.Read(importDialog.FileName);
-            if (importResult.Results.Count == 0)
+            var importResult = _matchRecordReader.ReadMany(importDialog.FileNames);
+            if (importResult.ExpectedMatchCount == 0)
             {
-                SetStatus("记录表中没有读取到已填写胜方的比赛。", isError: true);
+                SetStatus("所选记录表中没有识别到可处理的比赛场次，请确认是本工具导出的赛程记录表。", isError: true);
                 return;
             }
 
@@ -304,6 +305,12 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(nextDayLabel))
             {
                 SetStatus("已读取比赛结果，但当前赛程没有下一比赛日可导出。", StatusKind.Warning);
+                return;
+            }
+
+            if (importResult.HasWarnings && !ConfirmMatchRecordWarnings(importResult, nextDayLabel))
+            {
+                SetStatus("已取消导出，请修正记录表后重新导入。", StatusKind.Warning);
                 return;
             }
 
@@ -322,8 +329,12 @@ public partial class MainWindow : Window
                     exportDialog.FileName,
                     _latestSchedule,
                     nextDayLabel,
-                    importResult.Results);
-                SetStatus($"已读取 {importResult.Results.Count} 场结果，并导出下一比赛日记录表：{exportDialog.FileName}");
+                    importResult.Results,
+                    importResult.PendingMatchNames);
+                var pendingText = importResult.PendingMatchNames.Count > 0
+                    ? $"，顺延 {importResult.PendingMatchNames.Count} 场未决比赛"
+                    : "";
+                SetStatus($"已从 {importDialog.FileNames.Length} 张记录表累计读取 {importResult.Results.Count} 场结果{pendingText}，并导出下一比赛日记录表：{exportDialog.FileName}");
             }
         }
         catch (Exception ex) when (ex is ExcelImportException or IOException or InvalidOperationException or DrawValidationException)
@@ -1098,6 +1109,40 @@ public partial class MainWindow : Window
             : $"{dayLabel}赛程记录表";
 
         return $"{SanitizeFileNamePart(stem)}.xlsx";
+    }
+
+    private bool ConfirmMatchRecordWarnings(MatchRecordImportResult importResult, string nextDayLabel)
+    {
+        var message = BuildMatchRecordImportWarning(importResult, nextDayLabel);
+        var result = MessageBox.Show(
+            this,
+            message,
+            "赛程记录表提醒",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        return result == MessageBoxResult.Yes;
+    }
+
+    private static string BuildMatchRecordImportWarning(MatchRecordImportResult importResult, string nextDayLabel)
+    {
+        var parts = new List<string>();
+        if (importResult.MissingResultRows.Count > 0)
+        {
+            parts.Add($"有 {importResult.MissingResultRows.Count} 场未填写胜方，将顺延到 {nextDayLabel}");
+        }
+
+        if (importResult.ValidationIssues.Count > 0)
+        {
+            parts.Add($"有 {importResult.ValidationIssues.Count} 处比分、用时或胜方提醒，将按已填写胜方推进");
+        }
+
+        var examples = importResult.MissingResultRows
+            .Take(2)
+            .Concat(importResult.ValidationIssues.Take(2))
+            .Take(3)
+            .ToList();
+        var detail = examples.Count > 0 ? $"\n\n示例：\n{string.Join("\n", examples)}" : "";
+        return $"记录表存在需要裁判长确认的情况：{string.Join("，", parts)}。{detail}\n\n是否仍继续导出下一比赛日赛程记录表？";
     }
 
     private static string BuildTimedBracketPath(string scheduleOutputPath, ExportFormat format)

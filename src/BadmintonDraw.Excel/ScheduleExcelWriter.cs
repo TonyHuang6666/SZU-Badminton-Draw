@@ -68,12 +68,13 @@ public sealed class ScheduleExcelWriter
         string outputPath,
         SchedulePlan plan,
         string? dayLabel = null,
-        IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null)
+        IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null,
+        IReadOnlyCollection<string>? carryOverMatchNames = null)
     {
         EnsureCompleteSchedule(plan);
 
         using var workbook = new XLWorkbook();
-        WriteMatchRecordSheet(workbook, plan, dayLabel, completedResults);
+        WriteMatchRecordSheet(workbook, plan, dayLabel, completedResults, carryOverMatchNames);
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
         workbook.SaveAs(outputPath);
@@ -223,12 +224,20 @@ public sealed class ScheduleExcelWriter
         XLWorkbook workbook,
         SchedulePlan plan,
         string? dayLabel = null,
-        IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null)
+        IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null,
+        IReadOnlyCollection<string>? carryOverMatchNames = null)
     {
         var sheet = workbook.Worksheets.Add("对阵记录表");
         completedResults ??= new Dictionary<string, MatchRecordResult>(StringComparer.Ordinal);
+        var carryOverSet = carryOverMatchNames is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : carryOverMatchNames.ToHashSet(StringComparer.Ordinal);
         var recordMatches = plan.Matches
-            .Where(match => string.IsNullOrWhiteSpace(dayLabel) || match.DayLabel == dayLabel)
+            .Where(match => string.IsNullOrWhiteSpace(dayLabel)
+                || match.DayLabel == dayLabel
+                || carryOverSet.Contains(match.MatchName))
+            .OrderByDescending(match => carryOverSet.Contains(match.MatchName) && match.DayLabel != dayLabel)
+            .ThenBy(match => match.Order)
             .ToList();
         var rowByMatchName = recordMatches
             .Select((match, index) => (match.MatchName, Row: RecordFirstDataRow + index))
@@ -246,7 +255,10 @@ public sealed class ScheduleExcelWriter
 
         for (var i = 0; i < recordMatches.Count; i++)
         {
-            WriteRecordMatchRow(sheet, RecordFirstDataRow + i, recordMatches[i], rowByMatchName, completedResults);
+            var isCarryOver = !string.IsNullOrWhiteSpace(dayLabel)
+                && carryOverSet.Contains(recordMatches[i].MatchName)
+                && recordMatches[i].DayLabel != dayLabel;
+            WriteRecordMatchRow(sheet, RecordFirstDataRow + i, recordMatches[i], rowByMatchName, completedResults, isCarryOver, dayLabel);
         }
 
         ApplySheetTitleStyle(sheet, lastVisibleColumn);
@@ -339,16 +351,22 @@ public sealed class ScheduleExcelWriter
         int row,
         ScheduledMatch match,
         IReadOnlyDictionary<string, int> rowByMatchName,
-        IReadOnlyDictionary<string, MatchRecordResult> completedResults)
+        IReadOnlyDictionary<string, MatchRecordResult> completedResults,
+        bool isCarryOver = false,
+        string? carryOverDayLabel = null)
     {
         sheet.Cell(row, 1).Value = match.Order;
-        sheet.Cell(row, 2).Value = match.DayLabel;
-        sheet.Cell(row, 3).Value = match.TimeRange;
+        sheet.Cell(row, 2).Value = isCarryOver && !string.IsNullOrWhiteSpace(carryOverDayLabel)
+            ? carryOverDayLabel
+            : match.DayLabel;
+        sheet.Cell(row, 3).Value = isCarryOver ? "待安排" : match.TimeRange;
         sheet.Cell(row, 4).Value = match.Phase;
         sheet.Cell(row, 5).Value = match.GroupName;
         sheet.Cell(row, RecordVsColumn).Value = "vs";
-        sheet.Cell(row, RecordCourtColumn).Value = match.Court;
-        sheet.Cell(row, RecordNoteColumn).Value = match.Note;
+        sheet.Cell(row, RecordCourtColumn).Value = isCarryOver ? "待安排" : match.Court;
+        sheet.Cell(row, RecordNoteColumn).Value = isCarryOver
+            ? $"顺延补赛；{match.Note}".TrimEnd('；')
+            : match.Note;
         sheet.Cell(row, RecordMatchIdColumn).Value = match.MatchName;
         WriteRecordSide(sheet, row, RecordSideAColumn, RecordWinnerOptionAColumn, "A", match.SideA, rowByMatchName, completedResults);
         WriteRecordSide(sheet, row, RecordSideBColumn, RecordWinnerOptionBColumn, "B", match.SideB, rowByMatchName, completedResults);
