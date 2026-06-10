@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using BadmintonDraw.Core;
 using BadmintonDraw.Workflows;
@@ -20,6 +21,20 @@ public partial class MainWindow : Window
 
     private readonly DrawWorkflow _drawWorkflow = new();
     private readonly ScheduleWorkflow _scheduleWorkflow = new();
+    private static readonly IBrush ReadyStatusBrush = new SolidColorBrush(Color.FromRgb(25, 169, 116));
+    private static readonly IBrush WarningStatusBrush = new SolidColorBrush(Color.FromRgb(217, 119, 6));
+    private static readonly IBrush ErrorStatusBrush = new SolidColorBrush(Color.FromRgb(185, 28, 28));
+    private static readonly IBrush ReadyStatusBackground = new SolidColorBrush(Color.FromRgb(255, 255, 255));
+    private static readonly IBrush WarningStatusBackground = new SolidColorBrush(Color.FromRgb(255, 250, 235));
+    private static readonly IBrush ErrorStatusBackground = new SolidColorBrush(Color.FromRgb(254, 242, 242));
+    private static readonly IBrush ScheduledRowBackground = new SolidColorBrush(Color.FromRgb(255, 255, 255));
+    private static readonly IBrush ScheduledRowBorder = new SolidColorBrush(Color.FromRgb(226, 232, 240));
+    private static readonly IBrush ScheduledBadgeBackground = new SolidColorBrush(Color.FromRgb(236, 246, 255));
+    private static readonly IBrush ScheduledBadgeForeground = new SolidColorBrush(Color.FromRgb(15, 95, 159));
+    private static readonly IBrush UnscheduledRowBackground = new SolidColorBrush(Color.FromRgb(255, 247, 247));
+    private static readonly IBrush UnscheduledRowBorder = new SolidColorBrush(Color.FromRgb(246, 190, 190));
+    private static readonly IBrush UnscheduledBadgeBackground = new SolidColorBrush(Color.FromRgb(255, 228, 230));
+    private static readonly IBrush UnscheduledBadgeForeground = new SolidColorBrush(Color.FromRgb(159, 18, 57));
 
     private IReadOnlyList<DrawParticipant> _participants = [];
     private IReadOnlyList<string> _importWarnings = [];
@@ -129,7 +144,7 @@ public partial class MainWindow : Window
             EventKindStatText.Text = WorkflowLabels.GetEventKindDisplay(importResult.DetectedEventKind);
             PreviewStateText.Text = "待预览";
             SummaryText.Text = $"已导入 {_participants.Count} 个参赛单位";
-            WarningText.Text = FormatWarnings(_importWarnings);
+            SetWarnings(_importWarnings);
             ClearSchedulePreview();
             SetStatus(_importWarnings.Count > 0
                 ? $"名单已导入，但有 {_importWarnings.Count} 条提醒。确认无误后可以预览抽签。"
@@ -187,7 +202,7 @@ public partial class MainWindow : Window
             EventKindStatText.Text = WorkflowLabels.GetEventKindDisplay(request.EventKind);
             PreviewStateText.Text = "已预览";
             SummaryText.Text = $"已生成 {_latestResult.Groups.Count} 个小组，随机种子 {_latestResult.Audit.RandomSeed}";
-            WarningText.Text = FormatWarnings(_importWarnings);
+            SetWarnings(_importWarnings);
             GroupsList.ItemsSource = FormatGroups(_latestResult.Groups);
             RoundOneList.ItemsSource = FormatGroups(_latestResult.RoundOneGroups);
             ByeList.ItemsSource = FormatGroups(_latestResult.ByeGroups);
@@ -333,10 +348,10 @@ public partial class MainWindow : Window
         EventKindStatText.Text = "-";
         PreviewStateText.Text = "待预览";
         SummaryText.Text = "尚未生成抽签预览";
-        WarningText.Text = "";
-        GroupsList.ItemsSource = Array.Empty<string>();
-        RoundOneList.ItemsSource = Array.Empty<string>();
-        ByeList.ItemsSource = Array.Empty<string>();
+        SetWarnings([]);
+        GroupsList.ItemsSource = Array.Empty<PreviewGroupRow>();
+        RoundOneList.ItemsSource = Array.Empty<PreviewGroupRow>();
+        ByeList.ItemsSource = Array.Empty<PreviewGroupRow>();
         ClearSchedulePreview();
     }
 
@@ -397,15 +412,18 @@ public partial class MainWindow : Window
         }
     }
 
-    private static IReadOnlyList<string> FormatGroups(IReadOnlyList<DrawGroup> groups)
+    private static IReadOnlyList<PreviewGroupRow> FormatGroups(IReadOnlyList<DrawGroup> groups)
     {
         if (groups.Count == 0)
         {
-            return ["无"];
+            return [new PreviewGroupRow("无", "", "暂无内容")];
         }
 
         return groups
-            .Select(group => $"{WorkflowLabels.BuildGroupName(group.Number)}（{group.Count}）：{string.Join("、", group.Participants.Select(FormatParticipant))}")
+            .Select(group => new PreviewGroupRow(
+                WorkflowLabels.BuildGroupName(group.Number),
+                $"{group.Count} 人",
+                string.Join("、", group.Participants.Select(FormatParticipant))))
             .ToList();
     }
 
@@ -418,16 +436,44 @@ public partial class MainWindow : Window
                 : participant.DisplayName;
     }
 
-    private static IReadOnlyList<string> FormatScheduleRows(SchedulePlan schedule)
+    private static IReadOnlyList<SchedulePreviewRow> FormatScheduleRows(SchedulePlan schedule)
     {
         var rows = schedule.Matches
             .Take(80)
-            .Select(match =>
-                $"{match.DayLabel} {match.TimeRange} {match.Court} | {match.GroupName} {match.Phase} | {match.SideA} vs {match.SideB}")
+            .Select(match => new SchedulePreviewRow(
+                "已安排",
+                $"{match.DayLabel} {match.TimeRange}",
+                match.Court,
+                $"{match.GroupName} {match.Phase}",
+                $"{match.SideA} vs {match.SideB}",
+                string.IsNullOrWhiteSpace(match.Note) ? match.MatchName : $"{match.MatchName} · {match.Note}",
+                ScheduledRowBackground,
+                ScheduledRowBorder,
+                ScheduledBadgeBackground,
+                ScheduledBadgeForeground))
             .ToList();
         rows.AddRange(schedule.UnscheduledMatches.Take(40).Select(match =>
-            $"未安排 | {match.GroupName} {match.Phase} | {match.SideA} vs {match.SideB} | {match.Reason}"));
-        return rows.Count == 0 ? ["无"] : rows;
+            new SchedulePreviewRow(
+                "未安排",
+                "待排期",
+                "未定",
+                $"{match.GroupName} {match.Phase}",
+                $"{match.SideA} vs {match.SideB}",
+                $"{match.MatchName} · {match.Reason}",
+                UnscheduledRowBackground,
+                UnscheduledRowBorder,
+                UnscheduledBadgeBackground,
+                UnscheduledBadgeForeground)));
+        return rows.Count == 0
+            ? [new SchedulePreviewRow("空", "暂无", "-", "暂无赛程", "生成赛程后显示", "", ScheduledRowBackground, ScheduledRowBorder, ScheduledBadgeBackground, ScheduledBadgeForeground)]
+            : rows;
+    }
+
+    private void SetWarnings(IReadOnlyList<string> warnings)
+    {
+        var message = FormatWarnings(warnings);
+        WarningText.Text = message;
+        WarningPanel.IsVisible = !string.IsNullOrWhiteSpace(message);
     }
 
     private static string FormatWarnings(IReadOnlyList<string> warnings)
@@ -441,7 +487,7 @@ public partial class MainWindow : Window
     {
         _latestSchedule = null;
         ScheduleSummaryText.Text = "尚未生成赛程";
-        ScheduleList.ItemsSource = Array.Empty<string>();
+        ScheduleList.ItemsSource = Array.Empty<SchedulePreviewRow>();
     }
 
     private static int ParsePositiveInt(string? value, string fieldName)
@@ -464,9 +510,36 @@ public partial class MainWindow : Window
     {
         StatusText.Text = message;
         StatusText.Foreground = isError
-            ? Avalonia.Media.Brushes.DarkRed
+            ? ErrorStatusBrush
             : isWarning
-                ? Avalonia.Media.Brushes.DarkGoldenrod
-                : Avalonia.Media.Brushes.DarkSlateBlue;
+                ? WarningStatusBrush
+                : new SolidColorBrush(Color.FromRgb(65, 80, 106));
+        StatusDot.Background = isError
+            ? ErrorStatusBrush
+            : isWarning
+                ? WarningStatusBrush
+                : ReadyStatusBrush;
+        StatusBar.Background = isError
+            ? ErrorStatusBackground
+            : isWarning
+                ? WarningStatusBackground
+                : ReadyStatusBackground;
     }
+
+    public sealed record PreviewGroupRow(
+        string Title,
+        string CountText,
+        string Body);
+
+    public sealed record SchedulePreviewRow(
+        string Status,
+        string TimeText,
+        string CourtText,
+        string Title,
+        string Pairing,
+        string Note,
+        IBrush BackgroundBrush,
+        IBrush BorderBrush,
+        IBrush BadgeBrush,
+        IBrush BadgeForeground);
 }

@@ -1,221 +1,520 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="BadmintonDraw.Desktop.MainWindow"
+        x:CompileBindings="False"
         Title="深大羽协抽签工具 - macOS 预览版"
         Width="1180"
         Height="760"
-        MinWidth="980"
-        MinHeight="660"
-        WindowStartupLocation="CenterScreen">
+        MinWidth="1040"
+        MinHeight="680"
+        WindowStartupLocation="CenterScreen"
+        FontFamily="Inter, PingFang SC, Microsoft YaHei UI, Segoe UI">
     <Window.Styles>
-        <Style Selector="TextBlock.section-title">
-            <Setter Property="FontSize" Value="18" />
+        <Style Selector="TextBlock.app-title">
+            <Setter Property="FontSize" Value="28" />
             <Setter Property="FontWeight" Value="Bold" />
-            <Setter Property="Foreground" Value="#33106B" />
+            <Setter Property="Foreground" Value="#28104E" />
         </Style>
-        <Style Selector="TextBlock.label">
+        <Style Selector="TextBlock.section-title">
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Foreground" Value="#28104E" />
+        </Style>
+        <Style Selector="TextBlock.field-label">
+            <Setter Property="FontSize" Value="12" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="#4A3A68" />
-            <Setter Property="Margin" Value="0,12,0,6" />
+            <Setter Property="Foreground" Value="#4D4366" />
+            <Setter Property="Margin" Value="0,10,0,5" />
+        </Style>
+        <Style Selector="TextBlock.muted">
+            <Setter Property="Foreground" Value="#6F7890" />
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="Background" Value="#FBFCFF" />
+            <Setter Property="BorderBrush" Value="#CBD5E1" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Foreground" Value="#111827" />
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="Background" Value="#FBFCFF" />
+            <Setter Property="BorderBrush" Value="#CBD5E1" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Foreground" Value="#111827" />
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.primary">
-            <Setter Property="Background" Value="#295C9A" />
+            <Setter Property="Background" Value="#0F5F9F" />
+            <Setter Property="BorderBrush" Value="#0F5F9F" />
             <Setter Property="Foreground" Value="White" />
-            <Setter Property="FontWeight" Value="Bold" />
-            <Setter Property="Padding" Value="14,9" />
         </Style>
         <Style Selector="Button.secondary">
-            <Setter Property="Padding" Value="14,9" />
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#C7D2E4" />
+            <Setter Property="Foreground" Value="#243B63" />
+        </Style>
+        <Style Selector="Button.subtle">
+            <Setter Property="Background" Value="#F4F7FB" />
+            <Setter Property="BorderBrush" Value="#D9E2EF" />
+            <Setter Property="Foreground" Value="#344767" />
+        </Style>
+        <Style Selector="Button.compact">
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Padding" Value="12,8" />
         </Style>
         <Style Selector="Border.panel">
-            <Setter Property="Background" Value="White" />
-            <Setter Property="BorderBrush" Value="#DDCEFA" />
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#D8E0EC" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="Padding" Value="18" />
+        </Style>
+        <Style Selector="Border.metric">
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="16,14" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Border.preview-row">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#E2E8F0" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="12" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+        <Style Selector="TabControl">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="TabItem">
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#3F315F" />
         </Style>
     </Window.Styles>
 
-    <Grid Background="#F2ECFF" RowDefinitions="Auto,*,Auto">
-        <Border Grid.Row="0" Background="White" Padding="24,18" BorderBrush="#E4D7FA" BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="*,Auto">
-                <StackPanel>
-                    <TextBlock Text="深大羽协抽签工具" FontSize="30" FontWeight="Bold" Foreground="#33106B" />
-                    <TextBlock Text="macOS / Windows / Linux 跨平台预览版：名单导入、抽签预览、基础赛程、Excel 导出"
-                               Foreground="#6C5C8F" Margin="0,6,0,0" />
-                </StackPanel>
-                <TextBlock Grid.Column="1"
-                           Text="Avalonia Desktop"
-                           VerticalAlignment="Center"
-                           Foreground="#295C9A"
-                           FontWeight="Bold" />
+    <Grid Background="#F5F7FB" RowDefinitions="Auto,*,Auto">
+        <Border Grid.Row="0"
+                Background="#FFFFFF"
+                BorderBrush="#DCE3EF"
+                BorderThickness="0,0,0,1"
+                Padding="26,18,26,0">
+            <Grid RowDefinitions="Auto,Auto">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                    <Border Width="52"
+                            Height="52"
+                            CornerRadius="8"
+                            Background="#5C1A94">
+                        <TextBlock Text="羽"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Foreground="White"
+                                   FontSize="25"
+                                   FontWeight="Bold" />
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
+                        <TextBlock Classes="app-title" Text="深大羽协抽签工具" />
+                        <TextBlock Classes="muted"
+                                   Text="跨平台桌面版 · 深圳大学羽毛球赛事工作台"
+                                   FontSize="14" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center"
+                                Spacing="8">
+                        <Border Background="#EEF6FF" BorderBrush="#C8DEF7" BorderThickness="1" CornerRadius="8" Padding="10,6">
+                            <TextBlock Text="macOS 预览版" Foreground="#0F5F9F" FontWeight="SemiBold" />
+                        </Border>
+                        <Border Background="#F7F3FF" BorderBrush="#DED2F8" BorderThickness="1" CornerRadius="8" Padding="10,6">
+                            <TextBlock Text="Avalonia" Foreground="#4A1E78" FontWeight="SemiBold" />
+                        </Border>
+                    </StackPanel>
+                </Grid>
+
+                <Grid Grid.Row="1" Height="4" Margin="0,16,0,0" ColumnDefinitions="2*,1.5*,1.4*,5*">
+                    <Border Background="#C01268" />
+                    <Border Grid.Column="1" Background="#F4B83D" />
+                    <Border Grid.Column="2" Background="#3F8BEF" />
+                    <Border Grid.Column="3" Background="#6D2CC6" />
+                </Grid>
             </Grid>
         </Border>
 
-        <Grid Grid.Row="1" ColumnDefinitions="390,*" Margin="24" ColumnSpacing="18">
+        <Grid Grid.Row="1" ColumnDefinitions="420,*" Margin="22" ColumnSpacing="18">
             <Border Classes="panel" Grid.Column="0">
-                <ScrollViewer>
-                    <StackPanel Spacing="0">
-                        <TextBlock Classes="section-title" Text="抽签设置" />
-
-                        <TextBlock Classes="label" Text="参赛名单 Excel" />
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                            <TextBox x:Name="InputPathBox" PlaceholderText="请选择 .xlsx 参赛名单" />
-                            <Button Grid.Column="1" Classes="secondary" Content="选择" Click="BrowseInput_Click" />
-                        </Grid>
-
-                        <Button Classes="secondary"
-                                Content="生成名单模板"
-                                Margin="0,10,0,0"
-                                Click="CreateTemplate_Click" />
-
-                        <TextBlock Classes="label" Text="比赛模式" />
-                        <ComboBox x:Name="CompetitionModeBox" SelectedIndex="0">
-                            <ComboBoxItem Content="单项赛淘汰赛" />
-                            <ComboBoxItem Content="单项赛循环赛" />
-                            <ComboBoxItem Content="团体赛淘汰赛" />
-                            <ComboBoxItem Content="团体赛循环赛" />
-                        </ComboBox>
-
-                        <TextBlock Classes="label" Text="项目类型" />
-                        <ComboBox x:Name="EventKindBox" SelectedIndex="1">
-                            <ComboBoxItem Content="单打" />
-                            <ComboBoxItem Content="双打" />
-                            <ComboBoxItem Content="团体" />
-                        </ComboBox>
-
-                        <TextBlock Classes="label" Text="小组数" />
-                        <TextBox x:Name="GroupCountBox" Text="8" />
-
-                        <TextBlock Classes="label" Text="淘汰赛目标" />
-                        <ComboBox x:Name="KnockoutGoalBox" SelectedIndex="0">
-                            <ComboBoxItem Content="每组出线" />
-                            <ComboBoxItem Content="决出冠军" />
-                        </ComboBox>
-
-                        <TextBlock Classes="label" Text="名次附加赛" />
-                        <ComboBox x:Name="PlacementPlayoffBox" SelectedIndex="0">
-                            <ComboBoxItem Content="不排附加赛" />
-                            <ComboBoxItem Content="排 3/4 名赛" />
-                            <ComboBoxItem Content="排 3-8 名赛" />
-                        </ComboBox>
-
-                        <TextBlock Classes="label" Text="随机数种子" />
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                            <TextBox x:Name="SeedBox" />
-                            <Button Grid.Column="1" Classes="secondary" Content="重生成" Click="GenerateSeed_Click" />
-                        </Grid>
-
-                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8" Margin="0,18,0,0">
-                            <Button Classes="primary" Content="预览抽签" Click="Preview_Click" />
-                            <Button Grid.Column="1" Classes="secondary" Content="导出 Excel" Click="Export_Click" />
-                        </Grid>
-
-                        <Border Height="1" Background="#E7DCF9" Margin="0,22,0,6" />
-                        <TextBlock Classes="section-title" Text="赛程编排" />
-
-                        <TextBlock Classes="label" Text="比赛日期" />
-                        <TextBox x:Name="ScheduleDateBox" PlaceholderText="yyyy-MM-dd" />
-
-                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
-                            <StackPanel>
-                                <TextBlock Classes="label" Text="开始时间" />
-                                <TextBox x:Name="ScheduleStartBox" Text="14:00" />
+                <Grid RowDefinitions="Auto,*">
+                    <Border Background="#FBFCFF"
+                            BorderBrush="#E3E9F3"
+                            BorderThickness="0,0,0,1"
+                            Padding="18,16">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="3">
+                                <TextBlock Classes="section-title" Text="赛事配置" />
+                                <TextBlock Classes="muted" Text="抽签与赛程" />
                             </StackPanel>
-                            <StackPanel Grid.Column="1">
-                                <TextBlock Classes="label" Text="结束时间" />
-                                <TextBox x:Name="ScheduleEndBox" Text="18:00" />
-                            </StackPanel>
+                            <Border Grid.Column="1"
+                                    Background="#EFF6F2"
+                                    BorderBrush="#CFE5D7"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Padding="10,6"
+                                    VerticalAlignment="Center">
+                                <TextBlock Text="本地生成" Foreground="#25654A" FontWeight="SemiBold" />
+                            </Border>
                         </Grid>
+                    </Border>
 
-                        <TextBlock Classes="label" Text="场地" />
-                        <TextBox x:Name="ScheduleCourtsBox"
-                                 Text="B1-B8 C1-C8"
-                                 AcceptsReturn="True"
-                                 MinHeight="56"
-                                 TextWrapping="Wrap" />
+                    <TabControl Grid.Row="1" Margin="16,12,16,16">
+                        <TabItem Header="抽签">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel Spacing="4" Margin="0,10,0,0">
+                                    <TextBlock Classes="field-label" Text="参赛名单 Excel" />
+                                    <Grid ColumnDefinitions="*,82" ColumnSpacing="8">
+                                        <TextBox x:Name="InputPathBox" PlaceholderText="请选择 .xlsx 参赛名单" />
+                                        <Button Grid.Column="1" Classes="secondary compact" Content="选择" Click="BrowseInput_Click" />
+                                    </Grid>
 
-                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
-                            <StackPanel>
-                                <TextBlock Classes="label" Text="每场分钟" />
-                                <TextBox x:Name="ScheduleMatchMinutesBox" Text="30" />
-                            </StackPanel>
-                            <StackPanel Grid.Column="1">
-                                <TextBlock Classes="label" Text="每日最多场" />
-                                <TextBox x:Name="ScheduleMaxMatchesBox" Text="2" />
-                            </StackPanel>
-                        </Grid>
+                                    <Button Classes="subtle"
+                                            Content="生成名单模板"
+                                            Margin="0,8,0,6"
+                                            Click="CreateTemplate_Click" />
 
-                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8" Margin="0,18,0,0">
-                            <Button Classes="primary" Content="生成赛程" Click="GenerateSchedule_Click" />
-                            <Button Grid.Column="1" Classes="secondary" Content="导出赛程" Click="ExportSchedule_Click" />
-                        </Grid>
-                    </StackPanel>
-                </ScrollViewer>
+                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                        <StackPanel>
+                                            <TextBlock Classes="field-label" Text="比赛模式" />
+                                            <ComboBox x:Name="CompetitionModeBox" SelectedIndex="0">
+                                                <ComboBoxItem Content="单项赛淘汰赛" />
+                                                <ComboBoxItem Content="单项赛循环赛" />
+                                                <ComboBoxItem Content="团体赛淘汰赛" />
+                                                <ComboBoxItem Content="团体赛循环赛" />
+                                            </ComboBox>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Classes="field-label" Text="项目类型" />
+                                            <ComboBox x:Name="EventKindBox" SelectedIndex="1">
+                                                <ComboBoxItem Content="单打" />
+                                                <ComboBoxItem Content="双打" />
+                                                <ComboBoxItem Content="团体" />
+                                            </ComboBox>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="1.05*,1.45*" ColumnSpacing="10">
+                                        <StackPanel>
+                                            <TextBlock Classes="field-label" Text="小组数" />
+                                            <TextBox x:Name="GroupCountBox" Text="8" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Classes="field-label" Text="淘汰赛目标" />
+                                            <ComboBox x:Name="KnockoutGoalBox" SelectedIndex="0">
+                                                <ComboBoxItem Content="每组出线" />
+                                                <ComboBoxItem Content="决出冠军" />
+                                            </ComboBox>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <TextBlock Classes="field-label" Text="名次附加赛" />
+                                    <ComboBox x:Name="PlacementPlayoffBox" SelectedIndex="0">
+                                        <ComboBoxItem Content="不排附加赛" />
+                                        <ComboBoxItem Content="排 3/4 名赛" />
+                                        <ComboBoxItem Content="排 3-8 名赛" />
+                                    </ComboBox>
+
+                                    <TextBlock Classes="field-label" Text="随机数种子" />
+                                    <Grid ColumnDefinitions="*,92" ColumnSpacing="8">
+                                        <TextBox x:Name="SeedBox" />
+                                        <Button Grid.Column="1" Classes="secondary compact" Content="重生成" Click="GenerateSeed_Click" />
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Margin="0,16,0,0">
+                                        <Button Classes="primary" Content="预览抽签" Click="Preview_Click" />
+                                        <Button Grid.Column="1" Classes="secondary" Content="导出 Excel" Click="Export_Click" />
+                                    </Grid>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem Header="赛程">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel Spacing="4" Margin="0,10,0,0">
+                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                        <StackPanel>
+                                            <TextBlock Classes="field-label" Text="比赛日期" />
+                                            <TextBox x:Name="ScheduleDateBox" PlaceholderText="yyyy-MM-dd" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Classes="field-label" Text="每日最多场" />
+                                            <TextBox x:Name="ScheduleMaxMatchesBox" Text="2" />
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                        <StackPanel>
+                                            <TextBlock Classes="field-label" Text="开始时间" />
+                                            <TextBox x:Name="ScheduleStartBox" Text="14:00" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Classes="field-label" Text="结束时间" />
+                                            <TextBox x:Name="ScheduleEndBox" Text="18:00" />
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <TextBlock Classes="field-label" Text="场地" />
+                                    <TextBox x:Name="ScheduleCourtsBox"
+                                             Text="B1-B8 C1-C8"
+                                             AcceptsReturn="True"
+                                             MinHeight="78"
+                                             TextWrapping="Wrap" />
+
+                                    <TextBlock Classes="field-label" Text="每场分钟" />
+                                    <TextBox x:Name="ScheduleMatchMinutesBox" Text="30" />
+
+                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Margin="0,16,0,0">
+                                        <Button Classes="primary" Content="生成赛程" Click="GenerateSchedule_Click" />
+                                        <Button Grid.Column="1" Classes="secondary" Content="导出赛程" Click="ExportSchedule_Click" />
+                                    </Grid>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                    </TabControl>
+                </Grid>
             </Border>
 
             <Border Classes="panel" Grid.Column="1">
                 <Grid RowDefinitions="Auto,Auto,*">
-                    <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="10">
-                        <Border Background="#EEF6FF" CornerRadius="8" Padding="14">
-                            <StackPanel>
-                                <TextBlock Text="参赛单位" Foreground="#506070" />
-                                <TextBlock x:Name="ParticipantCountText" Text="-" FontSize="24" FontWeight="Bold" />
+                    <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="10" Margin="18,18,18,0">
+                        <Border Classes="metric" Background="#ECF6FF" BorderBrush="#D2E7FB">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="参赛单位" Foreground="#59697E" FontWeight="SemiBold" />
+                                <TextBlock x:Name="ParticipantCountText" Text="-" FontSize="26" FontWeight="Bold" Foreground="#0F172A" />
                             </StackPanel>
                         </Border>
-                        <Border Grid.Column="1" Background="#F1F8EF" CornerRadius="8" Padding="14">
-                            <StackPanel>
-                                <TextBlock Text="小组数" Foreground="#506070" />
-                                <TextBlock x:Name="GroupCountStatText" Text="-" FontSize="24" FontWeight="Bold" />
+                        <Border Grid.Column="1" Classes="metric" Background="#F0F8F1" BorderBrush="#D4EAD8">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="小组数" Foreground="#59697E" FontWeight="SemiBold" />
+                                <TextBlock x:Name="GroupCountStatText" Text="-" FontSize="26" FontWeight="Bold" Foreground="#0F172A" />
                             </StackPanel>
                         </Border>
-                        <Border Grid.Column="2" Background="#FFF7E6" CornerRadius="8" Padding="14">
-                            <StackPanel>
-                                <TextBlock Text="项目" Foreground="#506070" />
-                                <TextBlock x:Name="EventKindStatText" Text="-" FontSize="24" FontWeight="Bold" />
+                        <Border Grid.Column="2" Classes="metric" Background="#FFF7E8" BorderBrush="#F2E0BE">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="项目" Foreground="#59697E" FontWeight="SemiBold" />
+                                <TextBlock x:Name="EventKindStatText" Text="-" FontSize="26" FontWeight="Bold" Foreground="#0F172A" />
                             </StackPanel>
                         </Border>
-                        <Border Grid.Column="3" Background="#F5EEFF" CornerRadius="8" Padding="14">
-                            <StackPanel>
-                                <TextBlock Text="状态" Foreground="#506070" />
-                                <TextBlock x:Name="PreviewStateText" Text="待预览" FontSize="24" FontWeight="Bold" />
+                        <Border Grid.Column="3" Classes="metric" Background="#F6F1FF" BorderBrush="#E0D4F5">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="状态" Foreground="#59697E" FontWeight="SemiBold" />
+                                <TextBlock x:Name="PreviewStateText" Text="待预览" FontSize="26" FontWeight="Bold" Foreground="#0F172A" />
                             </StackPanel>
                         </Border>
                     </Grid>
 
-                    <StackPanel Grid.Row="1" Margin="0,18,0,12">
-                        <TextBlock x:Name="SummaryText" Classes="section-title" Text="尚未生成抽签预览" />
-                        <TextBlock x:Name="WarningText" Foreground="#8A5B00" TextWrapping="Wrap" Margin="0,6,0,0" />
-                    </StackPanel>
-
-                    <ScrollViewer Grid.Row="2">
-                        <StackPanel Spacing="14">
-                            <TextBlock Classes="section-title" Text="总分组" />
-                            <ItemsControl x:Name="GroupsList" />
-
-                            <TextBlock Classes="section-title" Text="首轮赛" />
-                            <ItemsControl x:Name="RoundOneList" />
-
-                            <TextBlock Classes="section-title" Text="轮空 / 直接晋级" />
-                            <ItemsControl x:Name="ByeList" />
-
-                            <TextBlock Classes="section-title" Text="赛程预览" />
-                            <TextBlock x:Name="ScheduleSummaryText"
-                                       Text="尚未生成赛程"
-                                       Foreground="#4A3A68"
-                                       TextWrapping="Wrap" />
-                            <ItemsControl x:Name="ScheduleList" />
+                    <Border Grid.Row="1"
+                            Background="#FBFCFF"
+                            BorderBrush="#E4EAF3"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="16"
+                            Margin="18,14,18,14">
+                        <StackPanel Spacing="6">
+                            <TextBlock x:Name="SummaryText" Classes="section-title" Text="尚未生成抽签预览" TextWrapping="Wrap" />
+                            <Border x:Name="WarningPanel"
+                                    IsVisible="False"
+                                    Background="#FFF7E8"
+                                    BorderBrush="#F2D39C"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Padding="10,8">
+                                <TextBlock x:Name="WarningText"
+                                           Foreground="#8A5B00"
+                                           TextWrapping="Wrap" />
+                            </Border>
                         </StackPanel>
-                    </ScrollViewer>
+                    </Border>
+
+                    <TabControl Grid.Row="2" Margin="18,0,18,18">
+                        <TabItem Header="抽签结果">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                        <Border Width="4" Height="18" CornerRadius="2" Background="#6D2CC6" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Classes="section-title" Text="总分组" />
+                                    </Grid>
+                                    <ItemsControl x:Name="GroupsList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Classes="preview-row">
+                                                    <Grid ColumnDefinitions="84,*" ColumnSpacing="12">
+                                                        <Border Background="#EFF6FF"
+                                                                BorderBrush="#D4E7FF"
+                                                                BorderThickness="1"
+                                                                CornerRadius="8"
+                                                                Padding="8"
+                                                                VerticalAlignment="Stretch">
+                                                            <StackPanel VerticalAlignment="Center" Spacing="2">
+                                                                <TextBlock Text="{Binding Title}" Foreground="#0F5F9F" FontWeight="Bold" HorizontalAlignment="Center" />
+                                                                <TextBlock Text="{Binding CountText}" Foreground="#526174" FontSize="12" HorizontalAlignment="Center" />
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding Body}"
+                                                                   Foreground="#111827"
+                                                                   TextWrapping="Wrap"
+                                                                   LineHeight="22" />
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                        <Border Width="4" Height="18" CornerRadius="2" Background="#F4B83D" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Classes="section-title" Text="首轮赛" />
+                                    </Grid>
+                                    <ItemsControl x:Name="RoundOneList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Classes="preview-row">
+                                                    <Grid ColumnDefinitions="84,*" ColumnSpacing="12">
+                                                        <Border Background="#FFF7E8"
+                                                                BorderBrush="#F3DEB7"
+                                                                BorderThickness="1"
+                                                                CornerRadius="8"
+                                                                Padding="8">
+                                                            <StackPanel VerticalAlignment="Center" Spacing="2">
+                                                                <TextBlock Text="{Binding Title}" Foreground="#8A5B00" FontWeight="Bold" HorizontalAlignment="Center" />
+                                                                <TextBlock Text="{Binding CountText}" Foreground="#776144" FontSize="12" HorizontalAlignment="Center" />
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Body}" Foreground="#111827" TextWrapping="Wrap" LineHeight="22" />
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                        <Border Width="4" Height="18" CornerRadius="2" Background="#31A46C" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Classes="section-title" Text="轮空 / 直接晋级" />
+                                    </Grid>
+                                    <ItemsControl x:Name="ByeList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Classes="preview-row">
+                                                    <Grid ColumnDefinitions="84,*" ColumnSpacing="12">
+                                                        <Border Background="#EFF8F2"
+                                                                BorderBrush="#D4EADC"
+                                                                BorderThickness="1"
+                                                                CornerRadius="8"
+                                                                Padding="8">
+                                                            <StackPanel VerticalAlignment="Center" Spacing="2">
+                                                                <TextBlock Text="{Binding Title}" Foreground="#2C7350" FontWeight="Bold" HorizontalAlignment="Center" />
+                                                                <TextBlock Text="{Binding CountText}" Foreground="#526B5E" FontSize="12" HorizontalAlignment="Center" />
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Body}" Foreground="#111827" TextWrapping="Wrap" LineHeight="22" />
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem Header="赛程预览">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                                <StackPanel Spacing="12">
+                                    <Border Background="#F8FAFC"
+                                            BorderBrush="#E2E8F0"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Padding="12">
+                                        <TextBlock x:Name="ScheduleSummaryText"
+                                                   Text="尚未生成赛程"
+                                                   Foreground="#35445D"
+                                                   FontWeight="SemiBold"
+                                                   TextWrapping="Wrap" />
+                                    </Border>
+                                    <ItemsControl x:Name="ScheduleList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="{Binding BackgroundBrush}"
+                                                        BorderBrush="{Binding BorderBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="8"
+                                                        Padding="12"
+                                                        Margin="0,0,0,8">
+                                                    <Grid ColumnDefinitions="74,108,68,*" ColumnSpacing="10">
+                                                        <Border Background="{Binding BadgeBrush}"
+                                                                CornerRadius="8"
+                                                                Padding="8,6"
+                                                                VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding Status}"
+                                                                       Foreground="{Binding BadgeForeground}"
+                                                                       FontWeight="Bold"
+                                                                       HorizontalAlignment="Center" />
+                                                        </Border>
+                                                        <StackPanel Grid.Column="1" Spacing="2">
+                                                            <TextBlock Text="{Binding TimeText}" FontWeight="SemiBold" Foreground="#111827" />
+                                                            <TextBlock Text="{Binding CourtText}" Foreground="#64748B" FontSize="12" />
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="2"
+                                                                   Text="{Binding Title}"
+                                                                   Foreground="#28104E"
+                                                                   FontWeight="Bold"
+                                                                   VerticalAlignment="Center"
+                                                                   TextWrapping="Wrap" />
+                                                        <StackPanel Grid.Column="3" Spacing="3">
+                                                            <TextBlock Text="{Binding Pairing}"
+                                                                       Foreground="#111827"
+                                                                       TextWrapping="Wrap" />
+                                                            <TextBlock Text="{Binding Note}"
+                                                                       Foreground="#6F7890"
+                                                                       FontSize="12"
+                                                                       TextWrapping="Wrap" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                    </TabControl>
                 </Grid>
             </Border>
         </Grid>
 
-        <Border Grid.Row="2" Background="White" BorderBrush="#E4D7FA" BorderThickness="0,1,0,0" Padding="24,10">
-            <TextBlock x:Name="StatusText"
-                       Text="准备就绪。macOS 版已接入名单模板、名单导入、抽签预览、基础赛程和 Excel 导出。"
-                       Foreground="#5A4B7E"
-                       TextWrapping="Wrap" />
+        <Border x:Name="StatusBar"
+                Grid.Row="2"
+                Background="#FFFFFF"
+                BorderBrush="#DCE3EF"
+                BorderThickness="0,1,0,0"
+                Padding="24,11">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                <Border x:Name="StatusDot"
+                        Width="9"
+                        Height="9"
+                        CornerRadius="5"
+                        Background="#19A974"
+                        VerticalAlignment="Center" />
+                <TextBlock x:Name="StatusText"
+                           Grid.Column="1"
+                           Text="准备就绪。macOS 版已接入名单模板、名单导入、抽签预览、基础赛程和 Excel 导出。"
+                           Foreground="#41506A"
+                           FontWeight="SemiBold"
+                           TextWrapping="Wrap" />
+            </Grid>
         </Border>
     </Grid>
 </Window>
