@@ -7,6 +7,8 @@ public sealed class DrawResultVisualWriter
 {
     private const string DefaultSheetName = "对阵表";
     private const long MaxPngBytes = 20L * 1024L * 1024L;
+    private const long MaxRasterPixels = 90L * 1000L * 1000L;
+    private const int MaxRasterDimension = 32000;
     private const float PointsToPixels = 96f / 72f;
     private const float ExcelColumnWidthToPixels = 8.3f;
     private const float CanvasMargin = 18;
@@ -20,6 +22,8 @@ public sealed class DrawResultVisualWriter
     private const float TextWidthSafetyFactor = 0.9f;
     private const float DefaultFontSize = 10f * PointsToPixels;
     private const string DefaultFontName = "Microsoft YaHei";
+
+    private static readonly float[] PngScaleCandidates = [4f, 3.75f, 3.5f, 3.25f, 3f, 2.75f, 2.5f, 2.25f, 2f, 1.75f, 1.5f, 1.25f, 1f];
 
     private static readonly SKColor White = SKColors.White;
     private static readonly SKColor Black = SKColors.Black;
@@ -545,9 +549,7 @@ public sealed class DrawResultVisualWriter
         var text = cell.GetFormattedString();
         var fill = ToSkColor(style.Fill.BackgroundColor, White);
         var fontColor = ToSkColor(style.Font.FontColor, Black);
-        var fontName = string.IsNullOrWhiteSpace(style.Font.FontName)
-            ? DefaultFontName
-            : style.Font.FontName;
+        var fontName = GetPlatformFontName(style.Font.FontName);
         var fontSize = (float)Math.Max(6, style.Font.FontSize * PointsToPixels);
 
         return new VisualCell(
@@ -611,6 +613,30 @@ public sealed class DrawResultVisualWriter
         }
     }
 
+    private static string GetPlatformFontName(string fontName)
+    {
+        var normalized = string.IsNullOrWhiteSpace(fontName)
+            ? DefaultFontName
+            : fontName.Trim();
+        if (OperatingSystem.IsMacOS() && IsMicrosoftYaHei(normalized))
+        {
+            return "PingFang SC";
+        }
+
+        if (OperatingSystem.IsLinux() && IsMicrosoftYaHei(normalized))
+        {
+            return "Noto Sans CJK SC";
+        }
+
+        return normalized;
+    }
+
+    private static bool IsMicrosoftYaHei(string fontName)
+    {
+        return fontName.Contains("Microsoft YaHei", StringComparison.OrdinalIgnoreCase)
+            || fontName.Contains("微软雅黑", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static void WriteRaster(
         string outputPath,
         WorksheetLayout layout,
@@ -619,17 +645,26 @@ public sealed class DrawResultVisualWriter
         float scale,
         bool transparentBackground)
     {
+        var width = Math.Max(1, (int)Math.Ceiling(layout.Width * scale));
+        var height = Math.Max(1, (int)Math.Ceiling(layout.Height * scale));
+        if (!IsRasterSizeAllowed(width, height))
+        {
+            throw new InvalidOperationException($"导出图片尺寸过大：{width}×{height}。请改用 Excel/PDF，或减少对阵表分页范围。");
+        }
+
         var imageInfo = new SKImageInfo(
-            Math.Max(1, (int)Math.Ceiling(layout.Width * scale)),
-            Math.Max(1, (int)Math.Ceiling(layout.Height * scale)),
+            width,
+            height,
             SKColorType.Bgra8888,
             transparentBackground ? SKAlphaType.Premul : SKAlphaType.Opaque);
 
-        using var surface = SKSurface.Create(imageInfo);
+        using var surface = SKSurface.Create(imageInfo)
+            ?? throw new InvalidOperationException($"无法创建图片画布：{width}×{height}。");
         surface.Canvas.Scale(scale);
         DrawLayout(surface.Canvas, layout, transparentBackground ? SKColors.Transparent : White);
         using var image = surface.Snapshot();
-        using var data = image.Encode(imageFormat, quality);
+        using var data = image.Encode(imageFormat, quality)
+            ?? throw new InvalidOperationException("图片编码失败。");
         using var stream = File.Create(outputPath);
         data.SaveTo(stream);
     }
@@ -639,7 +674,7 @@ public sealed class DrawResultVisualWriter
         var tempPath = Path.Combine(Path.GetTempPath(), $"badminton-draw-png-{Guid.NewGuid():N}.png");
         try
         {
-            foreach (var scale in new[] { 4f, 3.75f, 3.5f, 3.25f, 3f, 2.75f, 2.5f, 2.25f, 2f, 1.75f, 1.5f, 1.25f, 1f })
+            foreach (var scale in GetSafePngScales(layout))
             {
                 WriteRaster(tempPath, layout, SKEncodedImageFormat.Png, 100, scale, transparentBackground: true);
                 var length = new FileInfo(tempPath).Length;
@@ -657,6 +692,37 @@ public sealed class DrawResultVisualWriter
                 File.Delete(tempPath);
             }
         }
+    }
+
+    private static IReadOnlyList<float> GetSafePngScales(WorksheetLayout layout)
+    {
+        var scales = PngScaleCandidates
+            .Where(scale => IsRasterSizeAllowed(layout, scale))
+            .ToList();
+        if (scales.Count > 0)
+        {
+            return scales;
+        }
+
+        var widthScale = MaxRasterDimension / Math.Max(1f, layout.Width);
+        var heightScale = MaxRasterDimension / Math.Max(1f, layout.Height);
+        var pixelScale = (float)Math.Sqrt(MaxRasterPixels / Math.Max(1d, (double)layout.Width * layout.Height));
+        var fallbackScale = Math.Max(0.1f, Math.Min(1f, Math.Min(Math.Min(widthScale, heightScale), pixelScale)));
+        return [fallbackScale];
+    }
+
+    private static bool IsRasterSizeAllowed(WorksheetLayout layout, float scale)
+    {
+        var width = Math.Max(1L, (long)Math.Ceiling(layout.Width * scale));
+        var height = Math.Max(1L, (long)Math.Ceiling(layout.Height * scale));
+        return IsRasterSizeAllowed(width, height);
+    }
+
+    private static bool IsRasterSizeAllowed(long width, long height)
+    {
+        return width <= MaxRasterDimension
+            && height <= MaxRasterDimension
+            && width * height <= MaxRasterPixels;
     }
 
     private static void WriteA4Pdf(string outputPath, WorksheetLayout layout, int rows, int columns)
