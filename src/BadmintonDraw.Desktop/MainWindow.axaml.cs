@@ -64,6 +64,7 @@ public partial class MainWindow : Window
     private DrawResult? _latestResult;
     private SchedulePlan? _latestSchedule;
     private string? _loadedInputPath;
+    private bool _uiReady;
 
     public MainWindow()
     {
@@ -71,6 +72,17 @@ public partial class MainWindow : Window
         SeedBox.Text = DrawWorkflow.GenerateSeed();
         ScheduleDateBox.Text = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
         ScheduleDaysList.ItemsSource = _scheduleDays;
+        Opened += MainWindow_Opened;
+    }
+
+    private void MainWindow_Opened(object? sender, EventArgs e)
+    {
+        if (_uiReady)
+        {
+            return;
+        }
+
+        _uiReady = true;
         ApplyScheduleCourtPreset();
         AddCurrentScheduleDay(showStatus: false);
     }
@@ -285,7 +297,7 @@ public partial class MainWindow : Window
 
     private void ScheduleVenueBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (IsInitialized)
+        if (_uiReady)
         {
             ApplyScheduleCourtPreset();
         }
