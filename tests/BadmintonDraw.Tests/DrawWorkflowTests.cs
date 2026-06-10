@@ -1,5 +1,6 @@
 using BadmintonDraw.Core;
 using BadmintonDraw.Excel;
+using BadmintonDraw.Workflows;
 using ClosedXML.Excel;
 using SkiaSharp;
 using System.Text;
@@ -1130,6 +1131,26 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void ScheduleWorkflowExpandsCourtRanges()
+    {
+        var courts = ScheduleWorkflow.ParseCourts("B1-B3 C1-C2 D4-5 B2");
+
+        Assert.Equal(["B1", "B2", "B3", "C1", "C2", "D4", "D5"], courts);
+    }
+
+    [Fact]
+    public void ScheduleWorkflowExpandsCrossPrefixCourtRanges()
+    {
+        var courts = ScheduleWorkflow.ParseCourts("B1-C8");
+
+        Assert.Equal(16, courts.Count);
+        Assert.Equal("B1", courts[0]);
+        Assert.Equal("B8", courts[7]);
+        Assert.Equal("C1", courts[8]);
+        Assert.Equal("C8", courts[15]);
+    }
+
+    [Fact]
     public void ScheduleExcelWriterExportsDetailAndGridSheets()
     {
         var participants = CreateParticipants(6);
@@ -1200,6 +1221,43 @@ public sealed class DrawWorkflowTests
         }
         finally
         {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public void DrawWorkflowGeneratesAndExportsExcel()
+    {
+        var inputPath = Path.Combine(Path.GetTempPath(), $"badminton-workflow-input-{Guid.NewGuid():N}.xlsx");
+        var outputPath = Path.Combine(Path.GetTempPath(), $"badminton-workflow-output-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            WriteParticipantRowsWorkbook(
+                inputPath,
+                new ParticipantWorkbookRow("张三", TeamName: "学院A"),
+                new ParticipantWorkbookRow("李四", TeamName: "学院B"),
+                new ParticipantWorkbookRow("王五", TeamName: "学院C"),
+                new ParticipantWorkbookRow("赵六", TeamName: "学院D"));
+
+            var workflow = new DrawWorkflow();
+            var result = workflow.Generate(new DrawWorkflowRequest(
+                inputPath,
+                CompetitionMode.SinglesKnockout,
+                EventKind.Singles,
+                GroupCount: 1,
+                RandomSeed: "workflow-seed",
+                KnockoutGoal: KnockoutGoal.Champion,
+                PlacementPlayoff: PlacementPlayoff.None));
+            workflow.ExportExcel(outputPath, result);
+
+            Assert.Equal(4, result.Result.Audit.ParticipantCount);
+            Assert.Empty(result.WarningMessages);
+            AssertFileHeader(outputPath, [0x50, 0x4B, 0x03, 0x04]);
+        }
+        finally
+        {
+            DeleteIfExists(inputPath);
             DeleteIfExists(outputPath);
         }
     }

@@ -20,6 +20,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../BadmintonDraw.Core/BadmintonDraw.Core.csproj" />
-    <ProjectReference Include="../BadmintonDraw.Excel/BadmintonDraw.Excel.csproj" />
+    <ProjectReference Include="../BadmintonDraw.Workflows/BadmintonDraw.Workflows.csproj" />
   </ItemGroup>
 </Project>

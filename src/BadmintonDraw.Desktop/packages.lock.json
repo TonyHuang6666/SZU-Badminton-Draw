@@ -297,6 +297,13 @@
           "ClosedXML": "[0.104.2, )",
           "SkiaSharp": "[2.88.9, )"
         }
+      },
+      "badmintondraw.workflows": {
+        "type": "Project",
+        "dependencies": {
+          "BadmintonDraw.Core": "[1.0.0, )",
+          "BadmintonDraw.Excel": "[1.0.0, )"
+        }
       }
     }
   }

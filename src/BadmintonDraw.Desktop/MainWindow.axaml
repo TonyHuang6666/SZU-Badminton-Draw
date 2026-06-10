@@ -41,7 +41,7 @@
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel>
                     <TextBlock Text="深大羽协抽签工具" FontSize="30" FontWeight="Bold" Foreground="#33106B" />
-                    <TextBlock Text="macOS / Windows / Linux 跨平台预览版：名单模板、名单导入、抽签预览、Excel 导出"
+                    <TextBlock Text="macOS / Windows / Linux 跨平台预览版：名单导入、抽签预览、基础赛程、Excel 导出"
                                Foreground="#6C5C8F" Margin="0,6,0,0" />
                 </StackPanel>
                 <TextBlock Grid.Column="1"
@@ -110,6 +110,46 @@
                             <Button Classes="primary" Content="预览抽签" Click="Preview_Click" />
                             <Button Grid.Column="1" Classes="secondary" Content="导出 Excel" Click="Export_Click" />
                         </Grid>
+
+                        <Border Height="1" Background="#E7DCF9" Margin="0,22,0,6" />
+                        <TextBlock Classes="section-title" Text="赛程编排" />
+
+                        <TextBlock Classes="label" Text="比赛日期" />
+                        <TextBox x:Name="ScheduleDateBox" PlaceholderText="yyyy-MM-dd" />
+
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                            <StackPanel>
+                                <TextBlock Classes="label" Text="开始时间" />
+                                <TextBox x:Name="ScheduleStartBox" Text="14:00" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Classes="label" Text="结束时间" />
+                                <TextBox x:Name="ScheduleEndBox" Text="18:00" />
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock Classes="label" Text="场地" />
+                        <TextBox x:Name="ScheduleCourtsBox"
+                                 Text="B1-B8 C1-C8"
+                                 AcceptsReturn="True"
+                                 MinHeight="56"
+                                 TextWrapping="Wrap" />
+
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                            <StackPanel>
+                                <TextBlock Classes="label" Text="每场分钟" />
+                                <TextBox x:Name="ScheduleMatchMinutesBox" Text="30" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Classes="label" Text="每日最多场" />
+                                <TextBox x:Name="ScheduleMaxMatchesBox" Text="2" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8" Margin="0,18,0,0">
+                            <Button Classes="primary" Content="生成赛程" Click="GenerateSchedule_Click" />
+                            <Button Grid.Column="1" Classes="secondary" Content="导出赛程" Click="ExportSchedule_Click" />
+                        </Grid>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
@@ -158,6 +198,13 @@
 
                             <TextBlock Classes="section-title" Text="轮空 / 直接晋级" />
                             <ItemsControl x:Name="ByeList" />
+
+                            <TextBlock Classes="section-title" Text="赛程预览" />
+                            <TextBlock x:Name="ScheduleSummaryText"
+                                       Text="尚未生成赛程"
+                                       Foreground="#4A3A68"
+                                       TextWrapping="Wrap" />
+                            <ItemsControl x:Name="ScheduleList" />
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>
@@ -166,7 +213,7 @@
 
         <Border Grid.Row="2" Background="White" BorderBrush="#E4D7FA" BorderThickness="0,1,0,0" Padding="24,10">
             <TextBlock x:Name="StatusText"
-                       Text="准备就绪。第一阶段 macOS 版已接入名单模板、名单导入、抽签预览和 Excel 导出。"
+                       Text="准备就绪。macOS 版已接入名单模板、名单导入、抽签预览、基础赛程和 Excel 导出。"
                        Foreground="#5A4B7E"
                        TextWrapping="Wrap" />
         </Border>

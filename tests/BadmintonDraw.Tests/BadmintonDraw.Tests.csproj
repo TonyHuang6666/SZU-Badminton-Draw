@@ -16,5 +16,6 @@
   <ItemGroup>
     <ProjectReference Include="../../src/BadmintonDraw.Core/BadmintonDraw.Core.csproj" />
     <ProjectReference Include="../../src/BadmintonDraw.Excel/BadmintonDraw.Excel.csproj" />
+    <ProjectReference Include="../../src/BadmintonDraw.Workflows/BadmintonDraw.Workflows.csproj" />
   </ItemGroup>
 </Project>

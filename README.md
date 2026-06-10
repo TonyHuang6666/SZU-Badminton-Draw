@@ -26,6 +26,7 @@
 
 - `src/BadmintonDraw.Core`：抽签和赛程编排核心算法，不依赖界面和 Excel。
 - `src/BadmintonDraw.Excel`：参赛名单 Excel 导入、结果 Excel/图片/PDF 导出、名单模板生成、赛程表导出。
+- `src/BadmintonDraw.Workflows`：跨 UI 复用的抽签、赛程工作流封装，供 WPF 和 Avalonia 逐步共用。
 - `src/BadmintonDraw.App`：Windows WPF 图形界面。
 - `src/BadmintonDraw.Desktop`：Avalonia 跨平台桌面预览版，用于同步开发 macOS/Windows/Linux 版本。
 - `tests/BadmintonDraw.Tests`：基于 xUnit 的算法、导入、导出和赛程编排测试。
@@ -58,7 +59,7 @@
 
 ### macOS 预览版
 
-macOS/跨平台桌面版位于 `src/BadmintonDraw.Desktop`，使用 Avalonia，第一阶段已支持名单模板、名单导入、抽签预览和 Excel 导出。详细开发和运行说明见 [docs/macos.md](docs/macos.md)。
+macOS/跨平台桌面版位于 `src/BadmintonDraw.Desktop`，使用 Avalonia，当前已支持名单模板、名单导入、抽签预览、抽签 Excel 导出，以及基础赛程预览和赛程 Excel 导出。详细开发和运行说明见 [docs/macos.md](docs/macos.md)。
 
 ## 导出结果
 
