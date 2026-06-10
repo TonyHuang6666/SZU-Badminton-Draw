@@ -1,32 +1,24 @@
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using BadmintonDraw.Core;
 using BadmintonDraw.Excel;
+using BadmintonDraw.Workflows;
 using Microsoft.Win32;
 
 namespace BadmintonDraw.App;
 
 public partial class MainWindow : Window
 {
-    private const string BracketSheetName = "对阵表";
-    private const string ScheduleGridSheetName = "时间场地网格";
-
-    private readonly DrawService _drawService = new();
-    private readonly ParticipantExcelReader _reader = new();
-    private readonly DrawResultExcelWriter _writer = new();
-    private readonly DrawResultVisualWriter _visualWriter = new();
-    private readonly ParticipantTemplateWriter _templateWriter = new();
-    private readonly ScheduleService _scheduleService = new();
-    private readonly ScheduleExcelWriter _scheduleWriter = new();
-    private readonly MatchRecordReader _matchRecordReader = new();
+    private readonly DrawWorkflow _drawWorkflow = new();
+    private readonly ScheduleWorkflow _scheduleWorkflow = new();
     private IReadOnlyList<DrawParticipant> _participants = Array.Empty<DrawParticipant>();
     private IReadOnlyList<ParticipantImportWarning> _importWarnings = Array.Empty<ParticipantImportWarning>();
     private readonly ObservableCollection<ScheduleDayRow> _scheduleDays = [];
     private string? _loadedInputPath;
     private DrawResult? _latestResult;
+    private DrawWorkflowResult? _latestWorkflowResult;
     private SchedulePlan? _latestSchedule;
 
     public MainWindow()
@@ -90,7 +82,7 @@ public partial class MainWindow : Window
             Filter = GetDialogFilter(exportFormat),
             DefaultExt = GetExportExtension(exportFormat),
             AddExtension = true,
-            FileName = BuildDefaultExportFileName(_latestResult!, _loadedInputPath ?? InputPathBox.Text, exportFormat),
+            FileName = DrawWorkflow.BuildDefaultDrawFileName(_latestResult!, _loadedInputPath ?? InputPathBox.Text, ToWorkflowExportFormat(exportFormat)),
             Title = "保存抽签结果"
         };
 
@@ -119,7 +111,7 @@ public partial class MainWindow : Window
 
         if (dialog.ShowDialog(this) == true)
         {
-            _templateWriter.Write(dialog.FileName);
+            _drawWorkflow.WriteTemplate(dialog.FileName);
             SetStatus($"已生成名单模板：{dialog.FileName}");
         }
     }
@@ -182,7 +174,7 @@ public partial class MainWindow : Window
             Filter = GetDialogFilter(exportFormat),
             DefaultExt = GetExportExtension(exportFormat),
             AddExtension = true,
-            FileName = BuildDefaultScheduleFileName(_latestResult, _loadedInputPath ?? InputPathBox.Text, exportFormat),
+            FileName = ScheduleWorkflow.BuildDefaultScheduleFileName(_latestResult, _loadedInputPath ?? InputPathBox.Text, ToWorkflowExportFormat(exportFormat)),
             Title = "保存赛程表"
         };
 
@@ -240,7 +232,7 @@ public partial class MainWindow : Window
             Filter = "Excel 文件 (*.xlsx)|*.xlsx",
             DefaultExt = ".xlsx",
             AddExtension = true,
-            FileName = BuildDefaultMatchRecordFileName(dayLabel),
+            FileName = ScheduleWorkflow.BuildDefaultMatchRecordFileName(dayLabel),
             Title = "保存赛程记录表"
         };
 
@@ -248,7 +240,7 @@ public partial class MainWindow : Window
         {
             try
             {
-                _scheduleWriter.WriteMatchRecord(dialog.FileName, _latestSchedule, dayLabel);
+                _scheduleWorkflow.ExportMatchRecord(dialog.FileName, _latestSchedule, dayLabel);
                 SetStatus($"赛程记录表已导出：{dialog.FileName}");
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or DrawValidationException)
@@ -294,14 +286,14 @@ public partial class MainWindow : Window
 
         try
         {
-            var importResult = _matchRecordReader.ReadMany(importDialog.FileNames);
+            var importResult = _scheduleWorkflow.ImportMatchRecords(importDialog.FileNames);
             if (importResult.ExpectedMatchCount == 0)
             {
                 SetStatus("所选记录表中没有识别到可处理的比赛场次，请确认是本工具导出的赛程记录表。", isError: true);
                 return;
             }
 
-            var nextDayLabel = GetNextMatchRecordDayLabel(_latestSchedule, importResult);
+            var nextDayLabel = ScheduleWorkflow.GetNextMatchRecordDayLabel(_latestSchedule, importResult);
             if (string.IsNullOrWhiteSpace(nextDayLabel))
             {
                 SetStatus("已读取比赛结果，但当前赛程没有下一比赛日可导出。", StatusKind.Warning);
@@ -319,18 +311,18 @@ public partial class MainWindow : Window
                 Filter = "Excel 文件 (*.xlsx)|*.xlsx",
                 DefaultExt = ".xlsx",
                 AddExtension = true,
-                FileName = BuildDefaultMatchRecordFileName(nextDayLabel),
+                FileName = ScheduleWorkflow.BuildDefaultMatchRecordFileName(nextDayLabel),
                 Title = "保存下一比赛日赛程记录表"
             };
 
             if (exportDialog.ShowDialog(this) == true)
             {
-                _scheduleWriter.WriteMatchRecord(
+                _scheduleWorkflow.ExportMatchRecord(
                     exportDialog.FileName,
                     _latestSchedule,
                     nextDayLabel,
                     importResult.Results,
-                    importResult.PendingMatchNames);
+                    importResult.PendingMatchNames.ToHashSet(StringComparer.Ordinal));
                 var pendingText = importResult.PendingMatchNames.Count > 0
                     ? $"，顺延 {importResult.PendingMatchNames.Count} 场未决比赛"
                     : "";
@@ -408,7 +400,7 @@ public partial class MainWindow : Window
         try
         {
             var detectedEventKind = TryApplyDetectedEventKind();
-            ApplyImportResult(_reader.ReadParticipantsWithWarnings(InputPathBox.Text, GetEventKind()));
+            ApplyImportResult(_drawWorkflow.LoadParticipants(InputPathBox.Text, GetEventKind()));
             SummaryText.Text = $"已导入 {_participants.Count} 个参赛单位";
             PreviewStateText.Text = "待预览";
             UpdatePreviewBadges();
@@ -448,25 +440,24 @@ public partial class MainWindow : Window
                 throw new DrawValidationException("小组数必须是数字。");
             }
 
-            var settings = new DrawSettings(
+            var request = new DrawWorkflowRequest(
+                InputPathBox.Text,
                 GetCompetitionMode(),
                 GetEventKind(),
                 groupCount,
                 SeedBox.Text,
-                KnockoutGoal: GetKnockoutGoal(),
-                PlacementPlayoff: GetPlacementPlayoff());
-
-            ApplyImportResult(_reader.ReadParticipantsWithWarnings(InputPathBox.Text, settings.EventKind));
-            _latestResult = _drawService.Generate(_participants, settings);
+                GetKnockoutGoal(),
+                GetPlacementPlayoff());
+            ApplyWorkflowResult(_drawWorkflow.Generate(request));
             ClearSchedulePreview();
             UpdateScheduleTimingSplitVisibility();
 
-            GroupsGrid.ItemsSource = ToRows(_latestResult.Groups);
+            GroupsGrid.ItemsSource = ToRows(_latestResult!.Groups);
             RoundOneGrid.ItemsSource = ToRows(_latestResult.RoundOneGroups);
             ByeGrid.ItemsSource = ToRows(_latestResult.ByeGroups);
             SummaryText.Text = $"已生成 {_latestResult.Groups.Count} 个小组";
             ParticipantCountText.Text = _latestResult.Audit.ParticipantCount.ToString();
-            EventKindStatText.Text = GetEventKindDisplay(settings.EventKind);
+            EventKindStatText.Text = GetEventKindDisplay(request.EventKind);
             GroupCountStatText.Text = groupCount.ToString();
             PreviewStateText.Text = "已预览";
             UpdatePreviewBadges(_latestResult);
@@ -506,12 +497,12 @@ public partial class MainWindow : Window
             }
 
             var settings = BuildScheduleSettings();
-            _latestSchedule = _scheduleService.Generate(_latestResult, settings);
+            _latestSchedule = _scheduleWorkflow.Generate(_latestResult, settings);
             ScheduleGrid.ItemsSource = ToScheduleRows(_latestSchedule);
             ScheduleSummaryText.Text = _latestSchedule.IsComplete
                 ? $"已生成 {_latestSchedule.Matches.Count} 场，预计 {_latestSchedule.DayCount} 个比赛日"
                 : $"已安排 {_latestSchedule.Matches.Count} 场，未安排 {_latestSchedule.UnscheduledMatches.Count} 场，共 {_latestSchedule.TotalMatchCount} 场";
-            ScheduleCapacityText.Text = BuildScheduleCapacityText(settings);
+            ScheduleCapacityText.Text = ScheduleWorkflow.BuildScheduleCapacityText(settings);
             if (_latestSchedule.IsComplete)
             {
                 SetStatus($"赛程预览已生成：共 {_latestSchedule.Matches.Count} 场，预计 {_latestSchedule.DayCount} 个比赛日。");
@@ -541,27 +532,33 @@ public partial class MainWindow : Window
             GetSelectedComboBoxText(MaxMatchesPerDayBox),
             useTimingSplit ? "分界线后单名选手每日最多场次" : "单名选手每日最多场次");
         var boundaryEntrants = useTimingSplit ? GetSelectedComboBoxTagInt(ScheduleTimingBoundaryBox) : 0;
-        ScheduleTimingSettings? beforeBoundaryTiming = null;
+        int? beforeBoundaryMatchMinutes = null;
+        int? beforeBoundaryMaxMatchesPerDay = null;
         if (boundaryEntrants > 0)
         {
-            var beforeMatchMinutes = ParsePositiveScheduleInt(BeforeBoundaryMatchMinutesBox.Text, "分界线前单场比赛耗时");
-            var beforeMaxMatchesPerDay = ParsePositiveScheduleInt(
+            beforeBoundaryMatchMinutes = ParsePositiveScheduleInt(BeforeBoundaryMatchMinutesBox.Text, "分界线前单场比赛耗时");
+            beforeBoundaryMaxMatchesPerDay = ParsePositiveScheduleInt(
                 GetSelectedComboBoxText(BeforeBoundaryMaxMatchesPerDayBox),
                 "分界线前单名选手每日最多场次");
-            beforeBoundaryTiming = new ScheduleTimingSettings(beforeMatchMinutes, beforeMaxMatchesPerDay);
         }
 
         var days = _scheduleDays
             .OrderBy(day => day.DateValue)
-            .Select(day => new ScheduleDaySettings(day.DateValue, day.StartTime, day.EndTime, day.Courts))
+            .Select(day => new ScheduleDayWorkflowRequest(
+                day.DateValue,
+                day.StartTime,
+                day.EndTime,
+                day.Venue,
+                string.Join("，", day.Courts)))
             .ToList();
 
-        return new ScheduleSettings(
+        return ScheduleWorkflow.BuildSettings(
             days,
             matchMinutes,
             maxMatchesPerDay,
             boundaryEntrants > 0 ? boundaryEntrants : null,
-            beforeBoundaryTiming);
+            beforeBoundaryMatchMinutes,
+            beforeBoundaryMaxMatchesPerDay);
     }
 
     private void AddCurrentScheduleDay()
@@ -576,7 +573,7 @@ public partial class MainWindow : Window
             throw new DrawValidationException("赛程结束时间必须晚于开始时间。");
         }
 
-        var courts = ParseCourts(ScheduleCourtsBox.Text);
+        var courts = ScheduleWorkflow.ParseCourts(ScheduleCourtsBox.Text);
         var venue = ScheduleVenueBox.SelectedItem is ComboBoxItem item
             ? item.Content?.ToString() ?? "自定义"
             : "自定义";
@@ -610,21 +607,6 @@ public partial class MainWindow : Window
         }
 
         return 0;
-    }
-
-    private static IReadOnlyList<string> ParseCourts(string value)
-    {
-        var courts = Regex.Split(value, @"[,\s，、;；]+")
-            .Select(item => item.Trim())
-            .Where(item => !string.IsNullOrWhiteSpace(item))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-        if (courts.Count == 0)
-        {
-            throw new DrawValidationException("请填写至少一片可用场地。");
-        }
-
-        return courts;
     }
 
     private static TimeOnly ParseScheduleTime(string value, string name)
@@ -702,6 +684,7 @@ public partial class MainWindow : Window
         _importWarnings = Array.Empty<ParticipantImportWarning>();
         _loadedInputPath = null;
         _latestResult = null;
+        _latestWorkflowResult = null;
         GroupsGrid.ItemsSource = null;
         RoundOneGrid.ItemsSource = null;
         ByeGrid.ItemsSource = null;
@@ -711,10 +694,20 @@ public partial class MainWindow : Window
         UpdatePreviewBadges();
     }
 
-    private void ApplyImportResult(ParticipantImportResult importResult)
+    private void ApplyImportResult(ParticipantLoadResult importResult)
     {
         _participants = importResult.Participants;
-        _importWarnings = importResult.Warnings;
+        _importWarnings = importResult.ImportWarnings;
+        _loadedInputPath = InputPathBox.Text;
+        _latestWorkflowResult = null;
+    }
+
+    private void ApplyWorkflowResult(DrawWorkflowResult workflowResult)
+    {
+        _latestWorkflowResult = workflowResult;
+        _latestResult = workflowResult.Result;
+        _participants = workflowResult.Participants;
+        _importWarnings = workflowResult.ImportWarnings;
         _loadedInputPath = InputPathBox.Text;
     }
 
@@ -805,7 +798,7 @@ public partial class MainWindow : Window
 
         var originalMode = GetCompetitionMode();
         var originalEventKind = GetEventKind();
-        var detectedEventKind = _reader.DetectEventKind(InputPathBox.Text, originalEventKind);
+        var detectedEventKind = _drawWorkflow.DetectEventKind(InputPathBox.Text, originalEventKind);
 
         if (detectedEventKind == EventKind.Team)
         {
@@ -987,7 +980,7 @@ public partial class MainWindow : Window
 
     private static string GenerateSeed()
     {
-        return $"SZUBA-{DateTime.Now:yyyyMMdd-HHmmss}-{Random.Shared.Next(1000, 9999)}";
+        return DrawWorkflow.GenerateSeed();
     }
 
     private string? GetSelectedMatchRecordDayLabel(SchedulePlan plan)
@@ -1004,43 +997,6 @@ public partial class MainWindow : Window
             ?? plan.Matches.FirstOrDefault()?.DayLabel;
     }
 
-    private static string? GetNextMatchRecordDayLabel(SchedulePlan plan, MatchRecordImportResult importResult)
-    {
-        var scheduleDays = plan.Matches
-            .Select(match => match.DayLabel)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-        if (scheduleDays.Count == 0 || importResult.DayLabels.Count == 0)
-        {
-            return null;
-        }
-
-        var importedDaySet = importResult.DayLabels.ToHashSet(StringComparer.Ordinal);
-        var importedIndexes = scheduleDays
-            .Select((day, index) => importedDaySet.Contains(day) ? index : -1)
-            .Where(index => index >= 0)
-            .ToList();
-        if (importedIndexes.Count > 0)
-        {
-            var nextIndex = importedIndexes.Max() + 1;
-            return nextIndex < scheduleDays.Count ? scheduleDays[nextIndex] : null;
-        }
-
-        var latestImportedDate = importResult.DayLabels
-            .Select(day => DateOnly.TryParse(day, out var date) ? date : (DateOnly?)null)
-            .Where(date => date.HasValue)
-            .Select(date => date!.Value)
-            .DefaultIfEmpty()
-            .Max();
-        if (latestImportedDate == default)
-        {
-            return null;
-        }
-
-        return scheduleDays.FirstOrDefault(day =>
-            DateOnly.TryParse(day, out var date) && date > latestImportedDate);
-    }
-
     private static bool HasExplicitScheduleSides(ScheduledMatch match)
     {
         return !IsOutcomeReference(match.SideA) && !IsOutcomeReference(match.SideB);
@@ -1052,68 +1008,9 @@ public partial class MainWindow : Window
             || side.EndsWith("负者", StringComparison.Ordinal);
     }
 
-    private static string BuildDefaultExportFileName(DrawResult result, string inputPath, ExportFormat format)
-    {
-        var parts = new List<string>
-        {
-            ExtractEventName(inputPath),
-            GetCompetitionModeFileNamePart(result.Settings.CompetitionMode),
-            GetEventScaleFileNamePart(result.Settings.EventKind, result.Audit.ParticipantCount),
-            $"{result.Audit.GroupCount}组"
-        };
-
-        var knockoutGoalPart = GetKnockoutGoalFileNamePart(result.Settings);
-        if (!string.IsNullOrWhiteSpace(knockoutGoalPart))
-        {
-            parts.Add(knockoutGoalPart);
-        }
-
-        var placementPlayoffPart = GetPlacementPlayoffFileNamePart(result.Settings);
-        if (!string.IsNullOrWhiteSpace(placementPlayoffPart))
-        {
-            parts.Add(placementPlayoffPart);
-        }
-
-        parts.Add(result.Audit.GeneratedAt.LocalDateTime.ToString("yyyyMMdd_HHmm"));
-        parts.Add($"seed{GetSeedTail(result.Audit.RandomSeed)}");
-
-        var stem = string.Join("_", parts.Select(SanitizeFileNamePart).Where(part => !string.IsNullOrWhiteSpace(part)));
-        stem = LimitFileNameLength(stem, maxLength: 150);
-
-        return $"{stem}{GetExportExtension(format)}";
-    }
-
-    private static string BuildDefaultScheduleFileName(DrawResult result, string inputPath, ExportFormat format)
-    {
-        var parts = new List<string>
-        {
-            ExtractEventName(inputPath),
-            "赛程表",
-            GetCompetitionModeFileNamePart(result.Settings.CompetitionMode),
-            GetEventScaleFileNamePart(result.Settings.EventKind, result.Audit.ParticipantCount),
-            $"{result.Audit.GroupCount}组",
-            GetPlacementPlayoffFileNamePart(result.Settings) ?? "",
-            DateTime.Now.ToString("yyyyMMdd_HHmm")
-        };
-
-        var stem = string.Join("_", parts.Select(SanitizeFileNamePart).Where(part => !string.IsNullOrWhiteSpace(part)));
-        stem = LimitFileNameLength(stem, maxLength: 150);
-
-        return $"{stem}{GetExportExtension(format)}";
-    }
-
-    private static string BuildDefaultMatchRecordFileName(string dayLabel)
-    {
-        var stem = DateOnly.TryParse(dayLabel, out var date)
-            ? $"{date.Month}月{date.Day}日赛程记录表"
-            : $"{dayLabel}赛程记录表";
-
-        return $"{SanitizeFileNamePart(stem)}.xlsx";
-    }
-
     private bool ConfirmMatchRecordWarnings(MatchRecordImportResult importResult, string nextDayLabel)
     {
-        var message = BuildMatchRecordImportWarning(importResult, nextDayLabel);
+        var message = ScheduleWorkflow.BuildMatchRecordImportWarning(importResult, nextDayLabel);
         var result = MessageBox.Show(
             this,
             message,
@@ -1123,137 +1020,6 @@ public partial class MainWindow : Window
         return result == MessageBoxResult.Yes;
     }
 
-    private static string BuildMatchRecordImportWarning(MatchRecordImportResult importResult, string nextDayLabel)
-    {
-        var parts = new List<string>();
-        if (importResult.MissingResultRows.Count > 0)
-        {
-            parts.Add($"有 {importResult.MissingResultRows.Count} 场未填写胜方，将顺延到 {nextDayLabel}");
-        }
-
-        if (importResult.ValidationIssues.Count > 0)
-        {
-            parts.Add($"有 {importResult.ValidationIssues.Count} 处比分、用时或胜方提醒，将按已填写胜方推进");
-        }
-
-        var examples = importResult.MissingResultRows
-            .Take(2)
-            .Concat(importResult.ValidationIssues.Take(2))
-            .Take(3)
-            .ToList();
-        var detail = examples.Count > 0 ? $"\n\n示例：\n{string.Join("\n", examples)}" : "";
-        return $"记录表存在需要裁判长确认的情况：{string.Join("，", parts)}。{detail}\n\n是否仍继续导出下一比赛日赛程记录表？";
-    }
-
-    private static string BuildTimedBracketPath(string scheduleOutputPath, ExportFormat format)
-    {
-        var directory = Path.GetDirectoryName(scheduleOutputPath) ?? ".";
-        var stem = Path.GetFileNameWithoutExtension(scheduleOutputPath);
-        return Path.ChangeExtension(
-            Path.Combine(directory, $"{stem}_带比赛时间和场地对阵表"),
-            GetExportExtension(format));
-    }
-
-    private static string ExtractEventName(string inputPath)
-    {
-        var stem = Path.GetFileNameWithoutExtension(inputPath);
-        if (string.IsNullOrWhiteSpace(stem))
-        {
-            return "抽签结果";
-        }
-
-        var normalized = stem.Trim();
-        normalized = Regex.Replace(normalized, @"\s*[-—–]\s*副本$", "", RegexOptions.IgnoreCase);
-        normalized = Regex.Replace(normalized, @"副本$", "", RegexOptions.IgnoreCase);
-        normalized = Regex.Replace(normalized, @"参赛名单模板|参赛名单|名单模板|名单|模板|抽签结果", "", RegexOptions.IgnoreCase);
-        normalized = Regex.Replace(normalized, @"\d+\s*组\s*种子", "", RegexOptions.IgnoreCase);
-        normalized = Regex.Replace(normalized, @"\d+\s*[人对队组]\b?", "", RegexOptions.IgnoreCase);
-        normalized = Regex.Replace(normalized, @"[_\-\s（）()]+$", "");
-        normalized = Regex.Replace(normalized, @"^[_\-\s（）()]+", "");
-        normalized = Regex.Replace(normalized, @"[_\-\s]+", "_");
-
-        return string.IsNullOrWhiteSpace(normalized) ? "抽签结果" : normalized;
-    }
-
-    private static string GetCompetitionModeFileNamePart(CompetitionMode competitionMode)
-    {
-        return competitionMode is CompetitionMode.SinglesRoundRobin or CompetitionMode.TeamRoundRobin
-            ? "循环赛"
-            : "淘汰赛";
-    }
-
-    private static string GetEventScaleFileNamePart(EventKind eventKind, int participantCount)
-    {
-        return eventKind switch
-        {
-            EventKind.Doubles => $"双打{participantCount}对",
-            EventKind.Team => $"团体{participantCount}队",
-            _ => $"单打{participantCount}人"
-        };
-    }
-
-    private static string? GetKnockoutGoalFileNamePart(DrawSettings settings)
-    {
-        if (!settings.IsKnockout)
-        {
-            return null;
-        }
-
-        if (settings.GroupCount == 1 || settings.KnockoutGoal == KnockoutGoal.Champion)
-        {
-            return "决出冠军";
-        }
-
-        return "每组出线";
-    }
-
-    private static string? GetPlacementPlayoffFileNamePart(DrawSettings settings)
-    {
-        return settings.PlacementPlayoff switch
-        {
-            PlacementPlayoff.ThirdPlace => "排3-4名",
-            PlacementPlayoff.ThirdToEighth => "排3-8名",
-            _ => null
-        };
-    }
-
-    private static string GetSeedTail(string randomSeed)
-    {
-        var tail = randomSeed
-            .Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .LastOrDefault() ?? randomSeed;
-        tail = SanitizeFileNamePart(tail);
-
-        if (string.IsNullOrWhiteSpace(tail))
-        {
-            return "custom";
-        }
-
-        return tail.Length <= 8 ? tail : tail[^8..];
-    }
-
-    private static string SanitizeFileNamePart(string value)
-    {
-        var invalidChars = Path.GetInvalidFileNameChars().Concat(new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' }).ToHashSet();
-        var chars = value
-            .Trim()
-            .Select(ch => char.IsControl(ch) || invalidChars.Contains(ch) ? '_' : ch)
-            .ToArray();
-        var sanitized = new string(chars);
-        sanitized = Regex.Replace(sanitized, @"_+", "_");
-        sanitized = Regex.Replace(sanitized, @"\s+", "");
-        return sanitized.Trim('_', '-', ' ');
-    }
-
-    private static string LimitFileNameLength(string stem, int maxLength)
-    {
-        if (stem.Length <= maxLength)
-        {
-            return stem;
-        }
-
-        return stem[..maxLength].TrimEnd('_', '-', ' ');
-    }
 
     private ExportFormat GetExportFormat()
     {
@@ -1292,30 +1058,18 @@ public partial class MainWindow : Window
         };
     }
 
-    private static DrawResultVisualFormat ToVisualFormat(ExportFormat format)
-    {
-        return format switch
-        {
-            ExportFormat.Png => DrawResultVisualFormat.Png,
-            ExportFormat.Jpeg => DrawResultVisualFormat.Jpeg,
-            ExportFormat.A4Pdf => DrawResultVisualFormat.A4Pdf,
-            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Excel 导出不需要视觉格式。")
-        };
-    }
-
     private IReadOnlyList<string> ExportDrawResultFiles(string selectedPath, ExportFormat exportFormat)
     {
-        if (_latestResult is null)
+        if (_latestWorkflowResult is null)
         {
             throw new InvalidOperationException("请先预览抽签。");
         }
 
-        return ExportFromWorkbook(
+        return _drawWorkflow.ExportFiles(
             selectedPath,
-            exportFormat,
-            BracketSheetName,
-            path => _writer.Write(path, _latestResult, _participants),
-            GetDrawVisualOptions);
+            ToWorkflowExportFormat(exportFormat),
+            _latestWorkflowResult,
+            GetDrawVisualOptions(exportFormat));
     }
 
     private IReadOnlyList<string> ExportScheduleFiles(string selectedPath, ExportFormat exportFormat)
@@ -1325,95 +1079,37 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("请先生成赛程预览。");
         }
 
-        return ExportFromWorkbook(
+        return _scheduleWorkflow.ExportFiles(
             selectedPath,
-            exportFormat,
-            ScheduleGridSheetName,
-            path => _scheduleWriter.Write(path, _latestSchedule),
-            _ => new DrawResultVisualOptions());
+            ToWorkflowExportFormat(exportFormat),
+            _latestSchedule);
     }
 
     private IReadOnlyList<string> ExportTimedBracketFiles(string scheduleSelectedPath, ExportFormat exportFormat)
     {
-        if (_latestResult is null || _latestSchedule is null)
+        if (_latestWorkflowResult is null || _latestSchedule is null)
         {
             throw new InvalidOperationException("请先生成赛程预览。");
         }
 
-        return ExportFromWorkbook(
-            BuildTimedBracketPath(scheduleSelectedPath, exportFormat),
-            exportFormat,
-            BracketSheetName,
-            path => _writer.Write(path, _latestResult, _participants, _latestSchedule),
-            GetDrawVisualOptions);
-    }
-
-    private IReadOnlyList<string> ExportFromWorkbook(
-        string selectedPath,
-        ExportFormat selectedFormat,
-        string visualSheetName,
-        Action<string> writeWorkbook,
-        Func<ExportFormat, DrawResultVisualOptions> getVisualOptions)
-    {
-        var formats = ExpandExportFormats(selectedFormat);
-        var outputPaths = new List<string>();
-        var tempExcelPath = Path.Combine(Path.GetTempPath(), $"badminton-draw-export-{Guid.NewGuid():N}.xlsx");
-        string? sourceExcelPath = null;
-        try
-        {
-            if (formats.Contains(ExportFormat.Excel))
-            {
-                var excelPath = BuildOutputPath(selectedPath, ExportFormat.Excel);
-                writeWorkbook(excelPath);
-                sourceExcelPath = excelPath;
-                outputPaths.Add(excelPath);
-            }
-
-            var visualFormats = formats.Where(format => format != ExportFormat.Excel).ToList();
-            if (visualFormats.Count > 0)
-            {
-                if (sourceExcelPath is null)
-                {
-                    writeWorkbook(tempExcelPath);
-                    sourceExcelPath = tempExcelPath;
-                }
-
-                foreach (var format in visualFormats)
-                {
-                    var outputPath = BuildOutputPath(selectedPath, format);
-                    _visualWriter.Write(outputPath, sourceExcelPath, visualSheetName, ToVisualFormat(format), getVisualOptions(format));
-                    outputPaths.Add(outputPath);
-                }
-            }
-
-            return outputPaths;
-        }
-        finally
-        {
-            if (sourceExcelPath == tempExcelPath && File.Exists(tempExcelPath))
-            {
-                File.Delete(tempExcelPath);
-            }
-        }
+        return _scheduleWorkflow.ExportTimedBracketFiles(
+            scheduleSelectedPath,
+            ToWorkflowExportFormat(exportFormat),
+            _latestWorkflowResult,
+            _latestSchedule,
+            GetDrawVisualOptions(exportFormat));
     }
 
     private DrawResultVisualOptions GetDrawVisualOptions(ExportFormat format)
     {
-        return format == ExportFormat.A4Pdf && _latestResult is not null && _latestResult.Settings.IsKnockout
+        return (format is ExportFormat.A4Pdf or ExportFormat.All) && _latestResult is not null && _latestResult.Settings.IsKnockout
             ? new DrawResultVisualOptions(GetPdfTileValue(PdfRowsBox, "PDF 行数"), GetPdfTileValue(PdfColumnsBox, "PDF 列数"))
             : new DrawResultVisualOptions();
     }
 
-    private static IReadOnlyList<ExportFormat> ExpandExportFormats(ExportFormat format)
+    private static WorkflowExportFormat ToWorkflowExportFormat(ExportFormat format)
     {
-        return format == ExportFormat.All
-            ? [ExportFormat.Excel, ExportFormat.Jpeg, ExportFormat.Png, ExportFormat.A4Pdf]
-            : [format];
-    }
-
-    private static string BuildOutputPath(string selectedPath, ExportFormat format)
-    {
-        return Path.ChangeExtension(selectedPath, GetExportExtension(format));
+        return Enum.Parse<WorkflowExportFormat>(format.ToString());
     }
 
     private static string FormatOutputPaths(IReadOnlyList<string> outputPaths)

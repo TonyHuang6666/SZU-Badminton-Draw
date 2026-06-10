@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  build-test-publish:
+  windows-build-test-publish:
     runs-on: windows-latest
 
     steps:
@@ -30,3 +30,36 @@ jobs:
 
       - name: Publish smoke test
         run: dotnet publish src\BadmintonDraw.App\BadmintonDraw.App.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
+
+  macos-build-test-publish:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore desktop
+        run: dotnet restore src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj --locked-mode
+
+      - name: Restore tests
+        run: dotnet restore tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj --locked-mode
+
+      - name: Build desktop
+        run: dotnet build src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj -c Debug --no-restore
+
+      - name: Test shared libraries
+        run: dotnet test tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj -c Debug --no-restore --verbosity normal
+
+      - name: Build macOS app and DMG
+        run: bash scripts/publish-macos.sh osx-arm64
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: SZU-Badminton-Draw_macos-arm64
+          path: artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg

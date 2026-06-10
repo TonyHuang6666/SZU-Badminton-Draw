@@ -1173,6 +1173,38 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void WorkflowDefaultFileNamesKeepCompetitionMetadata()
+    {
+        var participants = CreateParticipants(32);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 8,
+            seed: "SZUBA-20260611-1234",
+            mode: CompetitionMode.SinglesKnockout,
+            eventKind: EventKind.Doubles,
+            knockoutGoal: KnockoutGoal.Champion,
+            placementPlayoff: PlacementPlayoff.ThirdToEighth));
+
+        var drawName = DrawWorkflow.BuildDefaultDrawFileName(
+            result,
+            "深大羽协虚拟双打参赛名单_32人.xlsx",
+            WorkflowExportFormat.All);
+        var scheduleName = ScheduleWorkflow.BuildDefaultScheduleFileName(
+            result,
+            "深大羽协虚拟双打参赛名单_32人.xlsx",
+            WorkflowExportFormat.Excel);
+
+        Assert.Contains("深大羽协虚拟双打", drawName);
+        Assert.Contains("淘汰赛", drawName);
+        Assert.Contains("双打32对", drawName);
+        Assert.Contains("决出冠军", drawName);
+        Assert.Contains("排3-8名", drawName);
+        Assert.Contains("seed1234", drawName);
+        Assert.EndsWith(".xlsx", drawName);
+        Assert.Contains("赛程表", scheduleName);
+        Assert.Contains("排3-8名", scheduleName);
+    }
+
+    [Fact]
     public void ScheduleExcelWriterExportsDetailAndGridSheets()
     {
         var participants = CreateParticipants(6);

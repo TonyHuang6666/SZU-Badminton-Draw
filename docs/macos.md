@@ -63,16 +63,20 @@ dotnet run --project src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj
 dotnet test tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj -c Debug
 ```
 
-发布一个未签名的 macOS arm64 目录：
+发布一个未签名的 macOS arm64 `.app` 和 `.dmg`：
 
 ```bash
-dotnet publish src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj \
-  -c Release \
-  -r osx-arm64 \
-  --self-contained true
+bash scripts/publish-macos.sh osx-arm64
 ```
 
-Intel Mac 可将 runtime 改为 `osx-x64`。
+生成文件位于：
+
+```text
+artifacts/macos/osx-arm64/SZU Badminton Draw.app
+artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
+```
+
+Intel Mac 可将 runtime 改为 `osx-x64`。当前脚本生成的是未签名、未公证包；正式公开分发前还需要补 Apple Developer ID 签名、公证和 stapler 流程。
 
 ## 迁移原则
 
@@ -86,4 +90,4 @@ Intel Mac 可将 runtime 改为 `osx-x64`。
 
 1. 在真实 macOS 上验收 ClosedXML 和 SkiaSharp 的中文字体、图片和 PDF 输出。
 2. 补齐跨平台版与 WPF 版之间仍有差异的细节交互，例如更精细的显示/隐藏规则。
-3. 增加 macOS `.app` / `.dmg` 打包、签名、公证脚本。
+3. 增加 macOS Developer ID 签名、公证和 stapler 脚本。

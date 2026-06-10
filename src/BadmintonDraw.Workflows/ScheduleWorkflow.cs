@@ -43,7 +43,8 @@ public sealed class ScheduleWorkflow
         string scheduleSelectedPath,
         WorkflowExportFormat exportFormat,
         DrawWorkflowResult workflowResult,
-        SchedulePlan schedule)
+        SchedulePlan schedule,
+        DrawResultVisualOptions? visualOptions = null)
     {
         return DrawWorkflow.ExportFromWorkbook(
             BuildTimedBracketPath(scheduleSelectedPath, exportFormat),
@@ -51,7 +52,7 @@ public sealed class ScheduleWorkflow
             BracketSheetName,
             path => _drawWriter.Write(path, workflowResult.Result, workflowResult.Participants, schedule),
             _visualWriter,
-            new DrawResultVisualOptions());
+            visualOptions ?? new DrawResultVisualOptions());
     }
 
     public void ExportMatchRecord(
@@ -226,20 +227,19 @@ public sealed class ScheduleWorkflow
         string? inputPath,
         WorkflowExportFormat format)
     {
-        var sourceName = string.IsNullOrWhiteSpace(inputPath)
-            ? "深大羽协"
-            : Path.GetFileNameWithoutExtension(inputPath);
-        var modeName = result.Settings.IsKnockout ? "淘汰赛" : "循环赛";
         var stem = string.Join("_", new[]
         {
-            WorkflowFileNames.Sanitize(sourceName),
+            WorkflowFileNames.ExtractEventName(inputPath),
             "赛程表",
-            modeName,
-            $"{WorkflowLabels.GetEventKindDisplay(result.Settings.EventKind)}{result.Audit.ParticipantCount}人",
+            WorkflowFileNames.GetCompetitionModePart(result.Settings.CompetitionMode),
+            WorkflowFileNames.GetEventScalePart(result.Settings.EventKind, result.Audit.ParticipantCount),
             $"{result.Audit.GroupCount}组",
+            WorkflowFileNames.GetPlacementPlayoffPart(result.Settings) ?? "",
             DateTime.Now.ToString("yyyyMMdd_HHmm")
-        }.Where(part => !string.IsNullOrWhiteSpace(part)));
-        return $"{stem}{WorkflowExportHelpers.GetExtension(format)}";
+        }
+            .Select(WorkflowFileNames.Sanitize)
+            .Where(part => !string.IsNullOrWhiteSpace(part)));
+        return $"{WorkflowFileNames.Limit(stem)}{WorkflowExportHelpers.GetExtension(format)}";
     }
 
     public static string BuildDefaultMatchRecordFileName(string dayLabel)

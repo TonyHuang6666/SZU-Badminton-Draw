@@ -21,7 +21,8 @@ public sealed class DrawWorkflow
         return new ParticipantLoadResult(
             importResult.Participants,
             detectedEventKind,
-            FormatWarningMessages(importResult.Warnings));
+            FormatWarningMessages(importResult.Warnings),
+            importResult.Warnings);
     }
 
     public EventKind DetectEventKind(string inputPath, EventKind preferredEventKind)
@@ -45,7 +46,8 @@ public sealed class DrawWorkflow
         return new DrawWorkflowResult(
             result,
             importResult.Participants,
-            FormatWarningMessages(importResult.Warnings));
+            FormatWarningMessages(importResult.Warnings),
+            importResult.Warnings);
     }
 
     public void ExportExcel(string outputPath, DrawWorkflowResult workflowResult)
@@ -88,19 +90,31 @@ public sealed class DrawWorkflow
         string? inputPath,
         WorkflowExportFormat format)
     {
-        var sourceName = string.IsNullOrWhiteSpace(inputPath)
-            ? "深大羽协"
-            : Path.GetFileNameWithoutExtension(inputPath);
-        var modeName = result.Settings.IsKnockout ? "淘汰赛" : "循环赛";
-        var stem = string.Join("_", new[]
+        var parts = new List<string>
         {
-            WorkflowFileNames.Sanitize(sourceName),
-            modeName,
-            $"{WorkflowLabels.GetEventKindDisplay(result.Settings.EventKind)}{result.Audit.ParticipantCount}人",
+            WorkflowFileNames.ExtractEventName(inputPath),
+            WorkflowFileNames.GetCompetitionModePart(result.Settings.CompetitionMode),
+            WorkflowFileNames.GetEventScalePart(result.Settings.EventKind, result.Audit.ParticipantCount),
             $"{result.Audit.GroupCount}组",
-            DateTime.Now.ToString("yyyyMMdd_HHmm")
-        }.Where(part => !string.IsNullOrWhiteSpace(part)));
-        return $"{stem}{WorkflowExportHelpers.GetExtension(format)}";
+        };
+
+        var knockoutGoalPart = WorkflowFileNames.GetKnockoutGoalPart(result.Settings);
+        if (!string.IsNullOrWhiteSpace(knockoutGoalPart))
+        {
+            parts.Add(knockoutGoalPart);
+        }
+
+        var placementPlayoffPart = WorkflowFileNames.GetPlacementPlayoffPart(result.Settings);
+        if (!string.IsNullOrWhiteSpace(placementPlayoffPart))
+        {
+            parts.Add(placementPlayoffPart);
+        }
+
+        parts.Add(result.Audit.GeneratedAt.LocalDateTime.ToString("yyyyMMdd_HHmm"));
+        parts.Add($"seed{WorkflowFileNames.GetSeedTail(result.Audit.RandomSeed)}");
+
+        var stem = string.Join("_", parts.Select(WorkflowFileNames.Sanitize).Where(part => !string.IsNullOrWhiteSpace(part)));
+        return $"{WorkflowFileNames.Limit(stem)}{WorkflowExportHelpers.GetExtension(format)}";
     }
 
     internal static IReadOnlyList<string> ExportFromWorkbook(
@@ -183,7 +197,8 @@ public sealed class DrawWorkflow
 public sealed record ParticipantLoadResult(
     IReadOnlyList<DrawParticipant> Participants,
     EventKind DetectedEventKind,
-    IReadOnlyList<string> WarningMessages);
+    IReadOnlyList<string> WarningMessages,
+    IReadOnlyList<ParticipantImportWarning> ImportWarnings);
 
 public sealed record DrawWorkflowRequest(
     string InputPath,
@@ -197,7 +212,8 @@ public sealed record DrawWorkflowRequest(
 public sealed record DrawWorkflowResult(
     DrawResult Result,
     IReadOnlyList<DrawParticipant> Participants,
-    IReadOnlyList<string> WarningMessages);
+    IReadOnlyList<string> WarningMessages,
+    IReadOnlyList<ParticipantImportWarning> ImportWarnings);
 
 public enum WorkflowExportFormat
 {

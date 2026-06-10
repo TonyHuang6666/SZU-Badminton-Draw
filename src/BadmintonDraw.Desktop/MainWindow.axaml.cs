@@ -389,7 +389,8 @@ public partial class MainWindow : Window
                     path,
                     exportFormat,
                     _latestWorkflowResult,
-                    _latestSchedule);
+                    _latestSchedule,
+                    GetDrawVisualOptions(exportFormat));
                 SetStatus($"赛程表已导出：{FormatOutputPaths(schedulePaths)}；带比赛时间和场地的对阵表已导出：{FormatOutputPaths(timedBracketPaths)}");
             }
             else
@@ -654,9 +655,14 @@ public partial class MainWindow : Window
 
     private DrawResultVisualOptions GetDrawVisualOptions()
     {
+        return GetDrawVisualOptions(GetExportFormat(DrawExportFormatBox));
+    }
+
+    private DrawResultVisualOptions GetDrawVisualOptions(WorkflowExportFormat format)
+    {
         return _latestResult is not null
             && _latestResult.Settings.IsKnockout
-            && GetExportFormat(DrawExportFormatBox) is WorkflowExportFormat.A4Pdf or WorkflowExportFormat.All
+            && (format is WorkflowExportFormat.A4Pdf or WorkflowExportFormat.All)
                 ? new DrawResultVisualOptions(
                     GetPdfTileValue(PdfRowsBox, "PDF 行数"),
                     GetPdfTileValue(PdfColumnsBox, "PDF 列数"))

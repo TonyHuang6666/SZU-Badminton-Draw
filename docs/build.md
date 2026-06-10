@@ -51,6 +51,8 @@ dotnet test tests\BadmintonDraw.Tests\BadmintonDraw.Tests.csproj -c Debug --no-r
 
 ## 发布单文件程序
 
+### Windows
+
 ```powershell
 dotnet publish src\BadmintonDraw.App\BadmintonDraw.App.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
 ```
@@ -62,6 +64,23 @@ src\BadmintonDraw.App\bin\Release\net8.0-windows\win-x64\publish
 ```
 
 把发布目录中的程序发给干事即可使用。
+
+### macOS
+
+在 macOS 上运行：
+
+```bash
+bash scripts/publish-macos.sh osx-arm64
+```
+
+生成文件位于：
+
+```text
+artifacts/macos/osx-arm64/SZU Badminton Draw.app
+artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
+```
+
+当前 macOS 包未签名、未公证，适合作为内部测试包。正式公开分发前需要接入 Apple Developer ID 签名、公证和 stapler。
 
 正式发布到 GitHub Release 时，建议将发布目录压缩为类似 `SZU-Badminton-Draw_v3.0.0_win-x64_self-contained.zip` 的文件，并随版本标签一起上传。Release 说明中应列出规则化抽签、赛程编排、多格式导出、带比赛时间和场地的对阵表、虚拟测试名单等重要变化。
 
