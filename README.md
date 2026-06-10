@@ -27,6 +27,7 @@
 - `src/BadmintonDraw.Core`：抽签和赛程编排核心算法，不依赖界面和 Excel。
 - `src/BadmintonDraw.Excel`：参赛名单 Excel 导入、结果 Excel/图片/PDF 导出、名单模板生成、赛程表导出。
 - `src/BadmintonDraw.App`：Windows WPF 图形界面。
+- `src/BadmintonDraw.Desktop`：Avalonia 跨平台桌面预览版，用于同步开发 macOS/Windows/Linux 版本。
 - `tests/BadmintonDraw.Tests`：基于 xUnit 的算法、导入、导出和赛程编排测试。
 - `docs`：规则对应、算法、公平性、赛程编排、使用和构建说明。
 - `samples`：可直接导入软件的虚拟测试名单。
@@ -54,6 +55,10 @@
 7. 在“导出为”下拉框选择赛程表格式，再点击“选择路径并导出赛程”。
 8. 如只需要当天给裁判长填写的记录表，可在左侧赛程日列表选中日期后点击“单独导出当日记录表”。
 9. 当天比赛结束后，可点击“导入记录表并导出下一日”，选择一张或多张记录表。程序以已填写的胜方推进后续对阵；比分、用时异常会提醒确认，未填胜方的场次可确认顺延到下一比赛日记录表。
+
+### macOS 预览版
+
+macOS/跨平台桌面版位于 `src/BadmintonDraw.Desktop`，使用 Avalonia，第一阶段已支持名单模板、名单导入、抽签预览和 Excel 导出。详细开发和运行说明见 [docs/macos.md](docs/macos.md)。
 
 ## 导出结果
 
@@ -137,12 +142,12 @@
 
 ## 开发环境
 
-建议使用 Windows 电脑和 Visual Studio 2022：
+Windows 版建议使用 Windows 电脑和 Visual Studio 2022：
 
 - .NET 8 SDK
 - Visual Studio 2022 的“.NET 桌面开发”工作负载
 
-命令行构建：
+Windows WPF 版命令行构建：
 
 ```powershell
 dotnet restore
@@ -151,7 +156,13 @@ dotnet test
 dotnet run --project src/BadmintonDraw.App
 ```
 
-macOS/Linux 可以查看和测试核心代码，但 WPF 图形界面只能在 Windows 上构建和运行。
+macOS/Windows/Linux 跨平台预览版使用 Avalonia：
+
+```powershell
+dotnet run --project src/BadmintonDraw.Desktop
+```
+
+WPF 图形界面仍只能在 Windows 上运行；macOS 开发说明见 [docs/macos.md](docs/macos.md)。
 
 详细构建和发布命令见 [docs/build.md](docs/build.md)。
 
