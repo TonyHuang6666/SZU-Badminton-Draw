@@ -192,6 +192,7 @@ public partial class MainWindow : Window
             SummaryText.Text = $"已导入 {_participants.Count} 个参赛单位";
             SetWarnings(_importWarnings);
             ClearSchedulePreview();
+            UpdateDrawPdfOptionsVisibility();
             SetStatus(_importWarnings.Count > 0
                 ? $"名单已导入，但有 {_importWarnings.Count} 条提醒。确认无误后可以预览抽签。"
                 : "名单已导入，可以预览抽签。",
@@ -311,6 +312,7 @@ public partial class MainWindow : Window
 
         UpdateEventKindForMode();
         UpdateKnockoutGoalVisibility();
+        UpdateDrawPdfOptionsVisibility();
         ClearSchedulePreview();
     }
 
@@ -323,6 +325,7 @@ public partial class MainWindow : Window
 
         UpdatePlacementPlayoffVisibility();
         UpdateScheduleTimingSplitVisibility();
+        UpdateDrawPdfOptionsVisibility();
         ClearSchedulePreview();
     }
 
@@ -334,6 +337,7 @@ public partial class MainWindow : Window
         }
 
         UpdateKnockoutGoalVisibility();
+        UpdateDrawPdfOptionsVisibility();
         ClearSchedulePreview();
     }
 
@@ -763,7 +767,7 @@ public partial class MainWindow : Window
     {
         var isKnockout = GetCompetitionMode() is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout;
         var hasGroupCount = TryGetGroupCount(out var groupCount);
-        var showGoalOptions = isKnockout && hasGroupCount && !IsPowerOfTwo(groupCount);
+        var showGoalOptions = isKnockout && hasGroupCount && IsPowerOfTwo(groupCount);
         KnockoutGoalPanel.IsVisible = showGoalOptions;
         if (!showGoalOptions)
         {
@@ -790,6 +794,7 @@ public partial class MainWindow : Window
     private void UpdateDrawPdfOptionsVisibility()
     {
         var showPdfOptions = _latestResult?.Settings.IsKnockout == true
+            && GetCompetitionMode() is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout
             && GetExportFormat(DrawExportFormatBox) is WorkflowExportFormat.A4Pdf or WorkflowExportFormat.All;
         DrawPdfRowsPanel.IsVisible = showPdfOptions;
         DrawPdfColumnsPanel.IsVisible = showPdfOptions;
@@ -905,6 +910,7 @@ public partial class MainWindow : Window
         RoundOneList.ItemsSource = Array.Empty<PreviewGroupRow>();
         ByeList.ItemsSource = Array.Empty<PreviewGroupRow>();
         ClearSchedulePreview();
+        UpdateDrawPdfOptionsVisibility();
     }
 
     private CompetitionMode GetCompetitionMode()
