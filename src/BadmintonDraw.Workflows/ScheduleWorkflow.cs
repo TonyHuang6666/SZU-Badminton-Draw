@@ -6,8 +6,14 @@ namespace BadmintonDraw.Workflows;
 
 public sealed class ScheduleWorkflow
 {
+    private const string BracketSheetName = "对阵表";
+    private const string ScheduleGridSheetName = "时间场地网格";
+
     private readonly ScheduleService _scheduleService = new();
     private readonly ScheduleExcelWriter _scheduleWriter = new();
+    private readonly DrawResultExcelWriter _drawWriter = new();
+    private readonly DrawResultVisualWriter _visualWriter = new();
+    private readonly MatchRecordReader _matchRecordReader = new();
 
     public SchedulePlan Generate(DrawResult result, ScheduleSettings settings)
     {
@@ -19,18 +25,117 @@ public sealed class ScheduleWorkflow
         _scheduleWriter.Write(outputPath, schedule);
     }
 
+    public IReadOnlyList<string> ExportFiles(
+        string selectedPath,
+        WorkflowExportFormat exportFormat,
+        SchedulePlan schedule)
+    {
+        return DrawWorkflow.ExportFromWorkbook(
+            selectedPath,
+            exportFormat,
+            ScheduleGridSheetName,
+            path => _scheduleWriter.Write(path, schedule),
+            _visualWriter,
+            new DrawResultVisualOptions());
+    }
+
+    public IReadOnlyList<string> ExportTimedBracketFiles(
+        string scheduleSelectedPath,
+        WorkflowExportFormat exportFormat,
+        DrawWorkflowResult workflowResult,
+        SchedulePlan schedule)
+    {
+        return DrawWorkflow.ExportFromWorkbook(
+            BuildTimedBracketPath(scheduleSelectedPath, exportFormat),
+            exportFormat,
+            BracketSheetName,
+            path => _drawWriter.Write(path, workflowResult.Result, workflowResult.Participants, schedule),
+            _visualWriter,
+            new DrawResultVisualOptions());
+    }
+
+    public void ExportMatchRecord(
+        string outputPath,
+        SchedulePlan schedule,
+        string? dayLabel,
+        IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null,
+        IReadOnlySet<string>? carryOverMatchNames = null)
+    {
+        _scheduleWriter.WriteMatchRecord(outputPath, schedule, dayLabel, completedResults, carryOverMatchNames);
+    }
+
+    public MatchRecordImportResult ImportMatchRecords(IEnumerable<string> filePaths)
+    {
+        return _matchRecordReader.ReadMany(filePaths);
+    }
+
     public static ScheduleSettings BuildSettings(ScheduleWorkflowRequest request)
     {
-        if (request.End <= request.Start)
+        var day = new ScheduleDayWorkflowRequest(
+            request.Date,
+            request.Start,
+            request.End,
+            "自定义",
+            request.CourtsText);
+        return BuildSettings(
+            [day],
+            request.MatchMinutes,
+            request.MaxMatchesPerEntrantPerDay,
+            request.KnockoutTimingBoundaryEntrants,
+            request.BeforeBoundaryMatchMinutes,
+            request.BeforeBoundaryMaxMatchesPerEntrantPerDay);
+    }
+
+    public static ScheduleSettings BuildSettings(
+        IReadOnlyList<ScheduleDayWorkflowRequest> days,
+        int matchMinutes,
+        int maxMatchesPerEntrantPerDay,
+        int? knockoutTimingBoundaryEntrants = null,
+        int? beforeBoundaryMatchMinutes = null,
+        int? beforeBoundaryMaxMatchesPerEntrantPerDay = null)
+    {
+        if (days.Count == 0)
         {
-            throw new DrawValidationException("赛程结束时间必须晚于开始时间。");
+            throw new DrawValidationException("请至少添加一个赛程日。");
         }
 
-        var courts = ParseCourts(request.CourtsText);
+        var daySettings = days
+            .OrderBy(day => day.Date)
+            .Select(day =>
+            {
+                if (day.End <= day.Start)
+                {
+                    throw new DrawValidationException("赛程结束时间必须晚于开始时间。");
+                }
+
+                return new ScheduleDaySettings(day.Date, day.Start, day.End, ParseCourts(day.CourtsText));
+            })
+            .ToList();
+
+        ScheduleTimingSettings? beforeBoundaryTiming = null;
+        if (knockoutTimingBoundaryEntrants is > 0)
+        {
+            if (beforeBoundaryMatchMinutes is null or <= 0)
+            {
+                throw new DrawValidationException("分界线前单场比赛耗时必须是大于 0 的整数。");
+            }
+
+            if (beforeBoundaryMaxMatchesPerEntrantPerDay is null or <= 0)
+            {
+                throw new DrawValidationException("分界线前单名选手每日最多场次必须是大于 0 的整数。");
+            }
+
+            beforeBoundaryTiming = new ScheduleTimingSettings(
+                beforeBoundaryMatchMinutes.Value,
+                beforeBoundaryMaxMatchesPerEntrantPerDay.Value);
+        }
+
         return new ScheduleSettings(
-            [new ScheduleDaySettings(request.Date, request.Start, request.End, courts)],
-            request.MatchMinutes,
-            request.MaxMatchesPerEntrantPerDay);
+            daySettings,
+            matchMinutes,
+            maxMatchesPerEntrantPerDay,
+            knockoutTimingBoundaryEntrants,
+            beforeBoundaryTiming);
     }
 
     public static IReadOnlyList<string> ParseCourts(string value)
@@ -113,6 +218,14 @@ public sealed class ScheduleWorkflow
 
     public static string BuildDefaultScheduleExcelFileName(DrawResult result, string? inputPath)
     {
+        return BuildDefaultScheduleFileName(result, inputPath, WorkflowExportFormat.Excel);
+    }
+
+    public static string BuildDefaultScheduleFileName(
+        DrawResult result,
+        string? inputPath,
+        WorkflowExportFormat format)
+    {
         var sourceName = string.IsNullOrWhiteSpace(inputPath)
             ? "深大羽协"
             : Path.GetFileNameWithoutExtension(inputPath);
@@ -126,7 +239,124 @@ public sealed class ScheduleWorkflow
             $"{result.Audit.GroupCount}组",
             DateTime.Now.ToString("yyyyMMdd_HHmm")
         }.Where(part => !string.IsNullOrWhiteSpace(part)));
-        return $"{stem}.xlsx";
+        return $"{stem}{WorkflowExportHelpers.GetExtension(format)}";
+    }
+
+    public static string BuildDefaultMatchRecordFileName(string dayLabel)
+    {
+        var stem = DateOnly.TryParse(dayLabel, out var date)
+            ? $"{date.Month}月{date.Day}日赛程记录表"
+            : $"{dayLabel}赛程记录表";
+
+        return $"{WorkflowFileNames.Sanitize(stem)}.xlsx";
+    }
+
+    public static string BuildScheduleCapacityText(ScheduleSettings settings)
+    {
+        string BuildCapacity(int minutesPerMatch)
+        {
+            return string.Join("；", settings.Days.Select(day =>
+            {
+                var minutes = (day.DayEnd - day.DayStart).TotalMinutes;
+                var slots = Math.Max(0, (int)Math.Floor(minutes / minutesPerMatch));
+                return $"{day.DayLabel} {day.Courts.Count}片/{slots * day.Courts.Count}场";
+            }));
+        }
+
+        if (!settings.HasKnockoutTimingSplit)
+        {
+            return $"每日上限{settings.MaxMatchesPerEntrantPerDay}场；{BuildCapacity(settings.MatchMinutes)}";
+        }
+
+        return $"分界线前每日上限{settings.BeforeBoundaryTiming!.MaxMatchesPerEntrantPerDay}场、每场{settings.BeforeBoundaryTiming.MatchMinutes}分钟：{BuildCapacity(settings.BeforeBoundaryTiming.MatchMinutes)}；"
+            + $"分界线后每日上限{settings.MaxMatchesPerEntrantPerDay}场、每场{settings.MatchMinutes}分钟：{BuildCapacity(settings.MatchMinutes)}";
+    }
+
+    public static string? GetNextMatchRecordDayLabel(SchedulePlan plan, MatchRecordImportResult importResult)
+    {
+        var scheduleDays = plan.Matches
+            .Select(match => match.DayLabel)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (scheduleDays.Count == 0 || importResult.DayLabels.Count == 0)
+        {
+            return null;
+        }
+
+        var importedDaySet = importResult.DayLabels.ToHashSet(StringComparer.Ordinal);
+        var importedIndexes = scheduleDays
+            .Select((day, index) => importedDaySet.Contains(day) ? index : -1)
+            .Where(index => index >= 0)
+            .ToList();
+        if (importedIndexes.Count > 0)
+        {
+            var nextIndex = importedIndexes.Max() + 1;
+            return nextIndex < scheduleDays.Count ? scheduleDays[nextIndex] : null;
+        }
+
+        var latestImportedDate = importResult.DayLabels
+            .Select(day => DateOnly.TryParse(day, out var date) ? date : (DateOnly?)null)
+            .Where(date => date.HasValue)
+            .Select(date => date!.Value)
+            .DefaultIfEmpty()
+            .Max();
+        if (latestImportedDate == default)
+        {
+            return null;
+        }
+
+        return scheduleDays.FirstOrDefault(day =>
+            DateOnly.TryParse(day, out var date) && date > latestImportedDate);
+    }
+
+    public static string? GetFirstRecordDayLabel(SchedulePlan plan)
+    {
+        return plan.Matches
+            .FirstOrDefault(HasExplicitScheduleSides)
+            ?.DayLabel
+            ?? plan.Matches.FirstOrDefault()?.DayLabel;
+    }
+
+    public static string BuildMatchRecordImportWarning(MatchRecordImportResult importResult, string nextDayLabel)
+    {
+        var parts = new List<string>();
+        if (importResult.MissingResultRows.Count > 0)
+        {
+            parts.Add($"有 {importResult.MissingResultRows.Count} 场未填写胜方，将顺延到 {nextDayLabel}");
+        }
+
+        if (importResult.ValidationIssues.Count > 0)
+        {
+            parts.Add($"有 {importResult.ValidationIssues.Count} 处比分、用时或胜方提醒，将按已填写胜方推进");
+        }
+
+        var examples = importResult.MissingResultRows
+            .Take(2)
+            .Concat(importResult.ValidationIssues.Take(2))
+            .Take(3)
+            .ToList();
+        var detail = examples.Count > 0 ? $"\n\n示例：\n{string.Join("\n", examples)}" : "";
+        return $"记录表存在需要裁判长确认的情况：{string.Join("，", parts)}。{detail}\n\n是否仍继续导出下一比赛日赛程记录表？";
+    }
+
+    private static string BuildTimedBracketPath(string scheduleOutputPath, WorkflowExportFormat format)
+    {
+        var directory = Path.GetDirectoryName(scheduleOutputPath) ?? ".";
+        var stem = Path.GetFileNameWithoutExtension(scheduleOutputPath);
+        return Path.ChangeExtension(
+            Path.Combine(directory, $"{stem}_带比赛时间和场地对阵表"),
+            WorkflowExportHelpers.GetExtension(format));
+    }
+
+    private static bool HasExplicitScheduleSides(ScheduledMatch match)
+    {
+        return !IsOutcomeReference(match.SideA) && !IsOutcomeReference(match.SideB);
+    }
+
+    private static bool IsOutcomeReference(string side)
+    {
+        return side.EndsWith("胜者", StringComparison.Ordinal)
+            || side.EndsWith("负者", StringComparison.Ordinal);
     }
 }
 
@@ -136,4 +366,30 @@ public sealed record ScheduleWorkflowRequest(
     TimeOnly End,
     string CourtsText,
     int MatchMinutes,
-    int MaxMatchesPerEntrantPerDay);
+    int MaxMatchesPerEntrantPerDay,
+    int? KnockoutTimingBoundaryEntrants = null,
+    int? BeforeBoundaryMatchMinutes = null,
+    int? BeforeBoundaryMaxMatchesPerEntrantPerDay = null);
+
+public sealed record ScheduleDayWorkflowRequest(
+    DateOnly Date,
+    TimeOnly Start,
+    TimeOnly End,
+    string Venue,
+    string CourtsText)
+{
+    public string DateText => Date.ToString("yyyy-MM-dd");
+
+    public string TimeRange => $"{Start:HH:mm}-{End:HH:mm}";
+
+    public IReadOnlyList<string> Courts => ScheduleWorkflow.ParseCourts(CourtsText);
+
+    public string CourtSummary
+    {
+        get
+        {
+            var courts = Courts;
+            return $"{courts.Count}片：" + string.Join("、", courts.Take(8)) + (courts.Count > 8 ? "…" : "");
+        }
+    }
+}

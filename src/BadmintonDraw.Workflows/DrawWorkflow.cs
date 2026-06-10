@@ -5,9 +5,12 @@ namespace BadmintonDraw.Workflows;
 
 public sealed class DrawWorkflow
 {
+    private const string BracketSheetName = "对阵表";
+
     private readonly DrawService _drawService = new();
     private readonly ParticipantExcelReader _reader = new();
     private readonly DrawResultExcelWriter _writer = new();
+    private readonly DrawResultVisualWriter _visualWriter = new();
     private readonly ParticipantTemplateWriter _templateWriter = new();
 
     public ParticipantLoadResult LoadParticipants(string inputPath, EventKind preferredEventKind)
@@ -50,6 +53,21 @@ public sealed class DrawWorkflow
         _writer.Write(outputPath, workflowResult.Result, workflowResult.Participants);
     }
 
+    public IReadOnlyList<string> ExportFiles(
+        string selectedPath,
+        WorkflowExportFormat exportFormat,
+        DrawWorkflowResult workflowResult,
+        DrawResultVisualOptions? visualOptions = null)
+    {
+        return ExportFromWorkbook(
+            selectedPath,
+            exportFormat,
+            BracketSheetName,
+            path => _writer.Write(path, workflowResult.Result, workflowResult.Participants),
+            _visualWriter,
+            visualOptions);
+    }
+
     public void WriteTemplate(string outputPath)
     {
         _templateWriter.Write(outputPath);
@@ -61,6 +79,14 @@ public sealed class DrawWorkflow
     }
 
     public static string BuildDefaultDrawExcelFileName(DrawResult result, string? inputPath)
+    {
+        return BuildDefaultDrawFileName(result, inputPath, WorkflowExportFormat.Excel);
+    }
+
+    public static string BuildDefaultDrawFileName(
+        DrawResult result,
+        string? inputPath,
+        WorkflowExportFormat format)
     {
         var sourceName = string.IsNullOrWhiteSpace(inputPath)
             ? "深大羽协"
@@ -74,7 +100,68 @@ public sealed class DrawWorkflow
             $"{result.Audit.GroupCount}组",
             DateTime.Now.ToString("yyyyMMdd_HHmm")
         }.Where(part => !string.IsNullOrWhiteSpace(part)));
-        return $"{stem}.xlsx";
+        return $"{stem}{WorkflowExportHelpers.GetExtension(format)}";
+    }
+
+    internal static IReadOnlyList<string> ExportFromWorkbook(
+        string selectedPath,
+        WorkflowExportFormat selectedFormat,
+        string visualSheetName,
+        Action<string> writeWorkbook,
+        DrawResultVisualWriter visualWriter,
+        DrawResultVisualOptions? visualOptions = null)
+    {
+        var formats = WorkflowExportHelpers.Expand(selectedFormat);
+        var outputPaths = new List<string>();
+        var tempExcelPath = Path.Combine(Path.GetTempPath(), $"badminton-draw-export-{Guid.NewGuid():N}.xlsx");
+        string? sourceExcelPath = null;
+        try
+        {
+            if (formats.Contains(WorkflowExportFormat.Excel))
+            {
+                var excelPath = WorkflowExportHelpers.BuildOutputPath(selectedPath, WorkflowExportFormat.Excel);
+                writeWorkbook(excelPath);
+                sourceExcelPath = excelPath;
+                outputPaths.Add(excelPath);
+            }
+
+            var visualFormats = formats.Where(format => format != WorkflowExportFormat.Excel).ToList();
+            if (visualFormats.Count > 0)
+            {
+                if (sourceExcelPath is null)
+                {
+                    writeWorkbook(tempExcelPath);
+                    sourceExcelPath = tempExcelPath;
+                }
+
+                foreach (var format in visualFormats)
+                {
+                    var outputPath = WorkflowExportHelpers.BuildOutputPath(selectedPath, format);
+                    visualWriter.Write(outputPath, sourceExcelPath, visualSheetName, ToVisualFormat(format), visualOptions);
+                    outputPaths.Add(outputPath);
+                }
+            }
+
+            return outputPaths;
+        }
+        finally
+        {
+            if (sourceExcelPath == tempExcelPath && File.Exists(tempExcelPath))
+            {
+                File.Delete(tempExcelPath);
+            }
+        }
+    }
+
+    private static DrawResultVisualFormat ToVisualFormat(WorkflowExportFormat format)
+    {
+        return format switch
+        {
+            WorkflowExportFormat.Png => DrawResultVisualFormat.Png,
+            WorkflowExportFormat.Jpeg => DrawResultVisualFormat.Jpeg,
+            WorkflowExportFormat.A4Pdf => DrawResultVisualFormat.A4Pdf,
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Excel 导出不需要视觉格式。")
+        };
     }
 
     private static void ValidateInputPath(string inputPath)
@@ -111,3 +198,38 @@ public sealed record DrawWorkflowResult(
     DrawResult Result,
     IReadOnlyList<DrawParticipant> Participants,
     IReadOnlyList<string> WarningMessages);
+
+public enum WorkflowExportFormat
+{
+    Excel,
+    Jpeg,
+    Png,
+    A4Pdf,
+    All
+}
+
+public static class WorkflowExportHelpers
+{
+    public static string GetExtension(WorkflowExportFormat format)
+    {
+        return format switch
+        {
+            WorkflowExportFormat.Png => ".png",
+            WorkflowExportFormat.Jpeg => ".jpg",
+            WorkflowExportFormat.A4Pdf => ".pdf",
+            _ => ".xlsx"
+        };
+    }
+
+    public static IReadOnlyList<WorkflowExportFormat> Expand(WorkflowExportFormat format)
+    {
+        return format == WorkflowExportFormat.All
+            ? [WorkflowExportFormat.Excel, WorkflowExportFormat.Jpeg, WorkflowExportFormat.Png, WorkflowExportFormat.A4Pdf]
+            : [format];
+    }
+
+    public static string BuildOutputPath(string selectedPath, WorkflowExportFormat format)
+    {
+        return Path.ChangeExtension(selectedPath, GetExtension(format));
+    }
+}

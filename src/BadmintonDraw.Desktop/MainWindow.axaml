@@ -234,9 +234,30 @@
                                         <Button Grid.Column="1" Classes="secondary compact" Content="重生成" Click="GenerateSeed_Click" />
                                     </Grid>
 
+                                    <Grid ColumnDefinitions="1.35*,*,*" ColumnSpacing="10">
+                                        <StackPanel>
+                                            <TextBlock Classes="field-label" Text="导出为" />
+                                            <ComboBox x:Name="DrawExportFormatBox" SelectedIndex="0">
+                                                <ComboBoxItem Content="Excel" Tag="Excel" />
+                                                <ComboBoxItem Content="JPG" Tag="Jpeg" />
+                                                <ComboBoxItem Content="极清透明 PNG" Tag="Png" />
+                                                <ComboBoxItem Content="A4 PDF" Tag="A4Pdf" />
+                                                <ComboBoxItem Content="全部导出" Tag="All" />
+                                            </ComboBox>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Classes="field-label" Text="PDF 行" />
+                                            <TextBox x:Name="PdfRowsBox" Text="1" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Classes="field-label" Text="PDF 列" />
+                                            <TextBox x:Name="PdfColumnsBox" Text="1" />
+                                        </StackPanel>
+                                    </Grid>
+
                                     <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Margin="0,16,0,0">
                                         <Button Classes="primary" Content="预览抽签" Click="Preview_Click" />
-                                        <Button Grid.Column="1" Classes="secondary" Content="导出 Excel" Click="Export_Click" />
+                                        <Button Grid.Column="1" Classes="secondary" Content="选择路径并导出" Click="Export_Click" />
                                     </Grid>
                                 </StackPanel>
                             </ScrollViewer>
@@ -245,16 +266,8 @@
                         <TabItem Header="赛程">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel Spacing="4" Margin="0,10,0,0">
-                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
-                                        <StackPanel>
-                                            <TextBlock Classes="field-label" Text="比赛日期" />
-                                            <TextBox x:Name="ScheduleDateBox" PlaceholderText="yyyy-MM-dd" />
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1">
-                                            <TextBlock Classes="field-label" Text="每日最多场" />
-                                            <TextBox x:Name="ScheduleMaxMatchesBox" Text="2" />
-                                        </StackPanel>
-                                    </Grid>
+                                    <TextBlock Classes="field-label" Text="比赛日期" />
+                                    <TextBox x:Name="ScheduleDateBox" PlaceholderText="yyyy-MM-dd" />
 
                                     <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
                                         <StackPanel>
@@ -267,6 +280,17 @@
                                         </StackPanel>
                                     </Grid>
 
+                                    <TextBlock Classes="field-label" Text="选择场馆" />
+                                    <ComboBox x:Name="ScheduleVenueBox"
+                                              SelectedIndex="0"
+                                              SelectionChanged="ScheduleVenueBox_SelectionChanged">
+                                        <ComboBoxItem Content="运动广场东馆羽毛球场" Tag="YuehaiEast" />
+                                        <ComboBoxItem Content="至快体育馆" Tag="Zhikuai" />
+                                        <ComboBoxItem Content="至畅体育馆" Tag="Zhichang" />
+                                        <ComboBoxItem Content="全部预设场地" Tag="AllPreset" />
+                                        <ComboBoxItem Content="自定义场地" Tag="Custom" />
+                                    </ComboBox>
+
                                     <TextBlock Classes="field-label" Text="场地" />
                                     <TextBox x:Name="ScheduleCourtsBox"
                                              Text="B1-B8 C1-C8"
@@ -274,13 +298,100 @@
                                              MinHeight="78"
                                              TextWrapping="Wrap" />
 
-                                    <TextBlock Classes="field-label" Text="每场分钟" />
-                                    <TextBox x:Name="ScheduleMatchMinutesBox" Text="30" />
-
                                     <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Margin="0,16,0,0">
-                                        <Button Classes="primary" Content="生成赛程" Click="GenerateSchedule_Click" />
-                                        <Button Grid.Column="1" Classes="secondary" Content="导出赛程" Click="ExportSchedule_Click" />
+                                        <Button Classes="primary" Content="添加赛程日" Click="AddScheduleDay_Click" />
+                                        <Button Grid.Column="1" Classes="secondary" Content="删除选中赛程日" Click="RemoveScheduleDay_Click" />
                                     </Grid>
+
+                                    <TextBlock Classes="field-label" Text="赛程日列表" />
+                                    <Border BorderBrush="#D8E0EC" BorderThickness="1" CornerRadius="8" MinHeight="108">
+                                        <ScrollViewer MaxHeight="145">
+                                            <ListBox x:Name="ScheduleDaysList"
+                                                     Background="Transparent"
+                                                     BorderThickness="0">
+                                                <ListBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Padding="10"
+                                                                BorderBrush="#EDF1F7"
+                                                                BorderThickness="0,0,0,1"
+                                                                Background="#FFFFFF">
+                                                            <Grid ColumnDefinitions="86,90,*" ColumnSpacing="8">
+                                                                <TextBlock Text="{Binding DateText}" FontWeight="Bold" Foreground="#111827" />
+                                                                <TextBlock Grid.Column="1" Text="{Binding TimeRange}" Foreground="#334155" />
+                                                                <TextBlock Grid.Column="2" Text="{Binding CourtSummary}" Foreground="#64748B" TextWrapping="Wrap" />
+                                                            </Grid>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ListBox.ItemTemplate>
+                                            </ListBox>
+                                        </ScrollViewer>
+                                    </Border>
+
+                                    <TextBlock Classes="field-label" Text="统一 / 分界线后设置" />
+                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                        <StackPanel>
+                                            <TextBlock Classes="field-label" Text="每场分钟" />
+                                            <TextBox x:Name="ScheduleMatchMinutesBox" Text="30" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Classes="field-label" Text="每日最多场" />
+                                            <ComboBox x:Name="ScheduleMaxMatchesBox" SelectedIndex="1">
+                                                <ComboBoxItem Content="1" />
+                                                <ComboBoxItem Content="2" />
+                                                <ComboBoxItem Content="3" />
+                                                <ComboBoxItem Content="4" />
+                                            </ComboBox>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <TextBlock Classes="field-label" Text="分界线前加速设置" />
+                                    <Grid ColumnDefinitions="1.2*,*,*" ColumnSpacing="10">
+                                        <StackPanel>
+                                            <TextBlock Classes="field-label" Text="分界线" />
+                                            <ComboBox x:Name="ScheduleTimingBoundaryBox" SelectedIndex="0">
+                                                <ComboBoxItem Content="不使用" Tag="0" />
+                                                <ComboBoxItem Content="8强" Tag="8" />
+                                                <ComboBoxItem Content="16强" Tag="16" />
+                                                <ComboBoxItem Content="32强" Tag="32" />
+                                            </ComboBox>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Classes="field-label" Text="前每场" />
+                                            <TextBox x:Name="BeforeBoundaryMatchMinutesBox" Text="20" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Classes="field-label" Text="前最多" />
+                                            <ComboBox x:Name="BeforeBoundaryMaxMatchesBox" SelectedIndex="2">
+                                                <ComboBoxItem Content="1" />
+                                                <ComboBoxItem Content="2" />
+                                                <ComboBoxItem Content="3" />
+                                                <ComboBoxItem Content="4" />
+                                            </ComboBox>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,12,0,0">
+                                        <CheckBox x:Name="ExportTimedBracketBox" IsChecked="True" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="同时导出带比赛时间和场地的对阵表"
+                                                   Foreground="#334155"
+                                                   VerticalAlignment="Center"
+                                                   TextWrapping="Wrap" />
+                                    </Grid>
+
+                                    <TextBlock Classes="field-label" Text="导出为" />
+                                    <ComboBox x:Name="ScheduleExportFormatBox" SelectedIndex="0">
+                                        <ComboBoxItem Content="Excel" Tag="Excel" />
+                                        <ComboBoxItem Content="JPG" Tag="Jpeg" />
+                                        <ComboBoxItem Content="极清透明 PNG" Tag="Png" />
+                                        <ComboBoxItem Content="A4 PDF" Tag="A4Pdf" />
+                                        <ComboBoxItem Content="全部导出" Tag="All" />
+                                    </ComboBox>
+
+                                    <Button Classes="primary" Content="生成赛程预览" Margin="0,14,0,0" Click="GenerateSchedule_Click" />
+                                    <Button Classes="secondary" Content="选择路径并导出赛程" Margin="0,8,0,0" Click="ExportSchedule_Click" />
+                                    <Button Classes="secondary" Content="单独导出当日记录表" Margin="0,8,0,0" Click="ExportMatchRecord_Click" />
+                                    <Button Classes="secondary" Content="导入记录表并导出下一日" Margin="0,8,0,0" Click="ImportMatchRecordAndExportNext_Click" />
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>

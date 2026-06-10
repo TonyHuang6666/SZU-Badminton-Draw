@@ -1151,6 +1151,28 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void ScheduleWorkflowBuildsMultiDaySplitTimingSettings()
+    {
+        var settings = ScheduleWorkflow.BuildSettings(
+            [
+                new ScheduleDayWorkflowRequest(new DateOnly(2026, 6, 10), new TimeOnly(14, 0), new TimeOnly(18, 0), "运动广场东馆羽毛球场", "B1-B2"),
+                new ScheduleDayWorkflowRequest(new DateOnly(2026, 6, 11), new TimeOnly(14, 0), new TimeOnly(18, 0), "运动广场东馆羽毛球场", "C1-C2")
+            ],
+            matchMinutes: 30,
+            maxMatchesPerEntrantPerDay: 2,
+            knockoutTimingBoundaryEntrants: 8,
+            beforeBoundaryMatchMinutes: 20,
+            beforeBoundaryMaxMatchesPerEntrantPerDay: 3);
+
+        Assert.Equal(2, settings.Days.Count);
+        Assert.True(settings.HasKnockoutTimingSplit);
+        Assert.Equal(20, settings.BeforeBoundaryTiming!.MatchMinutes);
+        Assert.Equal(3, settings.BeforeBoundaryTiming.MaxMatchesPerEntrantPerDay);
+        Assert.Equal(["B1", "B2"], settings.Days[0].Courts);
+        Assert.Equal(["C1", "C2"], settings.Days[1].Courts);
+    }
+
+    [Fact]
     public void ScheduleExcelWriterExportsDetailAndGridSheets()
     {
         var participants = CreateParticipants(6);

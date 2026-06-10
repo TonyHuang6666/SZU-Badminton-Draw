@@ -59,7 +59,7 @@
 
 ### macOS 预览版
 
-macOS/跨平台桌面版位于 `src/BadmintonDraw.Desktop`，使用 Avalonia，当前已支持名单模板、名单导入、抽签预览、抽签 Excel 导出，以及基础赛程预览和赛程 Excel 导出。详细开发和运行说明见 [docs/macos.md](docs/macos.md)。
+macOS/跨平台桌面版位于 `src/BadmintonDraw.Desktop`，使用 Avalonia，当前已支持名单模板、名单导入、抽签预览、多格式导出、多日赛程编排、带时间场地对阵表、当日记录表导出，以及导入记录表并导出下一日记录表。详细开发和运行说明见 [docs/macos.md](docs/macos.md)。
 
 ## 导出结果
 
