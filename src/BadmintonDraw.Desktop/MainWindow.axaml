@@ -190,7 +190,9 @@
                                     <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
                                         <StackPanel>
                                             <TextBlock Classes="field-label" Text="比赛模式" />
-                                            <ComboBox x:Name="CompetitionModeBox" SelectedIndex="0">
+                                            <ComboBox x:Name="CompetitionModeBox"
+                                                      SelectedIndex="0"
+                                                      SelectionChanged="CompetitionModeBox_SelectionChanged">
                                                 <ComboBoxItem Content="单项赛淘汰赛" />
                                                 <ComboBoxItem Content="单项赛循环赛" />
                                                 <ComboBoxItem Content="团体赛淘汰赛" />
@@ -210,23 +212,29 @@
                                     <Grid ColumnDefinitions="1.05*,1.45*" ColumnSpacing="10">
                                         <StackPanel>
                                             <TextBlock Classes="field-label" Text="小组数" />
-                                            <TextBox x:Name="GroupCountBox" Text="8" />
+                                            <TextBox x:Name="GroupCountBox"
+                                                     Text="8"
+                                                     TextChanged="GroupCountBox_TextChanged" />
                                         </StackPanel>
-                                        <StackPanel Grid.Column="1">
+                                        <StackPanel x:Name="KnockoutGoalPanel" Grid.Column="1">
                                             <TextBlock Classes="field-label" Text="淘汰赛目标" />
-                                            <ComboBox x:Name="KnockoutGoalBox" SelectedIndex="0">
+                                            <ComboBox x:Name="KnockoutGoalBox"
+                                                      SelectedIndex="0"
+                                                      SelectionChanged="KnockoutGoalBox_SelectionChanged">
                                                 <ComboBoxItem Content="每组出线" />
                                                 <ComboBoxItem Content="决出冠军" />
                                             </ComboBox>
                                         </StackPanel>
                                     </Grid>
 
-                                    <TextBlock Classes="field-label" Text="名次附加赛" />
-                                    <ComboBox x:Name="PlacementPlayoffBox" SelectedIndex="0">
-                                        <ComboBoxItem Content="不排附加赛" />
-                                        <ComboBoxItem Content="排 3/4 名赛" />
-                                        <ComboBoxItem Content="排 3-8 名赛" />
-                                    </ComboBox>
+                                    <StackPanel x:Name="PlacementPlayoffPanel">
+                                        <TextBlock Classes="field-label" Text="名次附加赛" />
+                                        <ComboBox x:Name="PlacementPlayoffBox" SelectedIndex="0">
+                                            <ComboBoxItem Content="不排附加赛" />
+                                            <ComboBoxItem Content="排 3/4 名赛" />
+                                            <ComboBoxItem Content="排 3-8 名赛" />
+                                        </ComboBox>
+                                    </StackPanel>
 
                                     <TextBlock Classes="field-label" Text="随机数种子" />
                                     <Grid ColumnDefinitions="*,92" ColumnSpacing="8">
@@ -237,7 +245,9 @@
                                     <Grid ColumnDefinitions="1.35*,*,*" ColumnSpacing="10">
                                         <StackPanel>
                                             <TextBlock Classes="field-label" Text="导出为" />
-                                            <ComboBox x:Name="DrawExportFormatBox" SelectedIndex="0">
+                                            <ComboBox x:Name="DrawExportFormatBox"
+                                                      SelectedIndex="0"
+                                                      SelectionChanged="DrawExportFormatBox_SelectionChanged">
                                                 <ComboBoxItem Content="Excel" Tag="Excel" />
                                                 <ComboBoxItem Content="JPG" Tag="Jpeg" />
                                                 <ComboBoxItem Content="极清透明 PNG" Tag="Png" />
@@ -245,11 +255,11 @@
                                                 <ComboBoxItem Content="全部导出" Tag="All" />
                                             </ComboBox>
                                         </StackPanel>
-                                        <StackPanel Grid.Column="1">
+                                        <StackPanel x:Name="DrawPdfRowsPanel" Grid.Column="1" IsVisible="False">
                                             <TextBlock Classes="field-label" Text="PDF 行" />
                                             <TextBox x:Name="PdfRowsBox" Text="1" />
                                         </StackPanel>
-                                        <StackPanel Grid.Column="2">
+                                        <StackPanel x:Name="DrawPdfColumnsPanel" Grid.Column="2" IsVisible="False">
                                             <TextBlock Classes="field-label" Text="PDF 列" />
                                             <TextBox x:Name="PdfColumnsBox" Text="1" />
                                         </StackPanel>
@@ -267,16 +277,46 @@
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel Spacing="4" Margin="0,10,0,0">
                                     <TextBlock Classes="field-label" Text="比赛日期" />
-                                    <TextBox x:Name="ScheduleDateBox" PlaceholderText="yyyy-MM-dd" />
+                                    <DatePicker x:Name="ScheduleDatePicker" />
 
                                     <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
                                         <StackPanel>
                                             <TextBlock Classes="field-label" Text="开始时间" />
-                                            <TextBox x:Name="ScheduleStartBox" Text="14:00" />
+                                            <ComboBox x:Name="ScheduleStartBox" SelectedIndex="6">
+                                                <ComboBoxItem Content="08:00" />
+                                                <ComboBoxItem Content="09:00" />
+                                                <ComboBoxItem Content="10:00" />
+                                                <ComboBoxItem Content="11:00" />
+                                                <ComboBoxItem Content="12:00" />
+                                                <ComboBoxItem Content="13:00" />
+                                                <ComboBoxItem Content="14:00" />
+                                                <ComboBoxItem Content="15:00" />
+                                                <ComboBoxItem Content="16:00" />
+                                                <ComboBoxItem Content="17:00" />
+                                                <ComboBoxItem Content="18:00" />
+                                                <ComboBoxItem Content="19:00" />
+                                                <ComboBoxItem Content="20:00" />
+                                                <ComboBoxItem Content="21:00" />
+                                            </ComboBox>
                                         </StackPanel>
                                         <StackPanel Grid.Column="1">
                                             <TextBlock Classes="field-label" Text="结束时间" />
-                                            <TextBox x:Name="ScheduleEndBox" Text="18:00" />
+                                            <ComboBox x:Name="ScheduleEndBox" SelectedIndex="9">
+                                                <ComboBoxItem Content="09:00" />
+                                                <ComboBoxItem Content="10:00" />
+                                                <ComboBoxItem Content="11:00" />
+                                                <ComboBoxItem Content="12:00" />
+                                                <ComboBoxItem Content="13:00" />
+                                                <ComboBoxItem Content="14:00" />
+                                                <ComboBoxItem Content="15:00" />
+                                                <ComboBoxItem Content="16:00" />
+                                                <ComboBoxItem Content="17:00" />
+                                                <ComboBoxItem Content="18:00" />
+                                                <ComboBoxItem Content="19:00" />
+                                                <ComboBoxItem Content="20:00" />
+                                                <ComboBoxItem Content="21:00" />
+                                                <ComboBoxItem Content="22:00" />
+                                            </ComboBox>
                                         </StackPanel>
                                     </Grid>
 
@@ -327,7 +367,9 @@
                                         </ScrollViewer>
                                     </Border>
 
-                                    <TextBlock Classes="field-label" Text="统一 / 分界线后设置" />
+                                    <TextBlock x:Name="ScheduleDefaultTimingLabel"
+                                               Classes="field-label"
+                                               Text="统一赛程设置" />
                                     <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
                                         <StackPanel>
                                             <TextBlock Classes="field-label" Text="每场分钟" />
@@ -344,31 +386,33 @@
                                         </StackPanel>
                                     </Grid>
 
-                                    <TextBlock Classes="field-label" Text="分界线前加速设置" />
-                                    <Grid ColumnDefinitions="1.2*,*,*" ColumnSpacing="10">
-                                        <StackPanel>
-                                            <TextBlock Classes="field-label" Text="分界线" />
-                                            <ComboBox x:Name="ScheduleTimingBoundaryBox" SelectedIndex="0">
-                                                <ComboBoxItem Content="不使用" Tag="0" />
-                                                <ComboBoxItem Content="8强" Tag="8" />
-                                                <ComboBoxItem Content="16强" Tag="16" />
-                                                <ComboBoxItem Content="32强" Tag="32" />
-                                            </ComboBox>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1">
-                                            <TextBlock Classes="field-label" Text="前每场" />
-                                            <TextBox x:Name="BeforeBoundaryMatchMinutesBox" Text="20" />
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="2">
-                                            <TextBlock Classes="field-label" Text="前最多" />
-                                            <ComboBox x:Name="BeforeBoundaryMaxMatchesBox" SelectedIndex="2">
-                                                <ComboBoxItem Content="1" />
-                                                <ComboBoxItem Content="2" />
-                                                <ComboBoxItem Content="3" />
-                                                <ComboBoxItem Content="4" />
-                                            </ComboBox>
-                                        </StackPanel>
-                                    </Grid>
+                                    <StackPanel x:Name="ScheduleTimingSplitPanel" IsVisible="False">
+                                        <TextBlock Classes="field-label" Text="淘汰赛赛程分界线" />
+                                        <Grid ColumnDefinitions="1.2*,*,*" ColumnSpacing="10">
+                                            <StackPanel>
+                                                <TextBlock Classes="field-label" Text="分界线" />
+                                                <ComboBox x:Name="ScheduleTimingBoundaryBox" SelectedIndex="1">
+                                                    <ComboBoxItem Content="不使用" Tag="0" />
+                                                    <ComboBoxItem Content="8强" Tag="8" />
+                                                    <ComboBoxItem Content="16强" Tag="16" />
+                                                    <ComboBoxItem Content="32强" Tag="32" />
+                                                </ComboBox>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Classes="field-label" Text="前每场" />
+                                                <TextBox x:Name="BeforeBoundaryMatchMinutesBox" Text="20" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock Classes="field-label" Text="前最多" />
+                                                <ComboBox x:Name="BeforeBoundaryMaxMatchesBox" SelectedIndex="2">
+                                                    <ComboBoxItem Content="1" />
+                                                    <ComboBoxItem Content="2" />
+                                                    <ComboBoxItem Content="3" />
+                                                    <ComboBoxItem Content="4" />
+                                                </ComboBox>
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
 
                                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,12,0,0">
                                         <CheckBox x:Name="ExportTimedBracketBox" IsChecked="True" VerticalAlignment="Center" />
@@ -542,7 +586,9 @@
                         </TabItem>
 
                         <TabItem Header="赛程预览">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          Margin="0,10,0,0">
                                 <StackPanel Spacing="12">
                                     <Border Background="#F8FAFC"
                                             BorderBrush="#E2E8F0"
@@ -554,50 +600,61 @@
                                                    Foreground="#35445D"
                                                    FontWeight="SemiBold"
                                                    TextWrapping="Wrap" />
-                                    </Border>
-                                    <ItemsControl x:Name="ScheduleList">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border Background="{Binding BackgroundBrush}"
-                                                        BorderBrush="{Binding BorderBrush}"
-                                                        BorderThickness="1"
-                                                        CornerRadius="8"
-                                                        Padding="12"
-                                                        Margin="0,0,0,8">
-                                                    <Grid ColumnDefinitions="74,108,68,*" ColumnSpacing="10">
-                                                        <Border Background="{Binding BadgeBrush}"
-                                                                CornerRadius="8"
-                                                                Padding="8,6"
-                                                                VerticalAlignment="Center">
-                                                            <TextBlock Text="{Binding Status}"
-                                                                       Foreground="{Binding BadgeForeground}"
-                                                                       FontWeight="Bold"
-                                                                       HorizontalAlignment="Center" />
-                                                        </Border>
-                                                        <StackPanel Grid.Column="1" Spacing="2">
-                                                            <TextBlock Text="{Binding TimeText}" FontWeight="SemiBold" Foreground="#111827" />
-                                                            <TextBlock Text="{Binding CourtText}" Foreground="#64748B" FontSize="12" />
-                                                        </StackPanel>
-                                                        <TextBlock Grid.Column="2"
-                                                                   Text="{Binding Title}"
-                                                                   Foreground="#28104E"
-                                                                   FontWeight="Bold"
-                                                                   VerticalAlignment="Center"
-                                                                   TextWrapping="Wrap" />
-                                                        <StackPanel Grid.Column="3" Spacing="3">
-                                                            <TextBlock Text="{Binding Pairing}"
-                                                                       Foreground="#111827"
-                                                                       TextWrapping="Wrap" />
-                                                            <TextBlock Text="{Binding Note}"
-                                                                       Foreground="#6F7890"
-                                                                       FontSize="12"
-                                                                       TextWrapping="Wrap" />
-                                                        </StackPanel>
-                                                    </Grid>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
+                                     </Border>
+                                    <StackPanel MinWidth="1120">
+                                        <Border Background="#EDE1FC"
+                                                BorderBrush="#D8C7F4"
+                                                BorderThickness="1"
+                                                Padding="10,8">
+                                            <Grid ColumnDefinitions="56,76,112,96,82,104,146,*,*,156" ColumnSpacing="8">
+                                                <TextBlock Text="序号" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="1" Text="状态" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="2" Text="日期/比赛日" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="3" Text="时间" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="4" Text="场地" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="5" Text="组别" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="6" Text="阶段/场次" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="7" Text="选手/队伍A" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="8" Text="选手/队伍B" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="9" Text="备注" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
+                                            </Grid>
+                                        </Border>
+                                        <ItemsControl x:Name="ScheduleList">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="{Binding BackgroundBrush}"
+                                                            BorderBrush="{Binding BorderBrush}"
+                                                            BorderThickness="1,0,1,1"
+                                                            Padding="10,8">
+                                                        <Grid ColumnDefinitions="56,76,112,96,82,104,146,*,*,156" ColumnSpacing="8">
+                                                            <TextBlock Text="{Binding Order}" Foreground="#111827" FontWeight="SemiBold" TextAlignment="Center" VerticalAlignment="Center" />
+                                                            <Border Grid.Column="1"
+                                                                    Background="{Binding BadgeBrush}"
+                                                                    CornerRadius="6"
+                                                                    Padding="6,4"
+                                                                    VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding Status}"
+                                                                           Foreground="{Binding BadgeForeground}"
+                                                                           FontWeight="Bold"
+                                                                           TextAlignment="Center" />
+                                                            </Border>
+                                                            <TextBlock Grid.Column="2" Text="{Binding DayLabel}" Foreground="#111827" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                            <TextBlock Grid.Column="3" Text="{Binding TimeRange}" Foreground="#111827" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                            <TextBlock Grid.Column="4" Text="{Binding Court}" Foreground="#111827" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                            <TextBlock Grid.Column="5" Text="{Binding GroupName}" Foreground="#28104E" FontWeight="Bold" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                            <StackPanel Grid.Column="6" Spacing="2" VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding Phase}" Foreground="#111827" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                                <TextBlock Text="{Binding MatchName}" Foreground="#64748B" FontSize="12" TextWrapping="Wrap" />
+                                                            </StackPanel>
+                                                            <TextBlock Grid.Column="7" Text="{Binding SideA}" Foreground="#111827" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                            <TextBlock Grid.Column="8" Text="{Binding SideB}" Foreground="#111827" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                            <TextBlock Grid.Column="9" Text="{Binding Note}" Foreground="#64748B" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>

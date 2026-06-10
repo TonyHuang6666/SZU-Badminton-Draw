@@ -70,7 +70,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         SeedBox.Text = DrawWorkflow.GenerateSeed();
-        ScheduleDateBox.Text = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
+        ScheduleDatePicker.SelectedDate = new DateTimeOffset(DateTime.Today);
         ScheduleDaysList.ItemsSource = _scheduleDays;
         Opened += MainWindow_Opened;
     }
@@ -83,6 +83,10 @@ public partial class MainWindow : Window
         }
 
         _uiReady = true;
+        UpdateEventKindForMode();
+        UpdateKnockoutGoalVisibility();
+        UpdateDrawPdfOptionsVisibility();
+        UpdateScheduleTimingSplitVisibility();
         ApplyScheduleCourtPreset();
         AddCurrentScheduleDay(showStatus: false);
     }
@@ -249,6 +253,9 @@ public partial class MainWindow : Window
             RoundOneList.ItemsSource = FormatGroups(_latestResult.RoundOneGroups);
             ByeList.ItemsSource = FormatGroups(_latestResult.ByeGroups);
             ClearSchedulePreview();
+            UpdateKnockoutGoalVisibility();
+            UpdateDrawPdfOptionsVisibility();
+            UpdateScheduleTimingSplitVisibility();
             SetStatus(_importWarnings.Count > 0
                 ? "抽签预览已生成；名单提醒请人工复核。"
                 : "抽签预览已生成，可导出 Excel。",
@@ -292,6 +299,49 @@ public partial class MainWindow : Window
             _scheduleDays.Remove(selectedDay);
             ClearSchedulePreview();
             SetStatus("已删除选中的赛程日。");
+        }
+    }
+
+    private void CompetitionModeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (!_uiReady)
+        {
+            return;
+        }
+
+        UpdateEventKindForMode();
+        UpdateKnockoutGoalVisibility();
+        ClearSchedulePreview();
+    }
+
+    private void KnockoutGoalBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (!_uiReady)
+        {
+            return;
+        }
+
+        UpdatePlacementPlayoffVisibility();
+        UpdateScheduleTimingSplitVisibility();
+        ClearSchedulePreview();
+    }
+
+    private void GroupCountBox_TextChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (!_uiReady)
+        {
+            return;
+        }
+
+        UpdateKnockoutGoalVisibility();
+        ClearSchedulePreview();
+    }
+
+    private void DrawExportFormatBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_uiReady)
+        {
+            UpdateDrawPdfOptionsVisibility();
         }
     }
 
@@ -504,7 +554,9 @@ public partial class MainWindow : Window
 
     private ScheduleSettings BuildScheduleSettings()
     {
-        var boundary = GetSelectedComboBoxTagInt(ScheduleTimingBoundaryBox);
+        var boundary = ShouldShowScheduleTimingSplit()
+            ? GetSelectedComboBoxTagInt(ScheduleTimingBoundaryBox)
+            : 0;
         return ScheduleWorkflow.BuildSettings(
             _scheduleDays.ToList(),
             ParsePositiveInt(ScheduleMatchMinutesBox.Text, boundary > 0 ? "分界线后每场分钟" : "每场分钟"),
@@ -516,19 +568,20 @@ public partial class MainWindow : Window
 
     private void AddCurrentScheduleDay(bool showStatus = true)
     {
-        if (!DateOnly.TryParse(ScheduleDateBox.Text?.Trim(), out var date))
+        if (ScheduleDatePicker.SelectedDate is not DateTimeOffset selectedDate)
         {
-            throw new DrawValidationException("比赛日期格式应为 yyyy-MM-dd。");
+            throw new DrawValidationException("请选择比赛日期。");
         }
 
-        if (!TimeOnly.TryParse(ScheduleStartBox.Text?.Trim(), out var start))
+        var date = DateOnly.FromDateTime(selectedDate.Date);
+        if (!TimeOnly.TryParse(GetSelectedComboBoxText(ScheduleStartBox), out var start))
         {
-            throw new DrawValidationException("开始时间格式应为 HH:mm。");
+            throw new DrawValidationException("请选择开始时间。");
         }
 
-        if (!TimeOnly.TryParse(ScheduleEndBox.Text?.Trim(), out var end))
+        if (!TimeOnly.TryParse(GetSelectedComboBoxText(ScheduleEndBox), out var end))
         {
-            throw new DrawValidationException("结束时间格式应为 HH:mm。");
+            throw new DrawValidationException("请选择结束时间。");
         }
 
         if (end <= start)
@@ -694,6 +747,84 @@ public partial class MainWindow : Window
         return ScheduleWorkflow.GetFirstRecordDayLabel(plan);
     }
 
+    private void UpdateEventKindForMode()
+    {
+        if (GetCompetitionMode() is CompetitionMode.TeamKnockout or CompetitionMode.TeamRoundRobin)
+        {
+            EventKindBox.SelectedIndex = 2;
+        }
+        else if (EventKindBox.SelectedIndex == 2)
+        {
+            EventKindBox.SelectedIndex = 0;
+        }
+    }
+
+    private void UpdateKnockoutGoalVisibility()
+    {
+        var isKnockout = GetCompetitionMode() is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout;
+        var hasGroupCount = TryGetGroupCount(out var groupCount);
+        var showGoalOptions = isKnockout && hasGroupCount && !IsPowerOfTwo(groupCount);
+        KnockoutGoalPanel.IsVisible = showGoalOptions;
+        if (!showGoalOptions)
+        {
+            SelectKnockoutGoal(isKnockout && hasGroupCount && groupCount <= 1
+                ? KnockoutGoal.Champion
+                : KnockoutGoal.OneQualifierPerGroup);
+        }
+
+        UpdatePlacementPlayoffVisibility();
+        UpdateScheduleTimingSplitVisibility();
+    }
+
+    private void UpdatePlacementPlayoffVisibility()
+    {
+        var showPlacementOptions = GetCompetitionMode() is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout
+            && GetKnockoutGoal() == KnockoutGoal.Champion;
+        PlacementPlayoffPanel.IsVisible = showPlacementOptions;
+        if (!showPlacementOptions)
+        {
+            PlacementPlayoffBox.SelectedIndex = 0;
+        }
+    }
+
+    private void UpdateDrawPdfOptionsVisibility()
+    {
+        var showPdfOptions = _latestResult?.Settings.IsKnockout == true
+            && GetExportFormat(DrawExportFormatBox) is WorkflowExportFormat.A4Pdf or WorkflowExportFormat.All;
+        DrawPdfRowsPanel.IsVisible = showPdfOptions;
+        DrawPdfColumnsPanel.IsVisible = showPdfOptions;
+    }
+
+    private void UpdateScheduleTimingSplitVisibility()
+    {
+        var showTimingSplit = ShouldShowScheduleTimingSplit();
+        ScheduleTimingSplitPanel.IsVisible = showTimingSplit;
+        ScheduleDefaultTimingLabel.Text = showTimingSplit ? "分界线后设置" : "统一赛程设置";
+    }
+
+    private bool ShouldShowScheduleTimingSplit()
+    {
+        return GetCompetitionMode() is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout
+            && GetKnockoutGoal() == KnockoutGoal.Champion
+            && _latestResult?.Settings.IsKnockout == true
+            && _latestResult.Settings.KnockoutGoal == KnockoutGoal.Champion;
+    }
+
+    private bool TryGetGroupCount(out int groupCount)
+    {
+        return int.TryParse(GroupCountBox.Text?.Trim(), out groupCount);
+    }
+
+    private static bool IsPowerOfTwo(int value)
+    {
+        return value > 0 && (value & (value - 1)) == 0;
+    }
+
+    private void SelectKnockoutGoal(KnockoutGoal knockoutGoal)
+    {
+        KnockoutGoalBox.SelectedIndex = knockoutGoal == KnockoutGoal.Champion ? 1 : 0;
+    }
+
     private async System.Threading.Tasks.Task<bool> ConfirmAsync(string title, string message)
     {
         var dialog = new Window
@@ -799,13 +930,35 @@ public partial class MainWindow : Window
 
     private KnockoutGoal GetKnockoutGoal()
     {
-        return KnockoutGoalBox.SelectedIndex == 1
+        if (GetCompetitionMode() is not (CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout))
+        {
+            return KnockoutGoal.Champion;
+        }
+
+        if (!TryGetGroupCount(out var groupCount))
+        {
+            return KnockoutGoal.OneQualifierPerGroup;
+        }
+
+        if (groupCount <= 1)
+        {
+            return KnockoutGoal.Champion;
+        }
+
+        return KnockoutGoalPanel.IsVisible && KnockoutGoalBox.SelectedIndex == 1
             ? KnockoutGoal.Champion
             : KnockoutGoal.OneQualifierPerGroup;
     }
 
     private PlacementPlayoff GetPlacementPlayoff()
     {
+        if (GetCompetitionMode() is not (CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout)
+            || GetKnockoutGoal() != KnockoutGoal.Champion
+            || !PlacementPlayoffPanel.IsVisible)
+        {
+            return PlacementPlayoff.None;
+        }
+
         return PlacementPlayoffBox.SelectedIndex switch
         {
             1 => PlacementPlayoff.ThirdPlace,
@@ -830,6 +983,12 @@ public partial class MainWindow : Window
         else if (eventKind != EventKind.Team && CompetitionModeBox.SelectedIndex >= 2)
         {
             CompetitionModeBox.SelectedIndex = 0;
+        }
+
+        if (_uiReady)
+        {
+            UpdateKnockoutGoalVisibility();
+            UpdateScheduleTimingSplitVisibility();
         }
     }
 
@@ -860,33 +1019,42 @@ public partial class MainWindow : Window
     private static IReadOnlyList<SchedulePreviewRow> FormatScheduleRows(SchedulePlan schedule)
     {
         var rows = schedule.Matches
-            .Take(80)
             .Select(match => new SchedulePreviewRow(
+                match.Order.ToString(),
                 "已安排",
-                $"{match.DayLabel} {match.TimeRange}",
+                match.DayLabel,
+                match.TimeRange,
                 match.Court,
-                $"{match.GroupName} {match.Phase}",
-                $"{match.SideA} vs {match.SideB}",
-                string.IsNullOrWhiteSpace(match.Note) ? match.MatchName : $"{match.MatchName} · {match.Note}",
+                match.GroupName,
+                match.Phase,
+                match.MatchName,
+                match.SideA,
+                match.SideB,
+                match.Note,
                 ScheduledRowBackground,
                 ScheduledRowBorder,
                 ScheduledBadgeBackground,
                 ScheduledBadgeForeground))
             .ToList();
-        rows.AddRange(schedule.UnscheduledMatches.Take(40).Select(match =>
+        rows.AddRange(schedule.UnscheduledMatches.Select(match =>
             new SchedulePreviewRow(
+                match.Order.ToString(),
                 "未安排",
                 "待排期",
+                "未安排",
                 "未定",
-                $"{match.GroupName} {match.Phase}",
-                $"{match.SideA} vs {match.SideB}",
-                $"{match.MatchName} · {match.Reason}",
+                match.GroupName,
+                match.Phase,
+                match.MatchName,
+                match.SideA,
+                match.SideB,
+                match.Reason,
                 UnscheduledRowBackground,
                 UnscheduledRowBorder,
                 UnscheduledBadgeBackground,
                 UnscheduledBadgeForeground)));
         return rows.Count == 0
-            ? [new SchedulePreviewRow("空", "暂无", "-", "暂无赛程", "生成赛程后显示", "", ScheduledRowBackground, ScheduledRowBorder, ScheduledBadgeBackground, ScheduledBadgeForeground)]
+            ? [new SchedulePreviewRow("-", "空", "暂无", "-", "-", "-", "暂无赛程", "生成赛程后显示", "", "", "", ScheduledRowBackground, ScheduledRowBorder, ScheduledBadgeBackground, ScheduledBadgeForeground)]
             : rows;
     }
 
@@ -909,6 +1077,7 @@ public partial class MainWindow : Window
         _latestSchedule = null;
         ScheduleSummaryText.Text = "尚未生成赛程";
         ScheduleList.ItemsSource = Array.Empty<SchedulePreviewRow>();
+        UpdateScheduleTimingSplitVisibility();
     }
 
     private static int ParsePositiveInt(string? value, string fieldName)
@@ -953,11 +1122,16 @@ public partial class MainWindow : Window
         string Body);
 
     public sealed record SchedulePreviewRow(
+        string Order,
         string Status,
-        string TimeText,
-        string CourtText,
-        string Title,
-        string Pairing,
+        string DayLabel,
+        string TimeRange,
+        string Court,
+        string GroupName,
+        string Phase,
+        string MatchName,
+        string SideA,
+        string SideB,
         string Note,
         IBrush BackgroundBrush,
         IBrush BorderBrush,
