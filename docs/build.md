@@ -1,4 +1,4 @@
-# Windows 构建与发布
+# 构建与发布
 
 ## 开发机准备
 
@@ -48,6 +48,7 @@ dotnet test tests\BadmintonDraw.Tests\BadmintonDraw.Tests.csproj -c Debug --no-r
 - 循环赛矩阵、轮转顺序和同单位先赛。
 - Excel 对阵表、赛程表、图片和 PDF 导出。
 - 多比赛日赛程编排和带比赛时间/场地的对阵表。
+- 对阵记录表导入、逐条提醒、赛事存档和重复导入保护。
 
 ## 发布单文件程序
 
@@ -82,7 +83,22 @@ artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
 
 当前 macOS 包未签名、未公证，适合作为内部测试包。正式公开分发前需要接入 Apple Developer ID 签名、公证和 stapler。
 
-正式发布到 GitHub Release 时，建议将发布目录压缩为类似 `SZU-Badminton-Draw_v3.0.0_win-x64_self-contained.zip` 的文件，并随版本标签一起上传。Release 说明中应列出规则化抽签、赛程编排、多格式导出、带比赛时间和场地的对阵表、虚拟测试名单等重要变化。
+正式发布到 GitHub Release 时，建议：
+
+1. 先跑 `dotnet test tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj --no-restore --verbosity minimal`。
+2. 再跑 `dotnet build BadmintonDraw.sln --no-restore --verbosity minimal`。
+3. macOS 包使用 `VERSION=x.y.z bash scripts/publish-macos.sh osx-arm64` 生成，并上传 `artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg`。
+4. Windows 发布目录可压缩为类似 `SZU-Badminton-Draw_v3.3.0_win-x64_self-contained.zip` 的文件后上传。
+5. Release 说明中列出规则化抽签、赛程编排、多格式导出、赛事存档、记录表导入确认和 macOS 预览版等重要变化。
+
+GitHub CLI 示例：
+
+```bash
+gh release create v3.3.0 \
+  artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg \
+  --title "Release 3.3.0" \
+  --notes-file /tmp/szu-badminton-release-3.3.0.md
+```
 
 ## 示例名单
 
@@ -94,10 +110,10 @@ artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
 
 ## 跨平台说明
 
-`BadmintonDraw.Core` 和 `BadmintonDraw.Excel` 是普通 .NET 项目，理论上可以在 macOS/Linux 上参与部分构建和测试。但当前 GUI 使用 WPF，只能在 Windows 上运行。
+`BadmintonDraw.Core`、`BadmintonDraw.Excel` 和 `BadmintonDraw.Workflows` 是普通 .NET 项目，可以在 macOS/Linux 上参与构建和测试。Windows WPF GUI 只能在 Windows 上运行；Avalonia GUI 位于 `src/BadmintonDraw.Desktop`，用于 macOS/Windows/Linux 跨平台预览。
 
-如果未来要支持 macOS/Linux，可以考虑：
+跨平台维护时应保持：
 
 - 保留 `BadmintonDraw.Core` 作为跨平台核心。
-- 把 WPF 界面迁移或另做 Avalonia、MAUI、Web 前端。
+- 让 WPF 和 Avalonia 都调用 `BadmintonDraw.Workflows`，避免 UI 层重复业务逻辑。
 - 保持 Excel、图片、PDF 导出逻辑在独立类库中，减少界面迁移成本。

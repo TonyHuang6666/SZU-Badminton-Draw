@@ -14,6 +14,7 @@ public sealed class MatchRecordReader
     private const int MatchIdColumn = 14;
     private const int WinnerOptionAColumn = 15;
     private const int WinnerOptionBColumn = 16;
+    private const int TournamentIdColumn = 17;
     private const int SideAColumn = 6;
     private const int SideBColumn = 8;
 
@@ -32,6 +33,7 @@ public sealed class MatchRecordReader
         var missingRows = new List<string>();
         var validationIssues = new List<string>();
         var pendingMatchNames = new HashSet<string>(StringComparer.Ordinal);
+        var tournamentIds = new HashSet<string>(StringComparer.Ordinal);
         var expectedMatchCount = 0;
         foreach (var path in paths)
         {
@@ -40,6 +42,7 @@ public sealed class MatchRecordReader
             missingRows.AddRange(importResult.MissingResultRows.Select(row => $"{Path.GetFileName(path)}：{row}"));
             validationIssues.AddRange(importResult.ValidationIssues.Select(issue => $"{Path.GetFileName(path)}：{issue}"));
             pendingMatchNames.UnionWith(importResult.PendingMatchNames);
+            tournamentIds.UnionWith(importResult.TournamentIds);
             foreach (var dayLabel in importResult.DayLabels)
             {
                 if (!mergedDayLabels.Contains(dayLabel, StringComparer.Ordinal))
@@ -72,7 +75,8 @@ public sealed class MatchRecordReader
             expectedMatchCount,
             missingRows,
             validationIssues,
-            pendingMatchNames.ToList());
+            pendingMatchNames.ToList(),
+            tournamentIds.ToList());
     }
 
     public MatchRecordImportResult Read(string filePath)
@@ -116,6 +120,7 @@ public sealed class MatchRecordReader
         var missingRows = new List<string>();
         var validationIssues = new List<string>();
         var pendingMatchNames = new List<string>();
+        var tournamentIds = new HashSet<string>(StringComparer.Ordinal);
         var expectedMatchCount = 0;
         var lastRow = sheet.LastRowUsed()?.RowNumber() ?? 0;
 
@@ -128,6 +133,13 @@ public sealed class MatchRecordReader
             }
 
             expectedMatchCount++;
+            var location = BuildRecordLocation(sheet, row);
+
+            var tournamentId = NormalizeSpaces(sheet.Cell(row, TournamentIdColumn).GetString());
+            if (!string.IsNullOrWhiteSpace(tournamentId))
+            {
+                tournamentIds.Add(tournamentId);
+            }
 
             var dayLabel = NormalizeSpaces(sheet.Cell(row, DayLabelColumn).GetString());
             if (!string.IsNullOrWhiteSpace(dayLabel)
@@ -141,34 +153,34 @@ public sealed class MatchRecordReader
             var winnerText = NormalizeSpaces(sheet.Cell(row, WinnerColumn).GetString());
             if (string.IsNullOrWhiteSpace(winnerText))
             {
-                missingRows.Add($"第 {row} 行 {matchName} 未填写胜方，将作为未决场次顺延");
+                missingRows.Add($"{location} {matchName} 未填写胜方，将作为未决场次顺延");
                 pendingMatchNames.Add(matchName);
                 continue;
             }
 
-            var optionA = BuildOptionFromRow(sheet, row, WinnerOptionAColumn, SideAColumn);
-            var optionB = BuildOptionFromRow(sheet, row, WinnerOptionBColumn, SideBColumn);
-            var winnerOption = ResolveWinnerOption(row, winnerText, optionA, optionB);
+            var optionA = BuildOptionFromRow(sheet, row, location, WinnerOptionAColumn, SideAColumn);
+            var optionB = BuildOptionFromRow(sheet, row, location, WinnerOptionBColumn, SideBColumn);
+            var winnerOption = ResolveWinnerOption(location, winnerText, optionA, optionB);
             var loserOption = string.Equals(winnerOption, optionA, StringComparison.Ordinal) ? optionB : optionA;
             if (string.IsNullOrWhiteSpace(score))
             {
-                validationIssues.Add($"第 {row} 行 {matchName} 未填写比分，已按胜方 {winnerOption[..1]} 推进。");
+                validationIssues.Add($"{location} {matchName} 未填写比分，已按胜方 {winnerOption[..1]} 推进。");
             }
             else if (TryGetScoreWinnerPrefix(score, out var scoreWinnerPrefix))
             {
                 if (!string.Equals(scoreWinnerPrefix, winnerOption[..1], StringComparison.OrdinalIgnoreCase))
                 {
-                    validationIssues.Add($"第 {row} 行 {matchName} 的比分胜方为 {scoreWinnerPrefix}，但胜方填写为 {winnerOption[..1]}。");
+                    validationIssues.Add($"{location} {matchName} 的比分胜方为 {scoreWinnerPrefix}，但胜方填写为 {winnerOption[..1]}。");
                 }
             }
             else
             {
-                validationIssues.Add($"第 {row} 行 {matchName} 的比分格式无法判断胜负，已按胜方 {winnerOption[..1]} 推进。");
+                validationIssues.Add($"{location} {matchName} 的比分格式无法判断胜负，已按胜方 {winnerOption[..1]} 推进。");
             }
 
             if (string.IsNullOrWhiteSpace(duration))
             {
-                validationIssues.Add($"第 {row} 行 {matchName} 未填写用时，已按胜方 {winnerOption[..1]} 推进。");
+                validationIssues.Add($"{location} {matchName} 未填写用时，已按胜方 {winnerOption[..1]} 推进。");
             }
 
             results[matchName] = new MatchRecordResult(
@@ -180,10 +192,25 @@ public sealed class MatchRecordReader
                 duration);
         }
 
-        return new MatchRecordImportResult(results, dayLabels, expectedMatchCount, missingRows, validationIssues, pendingMatchNames);
+        return new MatchRecordImportResult(
+            results,
+            dayLabels,
+            expectedMatchCount,
+            missingRows,
+            validationIssues,
+            pendingMatchNames,
+            tournamentIds.ToList());
     }
 
-    private static string BuildOptionFromRow(IXLWorksheet sheet, int row, int optionColumn, int sideColumn)
+    private static string BuildRecordLocation(IXLWorksheet sheet, int row)
+    {
+        var order = NormalizeSpaces(sheet.Cell(row, 1).GetString());
+        return string.IsNullOrWhiteSpace(order)
+            ? "序号未填写"
+            : $"序号 {order}";
+    }
+
+    private static string BuildOptionFromRow(IXLWorksheet sheet, int row, string location, int optionColumn, int sideColumn)
     {
         var option = NormalizeOption(sheet.Cell(row, optionColumn).GetString());
         if (!string.IsNullOrWhiteSpace(option))
@@ -197,10 +224,10 @@ public sealed class MatchRecordReader
             return option;
         }
 
-        throw new ExcelImportException($"第 {row} 行缺少胜方候选，请重新导出赛程记录表。");
+        throw new ExcelImportException($"{location} 缺少胜方候选，请重新导出赛程记录表。");
     }
 
-    private static string ResolveWinnerOption(int row, string winnerText, string optionA, string optionB)
+    private static string ResolveWinnerOption(string location, string winnerText, string optionA, string optionB)
     {
         var winner = NormalizeOption(winnerText);
         if (string.Equals(winner, "A", StringComparison.OrdinalIgnoreCase))
@@ -226,7 +253,7 @@ public sealed class MatchRecordReader
             return optionB;
         }
 
-        throw new ExcelImportException($"第 {row} 行胜方不在本场候选列表中，请从下拉框选择。");
+        throw new ExcelImportException($"{location} 胜方不在本场候选列表中，请从下拉框选择。");
     }
 
     private static string ExtractOptionName(string option)

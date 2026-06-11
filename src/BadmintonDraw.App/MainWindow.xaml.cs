@@ -13,6 +13,7 @@ public partial class MainWindow : Window
 {
     private readonly DrawWorkflow _drawWorkflow = new();
     private readonly ScheduleWorkflow _scheduleWorkflow = new();
+    private readonly TournamentProgressWorkflow _progressWorkflow = new();
     private IReadOnlyList<DrawParticipant> _participants = Array.Empty<DrawParticipant>();
     private IReadOnlyList<ParticipantImportWarning> _importWarnings = Array.Empty<ParticipantImportWarning>();
     private readonly ObservableCollection<ScheduleDayRow> _scheduleDays = [];
@@ -20,6 +21,8 @@ public partial class MainWindow : Window
     private DrawResult? _latestResult;
     private DrawWorkflowResult? _latestWorkflowResult;
     private SchedulePlan? _latestSchedule;
+    private string? _progressFilePath;
+    private TournamentProgressState? _progressState;
 
     public MainWindow()
     {
@@ -71,7 +74,7 @@ public partial class MainWindow : Window
 
     private void Export_Click(object sender, RoutedEventArgs e)
     {
-        if (!TryGenerate())
+        if (_latestWorkflowResult is null && !TryGenerate())
         {
             return;
         }
@@ -150,7 +153,7 @@ public partial class MainWindow : Window
 
     private void ExportSchedule_Click(object sender, RoutedEventArgs e)
     {
-        if (!TryGenerateSchedule())
+        if (_latestSchedule is null && !TryGenerateSchedule())
         {
             return;
         }
@@ -202,7 +205,7 @@ public partial class MainWindow : Window
 
     private void ExportMatchRecord_Click(object sender, RoutedEventArgs e)
     {
-        if (!TryGenerateSchedule())
+        if (_latestSchedule is null && !TryGenerateSchedule())
         {
             return;
         }
@@ -240,7 +243,13 @@ public partial class MainWindow : Window
         {
             try
             {
-                _scheduleWorkflow.ExportMatchRecord(dialog.FileName, _latestSchedule, dayLabel);
+                _scheduleWorkflow.ExportMatchRecord(
+                    dialog.FileName,
+                    _latestSchedule,
+                    dayLabel,
+                    _progressState?.Results,
+                    _progressState?.PendingMatchNames.ToHashSet(StringComparer.Ordinal),
+                    _progressState?.Snapshot.TournamentId);
                 SetStatus($"赛程记录表已导出：{dialog.FileName}");
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or DrawValidationException)
@@ -252,7 +261,7 @@ public partial class MainWindow : Window
 
     private void ImportMatchRecordAndExportNext_Click(object sender, RoutedEventArgs e)
     {
-        if (!TryGenerateSchedule())
+        if (_latestSchedule is null && !TryGenerateSchedule())
         {
             return;
         }
@@ -281,6 +290,12 @@ public partial class MainWindow : Window
 
         if (importDialog.ShowDialog(this) != true)
         {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_progressFilePath))
+        {
+            ImportMatchRecordsIntoProgress(importDialog.FileNames);
             return;
         }
 
@@ -330,6 +345,180 @@ public partial class MainWindow : Window
             }
         }
         catch (Exception ex) when (ex is ExcelImportException or IOException or InvalidOperationException or DrawValidationException)
+        {
+            SetStatus(ex.Message, isError: true);
+        }
+    }
+
+    private void CreateProgress_Click(object sender, RoutedEventArgs e)
+    {
+        if (_progressState is not null)
+        {
+            SetStatus("当前已经打开赛事存档；后续导入会自动更新该文件。", StatusKind.Warning);
+            return;
+        }
+
+        if (_latestSchedule is null && !TryGenerateSchedule())
+        {
+            return;
+        }
+
+        if (_latestSchedule is null || _latestWorkflowResult is null || _latestResult is null)
+        {
+            SetStatus("请先生成完整抽签和赛程。", isError: true);
+            return;
+        }
+
+        if (!_latestSchedule.IsComplete)
+        {
+            SetStatus("当前赛程不完整，不能创建赛事存档。", StatusKind.Warning);
+            return;
+        }
+
+        var dialog = new SaveFileDialog
+        {
+            Filter = "深大羽协赛事存档 (*.szbd)|*.szbd",
+            DefaultExt = ".szbd",
+            AddExtension = true,
+            FileName = TournamentProgressWorkflow.BuildDefaultFileName(
+                _latestResult,
+                _loadedInputPath ?? InputPathBox.Text),
+            Title = "创建赛事存档"
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            _progressState = _progressWorkflow.Create(
+                dialog.FileName,
+                _loadedInputPath ?? InputPathBox.Text,
+                _latestWorkflowResult,
+                _latestSchedule);
+            _progressFilePath = dialog.FileName;
+            UpdateProgressDisplay();
+            SetStatus($"赛事存档已创建：{dialog.FileName}");
+        }
+        catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException)
+        {
+            SetStatus(ex.Message, isError: true);
+        }
+    }
+
+    private void OpenProgress_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "深大羽协赛事存档 (*.szbd)|*.szbd",
+            DefaultExt = ".szbd",
+            CheckFileExists = true,
+            Title = "打开赛事存档"
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            ApplyProgressState(_progressWorkflow.Open(dialog.FileName), dialog.FileName);
+            SetStatus(
+                $"已打开赛事存档：累计完成 {_progressState!.Results.Count} 场，"
+                + $"待决 {_progressState.RemainingMatchCount} 场。");
+        }
+        catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException)
+        {
+            SetStatus(ex.Message, isError: true);
+        }
+    }
+
+    private void ImportMatchRecordsIntoProgress(IReadOnlyList<string> filePaths)
+    {
+        if (string.IsNullOrWhiteSpace(_progressFilePath) || _progressState is null)
+        {
+            throw new InvalidOperationException("请先创建或打开赛事存档。");
+        }
+
+        try
+        {
+            var preview = _progressWorkflow.PreviewImport(_progressFilePath, filePaths);
+            if (preview.FilesToImport > 0 && preview.SelectedImportResult.ExpectedMatchCount == 0)
+            {
+                SetStatus("所选记录表中没有识别到可处理的比赛场次。", isError: true);
+                return;
+            }
+
+            var projectedState = _progressState with
+            {
+                Results = preview.ProjectedCumulativeResult.Results,
+                PendingMatchNames = preview.ProjectedCumulativeResult.PendingMatchNames,
+                ProcessedDayLabels = preview.ProjectedCumulativeResult.DayLabels
+            };
+            var nextDayLabel = TournamentProgressWorkflow.GetNextMatchRecordDayLabel(projectedState);
+            if (preview.HasWarnings)
+            {
+                var message = TournamentProgressWorkflow.BuildImportConfirmation(preview, nextDayLabel);
+                if (MessageBox.Show(
+                        this,
+                        message,
+                        "更新赛事存档",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                {
+                    SetStatus("已取消更新赛事存档。", StatusKind.Warning);
+                    return;
+                }
+            }
+
+            var outcome = _progressWorkflow.Import(
+                _progressFilePath,
+                filePaths,
+                allowCorrections: preview.Corrections.Count > 0);
+            _progressState = outcome.State;
+            _latestSchedule = outcome.State.Snapshot.Schedule;
+            UpdateProgressDisplay();
+
+            nextDayLabel = TournamentProgressWorkflow.GetNextMatchRecordDayLabel(outcome.State);
+            if (string.IsNullOrWhiteSpace(nextDayLabel))
+            {
+                SetStatus(
+                    $"赛事存档已更新，累计完成 {outcome.State.Results.Count} 场，"
+                    + $"待决 {outcome.State.RemainingMatchCount} 场；当前没有下一比赛日需要导出。");
+                return;
+            }
+
+            var exportDialog = new SaveFileDialog
+            {
+                Filter = "Excel 文件 (*.xlsx)|*.xlsx",
+                DefaultExt = ".xlsx",
+                AddExtension = true,
+                FileName = ScheduleWorkflow.BuildDefaultMatchRecordFileName(nextDayLabel),
+                Title = "保存下一比赛日赛程记录表"
+            };
+            if (exportDialog.ShowDialog(this) != true)
+            {
+                SetStatus(
+                    $"赛事存档已更新，累计完成 {outcome.State.Results.Count} 场，"
+                    + $"待决 {outcome.State.RemainingMatchCount} 场；已取消导出下一比赛日记录表。",
+                    StatusKind.Warning);
+                return;
+            }
+
+            _scheduleWorkflow.ExportMatchRecord(
+                exportDialog.FileName,
+                outcome.State.Snapshot.Schedule,
+                nextDayLabel,
+                outcome.State.Results,
+                outcome.State.PendingMatchNames.ToHashSet(StringComparer.Ordinal),
+                outcome.State.Snapshot.TournamentId);
+            SetStatus(
+                $"赛事存档已更新：新增 {preview.NewResultCount} 场结果，"
+                + $"累计完成 {outcome.State.Results.Count} 场，待决 {outcome.State.RemainingMatchCount} 场；"
+                + $"下一比赛日记录表已导出：{exportDialog.FileName}");
+        }
+        catch (Exception ex) when (ex is TournamentProgressException or ExcelImportException or IOException or InvalidOperationException)
         {
             SetStatus(ex.Message, isError: true);
         }
@@ -401,6 +590,7 @@ public partial class MainWindow : Window
         {
             var detectedEventKind = TryApplyDetectedEventKind();
             ApplyImportResult(_drawWorkflow.LoadParticipants(InputPathBox.Text, GetEventKind()));
+            ClearProgressReference();
             SummaryText.Text = $"已导入 {_participants.Count} 个参赛单位";
             PreviewStateText.Text = "待预览";
             UpdatePreviewBadges();
@@ -449,6 +639,7 @@ public partial class MainWindow : Window
                 GetKnockoutGoal(),
                 GetPlacementPlayoff());
             ApplyWorkflowResult(_drawWorkflow.Generate(request));
+            ClearProgressReference();
             ClearSchedulePreview();
             UpdateScheduleTimingSplitVisibility();
 
@@ -498,6 +689,7 @@ public partial class MainWindow : Window
 
             var settings = BuildScheduleSettings();
             _latestSchedule = _scheduleWorkflow.Generate(_latestResult, settings);
+            ClearProgressReference();
             ScheduleGrid.ItemsSource = ToScheduleRows(_latestSchedule);
             ScheduleSummaryText.Text = _latestSchedule.IsComplete
                 ? $"已生成 {_latestSchedule.Matches.Count} 场，预计 {_latestSchedule.DayCount} 个比赛日"
@@ -685,6 +877,7 @@ public partial class MainWindow : Window
         _loadedInputPath = null;
         _latestResult = null;
         _latestWorkflowResult = null;
+        ClearProgressReference();
         GroupsGrid.ItemsSource = null;
         RoundOneGrid.ItemsSource = null;
         ByeGrid.ItemsSource = null;
@@ -709,6 +902,119 @@ public partial class MainWindow : Window
         _participants = workflowResult.Participants;
         _importWarnings = workflowResult.ImportWarnings;
         _loadedInputPath = InputPathBox.Text;
+    }
+
+    private void ApplyProgressState(TournamentProgressState state, string filePath)
+    {
+        _progressState = state;
+        _progressFilePath = filePath;
+        InputPathBox.Text = state.Snapshot.SourceInputPath ?? state.Snapshot.EventName;
+        ApplyWorkflowResult(TournamentProgressWorkflow.BuildDrawWorkflowResult(state));
+        _loadedInputPath = state.Snapshot.SourceInputPath;
+        _latestSchedule = state.Snapshot.Schedule;
+
+        SelectCompetitionMode(state.Snapshot.DrawResult.Settings.CompetitionMode);
+        UpdateEventKindForMode();
+        SelectEventKind(state.Snapshot.DrawResult.Settings.EventKind);
+        GroupCountBox.Text = state.Snapshot.DrawResult.Settings.GroupCount.ToString();
+        SeedBox.Text = state.Snapshot.DrawResult.Settings.RandomSeed;
+        UpdateKnockoutGoalVisibility();
+        SelectKnockoutGoal(state.Snapshot.DrawResult.Settings.KnockoutGoal);
+        UpdatePlacementPlayoffVisibility();
+        SelectPlacementPlayoff(state.Snapshot.DrawResult.Settings.PlacementPlayoff);
+        UpdateScheduleTimingSplitVisibility();
+        ApplyStoredScheduleSettings(state.Snapshot.Schedule.Settings);
+
+        GroupsGrid.ItemsSource = ToRows(state.Snapshot.DrawResult.Groups);
+        RoundOneGrid.ItemsSource = ToRows(state.Snapshot.DrawResult.RoundOneGroups);
+        ByeGrid.ItemsSource = ToRows(state.Snapshot.DrawResult.ByeGroups);
+        ScheduleGrid.ItemsSource = ToScheduleRows(state.Snapshot.Schedule);
+        SummaryText.Text = $"已从赛事存档恢复 {state.Snapshot.DrawResult.Groups.Count} 个小组";
+        ParticipantCountText.Text = state.Snapshot.DrawResult.Audit.ParticipantCount.ToString();
+        EventKindStatText.Text = GetEventKindDisplay(state.Snapshot.DrawResult.Settings.EventKind);
+        GroupCountStatText.Text = state.Snapshot.DrawResult.Audit.GroupCount.ToString();
+        PreviewStateText.Text = "存档已载入";
+        ScheduleSummaryText.Text =
+            $"已恢复 {state.Snapshot.Schedule.Matches.Count} 场赛程，累计完成 {state.Results.Count} 场";
+        ScheduleCapacityText.Text = ScheduleWorkflow.BuildScheduleCapacityText(state.Snapshot.Schedule.Settings);
+        UpdatePreviewBadges(state.Snapshot.DrawResult);
+        UpdateExportOptionsVisibility();
+        UpdateProgressDisplay();
+    }
+
+    private void ApplyStoredScheduleSettings(ScheduleSettings settings)
+    {
+        _scheduleDays.Clear();
+        foreach (var day in settings.Days)
+        {
+            _scheduleDays.Add(new ScheduleDayRow(
+                day.Date,
+                day.DayStart,
+                day.DayEnd,
+                "赛事存档",
+                day.Courts));
+        }
+
+        ScheduleMatchMinutesBox.Text = settings.MatchMinutes.ToString();
+        SelectComboBoxText(MaxMatchesPerDayBox, settings.MaxMatchesPerEntrantPerDay.ToString());
+        if (settings.HasKnockoutTimingSplit)
+        {
+            SelectComboBoxTag(
+                ScheduleTimingBoundaryBox,
+                settings.KnockoutTimingBoundaryEntrants!.Value.ToString());
+            BeforeBoundaryMatchMinutesBox.Text = settings.BeforeBoundaryTiming!.MatchMinutes.ToString();
+            SelectComboBoxText(
+                BeforeBoundaryMaxMatchesPerDayBox,
+                settings.BeforeBoundaryTiming.MaxMatchesPerEntrantPerDay.ToString());
+        }
+        else
+        {
+            SelectComboBoxTag(ScheduleTimingBoundaryBox, "0");
+        }
+    }
+
+    private static void SelectComboBoxText(ComboBox comboBox, string value)
+    {
+        foreach (ComboBoxItem item in comboBox.Items)
+        {
+            if (string.Equals(item.Content?.ToString(), value, StringComparison.Ordinal))
+            {
+                comboBox.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
+    private static void SelectComboBoxTag(ComboBox comboBox, string value)
+    {
+        foreach (ComboBoxItem item in comboBox.Items)
+        {
+            if (string.Equals(item.Tag?.ToString(), value, StringComparison.Ordinal))
+            {
+                comboBox.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
+    private void ClearProgressReference()
+    {
+        _progressFilePath = null;
+        _progressState = null;
+        UpdateProgressDisplay();
+    }
+
+    private void UpdateProgressDisplay()
+    {
+        if (ProgressFileText is null)
+        {
+            return;
+        }
+
+        ProgressFileText.Text = string.IsNullOrWhiteSpace(_progressFilePath) || _progressState is null
+            ? "尚未创建或打开赛事存档"
+            : $"{Path.GetFileName(_progressFilePath)} · 已完成 {_progressState.Results.Count} 场"
+              + $" · 待决 {_progressState.RemainingMatchCount} 场";
     }
 
     private void ShowImportWarningsIfNeeded(IReadOnlyList<ParticipantImportWarning> warnings)

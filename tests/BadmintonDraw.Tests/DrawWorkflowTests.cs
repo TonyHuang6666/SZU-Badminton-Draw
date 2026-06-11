@@ -1378,6 +1378,232 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void MatchRecordImportWarningListsEveryDetectedIssue()
+    {
+        var importResult = new MatchRecordImportResult(
+            new Dictionary<string, MatchRecordResult>(StringComparer.Ordinal),
+            ["2026-06-12"],
+            ExpectedMatchCount: 4,
+            MissingResultRows:
+            [
+                "序号 10 A组小组赛1 未填写胜方，已按待赛处理",
+                "序号 11 A组小组赛2 未填写胜方，已按待赛处理"
+            ],
+            ValidationIssues:
+            [
+                "序号 12 A组小组赛3 已填写胜方但比分为空",
+                "序号 13 A组小组赛4 胜方不在双方名单中"
+            ]);
+
+        var message = ScheduleWorkflow.BuildMatchRecordImportWarning(importResult, "2026-06-13");
+
+        Assert.DoesNotContain("示例", message);
+        Assert.Contains("详细问题", message);
+        Assert.Contains("1. 序号 10 A组小组赛1 未填写胜方，已按待赛处理", message);
+        Assert.Contains("2. 序号 11 A组小组赛2 未填写胜方，已按待赛处理", message);
+        Assert.Contains("1. 序号 12 A组小组赛3 已填写胜方但比分为空", message);
+        Assert.Contains("2. 序号 13 A组小组赛4 胜方不在双方名单中", message);
+    }
+
+    [Fact]
+    public void TournamentProgressImportConfirmationListsEveryDetectedIssue()
+    {
+        var selectedImportResult = new MatchRecordImportResult(
+            new Dictionary<string, MatchRecordResult>(StringComparer.Ordinal)
+            {
+                ["A组128进64第1场"] = new MatchRecordResult(
+                    "A组128进64第1场",
+                    "2026-06-12",
+                    "甲",
+                    "乙",
+                    "15-12, 15-9",
+                    "21m")
+            },
+            ["2026-06-12"],
+            ExpectedMatchCount: 4,
+            MissingResultRows:
+            [
+                "6月12日赛程记录表.xlsx：序号 78 A组128进64第1场 未填写胜方，已按待赛处理",
+                "6月12日赛程记录表.xlsx：序号 79 A组128进64第2场 未填写胜方，已按待赛处理"
+            ],
+            ValidationIssues:
+            [
+                "6月12日赛程记录表.xlsx：序号 80 A组128进64第3场 已填写胜方但用时为空",
+                "6月12日赛程记录表.xlsx：序号 81 A组128进64第4场 胜方不在双方名单中"
+            ]);
+        var correction = new TournamentProgressCorrection(
+            "A组128进64第1场",
+            new MatchRecordResult("A组128进64第1场", "2026-06-12", "甲", "乙", "15-10, 15-8", "18m"),
+            new MatchRecordResult("A组128进64第1场", "2026-06-12", "甲", "乙", "15-12, 15-9", "21m"));
+        var preview = new TournamentProgressImportPreview(
+            selectedImportResult,
+            selectedImportResult,
+            [correction],
+            ["已导入记录表.xlsx"],
+            ["旧版记录表.xlsx 未带赛事标识，已按旧版记录表处理。"],
+            NewResultCount: 1,
+            FilesToImport: 1);
+
+        var message = TournamentProgressWorkflow.BuildImportConfirmation(preview, "2026-06-13");
+
+        Assert.DoesNotContain("示例", message);
+        Assert.Contains("详细问题", message);
+        Assert.Contains("1. 6月12日赛程记录表.xlsx：序号 78 A组128进64第1场 未填写胜方，已按待赛处理", message);
+        Assert.Contains("2. 6月12日赛程记录表.xlsx：序号 79 A组128进64第2场 未填写胜方，已按待赛处理", message);
+        Assert.Contains("1. 6月12日赛程记录表.xlsx：序号 80 A组128进64第3场 已填写胜方但用时为空", message);
+        Assert.Contains("2. 6月12日赛程记录表.xlsx：序号 81 A组128进64第4场 胜方不在双方名单中", message);
+        Assert.Contains("1. A组128进64第1场：原结果 胜方 甲，比分 15-10, 15-8，用时 18m，比赛日 2026-06-12 → 新结果 胜方 甲，比分 15-12, 15-9，用时 21m，比赛日 2026-06-12", message);
+        Assert.Contains("1. 旧版记录表.xlsx 未带赛事标识，已按旧版记录表处理。", message);
+        Assert.Contains("1. 已导入记录表.xlsx", message);
+    }
+
+    [Fact]
+    public void TournamentProgressStoreCreatesAndRestoresSnapshot()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-progress-create-{Guid.NewGuid():N}");
+        var progressPath = Path.Combine(directory, "校长杯男单.szbd");
+
+        try
+        {
+            var snapshot = CreateTournamentProgressSnapshot("tournament-create");
+            var store = new TournamentProgressStore();
+
+            var created = store.Create(progressPath, snapshot);
+            var reopened = store.Read(progressPath);
+
+            Assert.True(File.Exists(progressPath));
+            Assert.Equal("tournament-create", created.Snapshot.TournamentId);
+            Assert.Equal(snapshot.DrawResult.Audit.InputHash, reopened.Snapshot.DrawResult.Audit.InputHash);
+            Assert.Equal(snapshot.Participants, reopened.Snapshot.Participants);
+            Assert.Equal(snapshot.Schedule.Matches, reopened.Snapshot.Schedule.Matches);
+            Assert.Empty(reopened.Results);
+            Assert.Empty(reopened.ImportLogs);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void TournamentProgressStoreImportsOnceAndRejectsWinnerConflict()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-progress-import-{Guid.NewGuid():N}");
+        var progressPath = Path.Combine(directory, "校长杯男单.szbd");
+        var recordPath = Path.Combine(directory, "第一日记录表.xlsx");
+        var conflictPath = Path.Combine(directory, "第一日冲突记录表.xlsx");
+
+        try
+        {
+            var snapshot = CreateTournamentProgressSnapshot("tournament-import");
+            var store = new TournamentProgressStore();
+            store.Create(progressPath, snapshot);
+            var dayLabel = snapshot.Schedule.Matches[0].DayLabel;
+            var writer = new ScheduleExcelWriter();
+            writer.WriteMatchRecord(recordPath, snapshot.Schedule, dayLabel, tournamentId: snapshot.TournamentId);
+            FillMatchRecordWinners(recordPath, winnerOptionColumn: 15);
+
+            var imported = store.Import(progressPath, [recordPath]);
+            var duplicatePreview = store.PreviewImport(progressPath, [recordPath]);
+
+            Assert.NotEmpty(imported.State.Results);
+            Assert.Empty(imported.State.PendingMatchNames);
+            Assert.Equal(
+                snapshot.Schedule.Matches.Count - imported.State.Results.Count,
+                imported.State.RemainingMatchCount);
+            Assert.True(imported.State.RemainingMatchCount > 0);
+            Assert.Single(imported.State.ImportLogs);
+            Assert.Single(duplicatePreview.DuplicateFiles);
+            Assert.Equal(0, duplicatePreview.FilesToImport);
+            Assert.NotNull(imported.BackupPath);
+            Assert.True(File.Exists(imported.BackupPath));
+
+            writer.WriteMatchRecord(conflictPath, snapshot.Schedule, dayLabel, tournamentId: snapshot.TournamentId);
+            FillMatchRecordWinners(conflictPath, winnerOptionColumn: 16);
+
+            var error = Assert.Throws<TournamentProgressException>(() =>
+                store.PreviewImport(progressPath, [conflictPath]));
+            Assert.Contains("胜负方冲突", error.Message);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void TournamentProgressStoreRequiresConfirmationForResultCorrection()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-progress-correction-{Guid.NewGuid():N}");
+        var progressPath = Path.Combine(directory, "校长杯男单.szbd");
+        var firstPath = Path.Combine(directory, "第一日记录表.xlsx");
+        var correctedPath = Path.Combine(directory, "第一日记录表_更正.xlsx");
+
+        try
+        {
+            var snapshot = CreateTournamentProgressSnapshot("tournament-correction");
+            var store = new TournamentProgressStore();
+            store.Create(progressPath, snapshot);
+            var dayLabel = snapshot.Schedule.Matches[0].DayLabel;
+            var writer = new ScheduleExcelWriter();
+            writer.WriteMatchRecord(firstPath, snapshot.Schedule, dayLabel, tournamentId: snapshot.TournamentId);
+            FillMatchRecordWinners(firstPath, winnerOptionColumn: 15);
+            store.Import(progressPath, [firstPath]);
+
+            File.Copy(firstPath, correctedPath);
+            using (var workbook = new XLWorkbook(correctedPath))
+            {
+                var sheet = workbook.Worksheet("对阵记录表");
+                sheet.Cell(6, 10).Value = "25m";
+                workbook.Save();
+            }
+
+            var preview = store.PreviewImport(progressPath, [correctedPath]);
+            Assert.Single(preview.Corrections);
+            Assert.Throws<TournamentProgressException>(() =>
+                store.Import(progressPath, [correctedPath]));
+
+            var corrected = store.Import(progressPath, [correctedPath], allowCorrections: true);
+            Assert.Equal("25m", corrected.State.Results[preview.Corrections[0].MatchName].Duration);
+            Assert.Equal(2, corrected.State.ImportLogs.Count);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void TournamentProgressStoreRejectsRecordFromAnotherTournament()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-progress-identity-{Guid.NewGuid():N}");
+        var progressPath = Path.Combine(directory, "校长杯男单.szbd");
+        var recordPath = Path.Combine(directory, "其他赛事记录表.xlsx");
+
+        try
+        {
+            var snapshot = CreateTournamentProgressSnapshot("tournament-current");
+            var store = new TournamentProgressStore();
+            store.Create(progressPath, snapshot);
+            new ScheduleExcelWriter().WriteMatchRecord(
+                recordPath,
+                snapshot.Schedule,
+                snapshot.Schedule.Matches[0].DayLabel,
+                tournamentId: "tournament-other");
+            FillMatchRecordWinners(recordPath, winnerOptionColumn: 15);
+
+            var error = Assert.Throws<TournamentProgressException>(() =>
+                store.PreviewImport(progressPath, [recordPath]));
+
+            Assert.Contains("不属于当前赛事存档", error.Message);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
     public void MatchRecordReaderCarriesResultsIntoNextDayRecord()
     {
         var participants = CreateParticipants(8);
@@ -1566,6 +1792,8 @@ public sealed class DrawWorkflowTests
 
             Assert.False(importResult.IsComplete);
             Assert.Single(importResult.MissingResultRows);
+            Assert.Contains("序号 1", importResult.MissingResultRows[0]);
+            Assert.DoesNotContain("第 6 行", importResult.MissingResultRows[0]);
             Assert.Single(importResult.PendingMatchNames);
             Assert.Empty(importResult.Results);
         }
@@ -1607,6 +1835,8 @@ public sealed class DrawWorkflowTests
             Assert.Empty(importResult.PendingMatchNames);
             Assert.Single(importResult.Results);
             Assert.Contains("未填写比分", importResult.ValidationIssues[0]);
+            Assert.Contains("序号 1", importResult.ValidationIssues[0]);
+            Assert.DoesNotContain("第 6 行", importResult.ValidationIssues[0]);
         }
         finally
         {
@@ -1646,6 +1876,8 @@ public sealed class DrawWorkflowTests
             Assert.False(importResult.IsComplete);
             Assert.Single(importResult.ValidationIssues);
             Assert.Contains("比分胜方为 B", importResult.ValidationIssues[0]);
+            Assert.Contains("序号 1", importResult.ValidationIssues[0]);
+            Assert.DoesNotContain("第 6 行", importResult.ValidationIssues[0]);
             Assert.Single(importResult.Results);
         }
         finally
@@ -2291,6 +2523,46 @@ public sealed class DrawWorkflowTests
         workbook.Save();
     }
 
+    private static TournamentProgressSnapshot CreateTournamentProgressSnapshot(string tournamentId)
+    {
+        var participants = CreateParticipants(4);
+        var result = new DrawService().Generate(
+            participants,
+            CreateSettings(
+                groupCount: 1,
+                mode: CompetitionMode.SinglesKnockout,
+                knockoutGoal: KnockoutGoal.Champion));
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(
+                        new DateOnly(2026, 6, 6),
+                        new TimeOnly(14, 0),
+                        new TimeOnly(15, 0),
+                        ["A1"]),
+                    new ScheduleDaySettings(
+                        new DateOnly(2026, 6, 7),
+                        new TimeOnly(14, 0),
+                        new TimeOnly(16, 0),
+                        ["A1"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+        Assert.True(schedule.IsComplete);
+        var now = DateTimeOffset.UtcNow;
+        return new TournamentProgressSnapshot(
+            tournamentId,
+            "校长杯男单",
+            now,
+            now,
+            "/tmp/校长杯男单参赛名单.xlsx",
+            result,
+            participants,
+            [],
+            schedule);
+    }
+
     private static IReadOnlyList<DrawParticipant> CreateParticipants(int count)
     {
         return Enumerable.Range(1, count)
@@ -2370,6 +2642,14 @@ public sealed class DrawWorkflowTests
         if (File.Exists(path))
         {
             File.Delete(path);
+        }
+    }
+
+    private static void DeleteDirectoryIfExists(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
         }
     }
 

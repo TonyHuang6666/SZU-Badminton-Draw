@@ -276,6 +276,29 @@
                         <TabItem Header="赛程">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel Spacing="4" Margin="0,10,0,0">
+                                    <Border Background="#F7F3FF"
+                                            BorderBrush="#DED2F8"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Padding="12"
+                                            Margin="0,0,0,8">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock x:Name="ProgressFileText"
+                                                       Text="尚未创建或打开赛事存档"
+                                                       Foreground="#5F5577"
+                                                       TextWrapping="Wrap" />
+                                            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                                <Button Classes="secondary"
+                                                        Content="创建赛事存档"
+                                                        Click="CreateProgress_Click" />
+                                                <Button Grid.Column="1"
+                                                        Classes="secondary"
+                                                        Content="打开赛事存档"
+                                                        Click="OpenProgress_Click" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
                                     <TextBlock Classes="field-label" Text="比赛日期" />
                                     <DatePicker x:Name="ScheduleDatePicker" />
 
@@ -367,6 +390,34 @@
                                         </ScrollViewer>
                                     </Border>
 
+                                    <StackPanel x:Name="ScheduleTimingSplitPanel" IsVisible="False">
+                                        <TextBlock Classes="field-label" Text="淘汰赛赛程分界线" />
+                                        <TextBlock Classes="field-label" Text="分界线" />
+                                        <ComboBox x:Name="ScheduleTimingBoundaryBox" SelectedIndex="1">
+                                            <ComboBoxItem Content="不使用" Tag="0" />
+                                            <ComboBoxItem Content="8强" Tag="8" />
+                                            <ComboBoxItem Content="16强" Tag="16" />
+                                            <ComboBoxItem Content="32强" Tag="32" />
+                                        </ComboBox>
+
+                                        <TextBlock Classes="field-label" Text="分界线前设置" Margin="0,10,0,0" />
+                                        <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                            <StackPanel>
+                                                <TextBlock Classes="field-label" Text="每场分钟" />
+                                                <TextBox x:Name="BeforeBoundaryMatchMinutesBox" Text="20" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Classes="field-label" Text="每日最多场" />
+                                                <ComboBox x:Name="BeforeBoundaryMaxMatchesBox" SelectedIndex="2">
+                                                    <ComboBoxItem Content="1" />
+                                                    <ComboBoxItem Content="2" />
+                                                    <ComboBoxItem Content="3" />
+                                                    <ComboBoxItem Content="4" />
+                                                </ComboBox>
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+
                                     <TextBlock x:Name="ScheduleDefaultTimingLabel"
                                                Classes="field-label"
                                                Text="统一赛程设置" />
@@ -385,34 +436,6 @@
                                             </ComboBox>
                                         </StackPanel>
                                     </Grid>
-
-                                    <StackPanel x:Name="ScheduleTimingSplitPanel" IsVisible="False">
-                                        <TextBlock Classes="field-label" Text="淘汰赛赛程分界线" />
-                                        <Grid ColumnDefinitions="1.2*,*,*" ColumnSpacing="10">
-                                            <StackPanel>
-                                                <TextBlock Classes="field-label" Text="分界线" />
-                                                <ComboBox x:Name="ScheduleTimingBoundaryBox" SelectedIndex="1">
-                                                    <ComboBoxItem Content="不使用" Tag="0" />
-                                                    <ComboBoxItem Content="8强" Tag="8" />
-                                                    <ComboBoxItem Content="16强" Tag="16" />
-                                                    <ComboBoxItem Content="32强" Tag="32" />
-                                                </ComboBox>
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="1">
-                                                <TextBlock Classes="field-label" Text="前每场" />
-                                                <TextBox x:Name="BeforeBoundaryMatchMinutesBox" Text="20" />
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="2">
-                                                <TextBlock Classes="field-label" Text="前最多" />
-                                                <ComboBox x:Name="BeforeBoundaryMaxMatchesBox" SelectedIndex="2">
-                                                    <ComboBoxItem Content="1" />
-                                                    <ComboBoxItem Content="2" />
-                                                    <ComboBoxItem Content="3" />
-                                                    <ComboBoxItem Content="4" />
-                                                </ComboBox>
-                                            </StackPanel>
-                                        </Grid>
-                                    </StackPanel>
 
                                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,12,0,0">
                                         <CheckBox x:Name="ExportTimedBracketBox" IsChecked="True" VerticalAlignment="Center" />

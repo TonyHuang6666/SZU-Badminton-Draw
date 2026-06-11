@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
+
 namespace BadmintonDraw.Core;
 
+[method: JsonConstructor]
 public sealed record ScheduleSettings(
     IReadOnlyList<ScheduleDaySettings> Days,
     int MatchMinutes,

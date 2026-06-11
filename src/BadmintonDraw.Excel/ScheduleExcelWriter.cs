@@ -24,6 +24,7 @@ public sealed class ScheduleExcelWriter
     private const int RecordMatchIdColumn = 14;
     private const int RecordWinnerOptionAColumn = 15;
     private const int RecordWinnerOptionBColumn = 16;
+    private const int RecordTournamentIdColumn = 17;
 
     private static readonly XLColor TitleFill = XLColor.FromHtml("#1F4E78");
     private static readonly XLColor HeaderFill = XLColor.FromHtml("#305496");
@@ -69,12 +70,13 @@ public sealed class ScheduleExcelWriter
         SchedulePlan plan,
         string? dayLabel = null,
         IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null,
-        IReadOnlyCollection<string>? carryOverMatchNames = null)
+        IReadOnlyCollection<string>? carryOverMatchNames = null,
+        string? tournamentId = null)
     {
         EnsureCompleteSchedule(plan);
 
         using var workbook = new XLWorkbook();
-        WriteMatchRecordSheet(workbook, plan, dayLabel, completedResults, carryOverMatchNames);
+        WriteMatchRecordSheet(workbook, plan, dayLabel, completedResults, carryOverMatchNames, tournamentId);
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
         workbook.SaveAs(outputPath);
@@ -225,7 +227,8 @@ public sealed class ScheduleExcelWriter
         SchedulePlan plan,
         string? dayLabel = null,
         IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null,
-        IReadOnlyCollection<string>? carryOverMatchNames = null)
+        IReadOnlyCollection<string>? carryOverMatchNames = null,
+        string? tournamentId = null)
     {
         var sheet = workbook.Worksheets.Add("对阵记录表");
         completedResults ??= new Dictionary<string, MatchRecordResult>(StringComparer.Ordinal);
@@ -258,7 +261,15 @@ public sealed class ScheduleExcelWriter
             var isCarryOver = !string.IsNullOrWhiteSpace(dayLabel)
                 && carryOverSet.Contains(recordMatches[i].MatchName)
                 && recordMatches[i].DayLabel != dayLabel;
-            WriteRecordMatchRow(sheet, RecordFirstDataRow + i, recordMatches[i], rowByMatchName, completedResults, isCarryOver, dayLabel);
+            WriteRecordMatchRow(
+                sheet,
+                RecordFirstDataRow + i,
+                recordMatches[i],
+                rowByMatchName,
+                completedResults,
+                isCarryOver,
+                dayLabel,
+                tournamentId);
         }
 
         ApplySheetTitleStyle(sheet, lastVisibleColumn);
@@ -304,6 +315,7 @@ public sealed class ScheduleExcelWriter
         sheet.Column(RecordMatchIdColumn).Hide();
         sheet.Column(RecordWinnerOptionAColumn).Hide();
         sheet.Column(RecordWinnerOptionBColumn).Hide();
+        sheet.Column(RecordTournamentIdColumn).Hide();
         sheet.Rows(RecordExampleRow, lastRow).Height = 42;
         sheet.SheetView.FreezeRows(RecordHeaderRow);
         sheet.PageSetup.PageOrientation = XLPageOrientation.Landscape;
@@ -324,6 +336,7 @@ public sealed class ScheduleExcelWriter
         sheet.Cell(RecordHeaderRow, RecordWinnerColumn).Value = "胜方";
         sheet.Cell(RecordHeaderRow, RecordNoteColumn).Value = "备注";
         sheet.Cell(RecordHeaderRow, RecordMatchIdColumn).Value = "场次标识";
+        sheet.Cell(RecordHeaderRow, RecordTournamentIdColumn).Value = "赛事标识";
     }
 
     private static void WriteRecordExampleRow(IXLWorksheet sheet)
@@ -353,7 +366,8 @@ public sealed class ScheduleExcelWriter
         IReadOnlyDictionary<string, int> rowByMatchName,
         IReadOnlyDictionary<string, MatchRecordResult> completedResults,
         bool isCarryOver = false,
-        string? carryOverDayLabel = null)
+        string? carryOverDayLabel = null,
+        string? tournamentId = null)
     {
         sheet.Cell(row, 1).Value = match.Order;
         sheet.Cell(row, 2).Value = isCarryOver && !string.IsNullOrWhiteSpace(carryOverDayLabel)
@@ -368,6 +382,7 @@ public sealed class ScheduleExcelWriter
             ? $"顺延补赛；{match.Note}".TrimEnd('；')
             : match.Note;
         sheet.Cell(row, RecordMatchIdColumn).Value = match.MatchName;
+        sheet.Cell(row, RecordTournamentIdColumn).Value = tournamentId ?? "";
         WriteRecordSide(sheet, row, RecordSideAColumn, RecordWinnerOptionAColumn, "A", match.SideA, rowByMatchName, completedResults);
         WriteRecordSide(sheet, row, RecordSideBColumn, RecordWinnerOptionBColumn, "B", match.SideB, rowByMatchName, completedResults);
         ApplyRecordWinnerValidation(sheet, row);

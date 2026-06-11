@@ -489,6 +489,32 @@
                                                FontWeight="Heavy"
                                                Foreground="{StaticResource DeepPrimaryBrush}" />
 
+                                    <Border Margin="0,18,0,4"
+                                            Padding="12"
+                                            Background="#F7F3FF"
+                                            BorderBrush="{StaticResource LineBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="10">
+                                        <StackPanel>
+                                            <TextBlock x:Name="ProgressFileText"
+                                                       Text="尚未创建或打开赛事存档"
+                                                       Foreground="{StaticResource MutedBrush}"
+                                                       TextWrapping="Wrap" />
+                                            <Grid Margin="0,10,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="10" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <Button Style="{StaticResource SecondaryButton}"
+                                                        Click="CreateProgress_Click">创建赛事存档</Button>
+                                                <Button Grid.Column="2"
+                                                        Style="{StaticResource SecondaryButton}"
+                                                        Click="OpenProgress_Click">打开赛事存档</Button>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
                                     <Label Content="预约日期" Margin="0,26,0,8" />
                                     <DatePicker x:Name="ScheduleDatePicker" Height="44" />
 

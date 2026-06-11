@@ -60,9 +60,16 @@ public sealed class ScheduleWorkflow
         SchedulePlan schedule,
         string? dayLabel,
         IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null,
-        IReadOnlySet<string>? carryOverMatchNames = null)
+        IReadOnlySet<string>? carryOverMatchNames = null,
+        string? tournamentId = null)
     {
-        _scheduleWriter.WriteMatchRecord(outputPath, schedule, dayLabel, completedResults, carryOverMatchNames);
+        _scheduleWriter.WriteMatchRecord(
+            outputPath,
+            schedule,
+            dayLabel,
+            completedResults,
+            carryOverMatchNames,
+            tournamentId);
     }
 
     public MatchRecordImportResult ImportMatchRecords(IEnumerable<string> filePaths)
@@ -330,12 +337,13 @@ public sealed class ScheduleWorkflow
             parts.Add($"有 {importResult.ValidationIssues.Count} 处比分、用时或胜方提醒，将按已填写胜方推进");
         }
 
-        var examples = importResult.MissingResultRows
-            .Take(2)
-            .Concat(importResult.ValidationIssues.Take(2))
-            .Take(3)
-            .ToList();
-        var detail = examples.Count > 0 ? $"\n\n示例：\n{string.Join("\n", examples)}" : "";
+        var detail = WorkflowIssueText.BuildDetails(
+            WorkflowIssueText.BuildSection(
+                $"未填写胜方，将顺延到 {nextDayLabel}",
+                importResult.MissingResultRows),
+            WorkflowIssueText.BuildSection(
+                "比分、用时或胜方提醒，将按已填写胜方推进",
+                importResult.ValidationIssues));
         return $"记录表存在需要裁判长确认的情况：{string.Join("，", parts)}。{detail}\n\n是否仍继续导出下一比赛日赛程记录表？";
     }
 
