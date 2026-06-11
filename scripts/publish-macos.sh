@@ -18,6 +18,7 @@ DMG_ROOT="$OUTPUT_ROOT/dmg-root"
 APP_PATH="$DMG_ROOT/$APP_NAME.app"
 MACOS_DIR="$APP_PATH/Contents/MacOS"
 RESOURCES_DIR="$APP_PATH/Contents/Resources"
+EXECUTABLE_PATH="$MACOS_DIR/BadmintonDraw.Desktop"
 DMG_PATH="$OUTPUT_ROOT/SZU-Badminton-Draw_${RID}.dmg"
 ICON_SOURCE="$ROOT_DIR/src/BadmintonDraw.App/Assets/szuba-app-icon.png"
 ICON_FILE=""
@@ -33,7 +34,7 @@ dotnet publish "$PROJECT_PATH" \
   -o "$PUBLISH_DIR"
 
 cp -R "$PUBLISH_DIR"/. "$MACOS_DIR"/
-chmod +x "$MACOS_DIR/BadmintonDraw.Desktop"
+chmod +x "$EXECUTABLE_PATH"
 
 if command -v sips >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1 && [[ -f "$ICON_SOURCE" ]]; then
   ICONSET="$OUTPUT_ROOT/AppIcon.iconset"
@@ -86,6 +87,16 @@ $ICON_PLIST_ENTRY
 </plist>
 PLIST
 
+if [[ ! -x "$EXECUTABLE_PATH" ]]; then
+  echo "macOS app bundle is missing executable: $EXECUTABLE_PATH" >&2
+  exit 1
+fi
+
+if [[ ! -s "$APP_PATH/Contents/Info.plist" ]]; then
+  echo "macOS app bundle is missing Info.plist." >&2
+  exit 1
+fi
+
 ln -s /Applications "$DMG_ROOT/Applications"
 hdiutil create \
   -volname "$APP_NAME" \
@@ -93,6 +104,11 @@ hdiutil create \
   -ov \
   -format UDZO \
   "$DMG_PATH"
+
+if [[ ! -s "$DMG_PATH" ]]; then
+  echo "DMG was not created: $DMG_PATH" >&2
+  exit 1
+fi
 
 echo "Created app bundle: $APP_PATH"
 echo "Created DMG: $DMG_PATH"

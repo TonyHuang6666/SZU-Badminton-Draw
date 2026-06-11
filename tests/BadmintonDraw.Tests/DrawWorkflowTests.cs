@@ -1317,6 +1317,67 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void VisualWriterFallsBackToInstalledFontForChineseText()
+    {
+        using var typeface = DrawResultVisualWriter.ResolveTypefaceForText(
+            "Definitely Missing Font",
+            isBold: false,
+            "深大羽协赛程");
+
+        Assert.True(typeface.ContainsGlyphs("深大羽协赛程"));
+    }
+
+    [Fact]
+    public void WorkflowsExportAllScheduleAndTimedBracketFormats()
+    {
+        var participants = CreateParticipants(8);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout,
+            knockoutGoal: KnockoutGoal.Champion));
+        var workflowResult = new DrawWorkflowResult(result, participants, [], []);
+        var scheduleWorkflow = new ScheduleWorkflow();
+        var schedule = scheduleWorkflow.Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(16, 0), ["A1", "A2"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 7), new TimeOnly(14, 0), new TimeOnly(16, 0), ["A1", "A2"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+        var outputDirectory = Path.Combine(Path.GetTempPath(), $"badminton-workflow-export-matrix-{Guid.NewGuid():N}");
+        var scheduleBasePath = Path.Combine(outputDirectory, "赛程表.xlsx");
+        var timedBracketBasePath = Path.Combine(outputDirectory, "赛程表_带比赛时间和场地对阵表.xlsx");
+
+        try
+        {
+            Directory.CreateDirectory(outputDirectory);
+
+            var schedulePaths = scheduleWorkflow.ExportFiles(
+                scheduleBasePath,
+                WorkflowExportFormat.All,
+                schedule);
+            var timedBracketPaths = scheduleWorkflow.ExportTimedBracketFiles(
+                scheduleBasePath,
+                WorkflowExportFormat.All,
+                workflowResult,
+                schedule,
+                new DrawResultVisualOptions(PdfRows: 1, PdfColumns: 2));
+
+            AssertWorkflowExportSet(schedulePaths, scheduleBasePath, expectedPdfPages: schedule.DayCount);
+            AssertWorkflowExportSet(timedBracketPaths, timedBracketBasePath, expectedPdfPages: 2);
+        }
+        finally
+        {
+            if (Directory.Exists(outputDirectory))
+            {
+                Directory.Delete(outputDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void MatchRecordReaderCarriesResultsIntoNextDayRecord()
     {
         var participants = CreateParticipants(8);
@@ -2272,6 +2333,30 @@ public sealed class DrawWorkflowTests
         Assert.Contains("/Font", text);
         Assert.Contains("/ToUnicode", text);
         Assert.DoesNotContain("/Subtype /Image", text);
+    }
+
+    private static void AssertWorkflowExportSet(
+        IReadOnlyCollection<string> outputPaths,
+        string basePath,
+        int expectedPdfPages)
+    {
+        var expectedPaths = new[]
+        {
+            Path.ChangeExtension(basePath, ".xlsx"),
+            Path.ChangeExtension(basePath, ".jpg"),
+            Path.ChangeExtension(basePath, ".png"),
+            Path.ChangeExtension(basePath, ".pdf")
+        };
+
+        Assert.Equal(
+            expectedPaths.Order(StringComparer.OrdinalIgnoreCase),
+            outputPaths.Order(StringComparer.OrdinalIgnoreCase));
+        AssertFileHeader(Path.ChangeExtension(basePath, ".xlsx"), [0x50, 0x4B, 0x03, 0x04]);
+        AssertFileHeader(Path.ChangeExtension(basePath, ".jpg"), [0xFF, 0xD8]);
+        AssertFileHeader(Path.ChangeExtension(basePath, ".png"), [0x89, 0x50, 0x4E, 0x47]);
+        AssertFileHeader(Path.ChangeExtension(basePath, ".pdf"), [0x25, 0x50, 0x44, 0x46]);
+        AssertPdfUsesTextLayer(Path.ChangeExtension(basePath, ".pdf"));
+        Assert.Equal(expectedPdfPages, CountPdfPages(Path.ChangeExtension(basePath, ".pdf")));
     }
 
     private static int CountPdfPages(string path)

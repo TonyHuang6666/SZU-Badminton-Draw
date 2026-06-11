@@ -63,3 +63,4 @@ jobs:
         with:
           name: SZU-Badminton-Draw_macos-arm64
           path: artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
+          if-no-files-found: error

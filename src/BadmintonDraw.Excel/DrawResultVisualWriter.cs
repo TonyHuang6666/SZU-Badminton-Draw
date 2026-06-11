@@ -24,6 +24,21 @@ public sealed class DrawResultVisualWriter
     private const string DefaultFontName = "Microsoft YaHei";
 
     private static readonly float[] PngScaleCandidates = [4f, 3.75f, 3.5f, 3.25f, 3f, 2.75f, 2.5f, 2.25f, 2f, 1.75f, 1.5f, 1.25f, 1f];
+    private static readonly string[] ChineseFontCandidates =
+    [
+        "Microsoft YaHei",
+        "微软雅黑",
+        "PingFang SC",
+        "Heiti SC",
+        "STHeiti",
+        "Songti SC",
+        "Noto Sans CJK SC",
+        "Noto Sans SC",
+        "Source Han Sans SC",
+        "SimHei",
+        "SimSun",
+        "Arial Unicode MS"
+    ];
 
     private static readonly SKColor White = SKColors.White;
     private static readonly SKColor Black = SKColors.Black;
@@ -910,14 +925,12 @@ public sealed class DrawResultVisualWriter
             return;
         }
 
-        using var typeface = SKTypeface.FromFamilyName(
-            cell.FontName,
-            cell.IsBold ? SKFontStyle.Bold : SKFontStyle.Normal);
+        using var typeface = ResolveTypefaceForText(cell.FontName, cell.IsBold, cell.Text);
         using var paint = new SKPaint
         {
             Color = cell.FontColor,
             IsAntialias = true,
-            Typeface = typeface ?? SKTypeface.Default,
+            Typeface = typeface,
             TextSize = cell.FontSize,
             TextAlign = ToTextAlign(cell.HorizontalAlignment)
         };
@@ -969,6 +982,67 @@ public sealed class DrawResultVisualWriter
             canvas.DrawText(lines[i], x, firstBaseline + i * lineHeight, paint);
         }
         canvas.Restore();
+    }
+
+    internal static SKTypeface ResolveTypefaceForText(string fontName, bool isBold, string text)
+    {
+        var normalized = string.IsNullOrWhiteSpace(fontName)
+            ? DefaultFontName
+            : fontName.Trim();
+        var style = isBold ? SKFontStyle.Bold : SKFontStyle.Normal;
+        var candidateNames = new[] { normalized, GetPlatformFontName(normalized) }
+            .Concat(ChineseFontCandidates)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var candidateName in candidateNames)
+        {
+            var candidate = TryCreateTypeface(candidateName, style, text);
+            if (candidate is not null)
+            {
+                return candidate;
+            }
+        }
+
+        foreach (var character in text)
+        {
+            if (char.IsWhiteSpace(character))
+            {
+                continue;
+            }
+
+            var matched = SKFontManager.Default.MatchCharacter(character);
+            if (matched is not null && TypefaceSupportsText(matched, text))
+            {
+                return matched;
+            }
+
+            matched?.Dispose();
+        }
+
+        return SKTypeface.Default;
+    }
+
+    private static SKTypeface? TryCreateTypeface(string fontName, SKFontStyle style, string text)
+    {
+        var typeface = SKTypeface.FromFamilyName(fontName, style);
+        if (typeface is null)
+        {
+            return null;
+        }
+
+        if (TypefaceSupportsText(typeface, text))
+        {
+            return typeface;
+        }
+
+        typeface.Dispose();
+        return null;
+    }
+
+    private static bool TypefaceSupportsText(SKTypeface typeface, string text)
+    {
+        var trimmed = text.Trim();
+        return trimmed.Length == 0 || typeface.ContainsGlyphs(trimmed);
     }
 
     private static float GetFirstBaseline(
