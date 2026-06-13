@@ -246,6 +246,50 @@ public sealed class TournamentProgressStore
         }
     }
 
+    public TournamentProgressScheduleUpdateOutcome UpdateSchedule(string filePath, SchedulePlan schedule)
+    {
+        ValidateProgressPath(filePath);
+        if (!schedule.IsComplete)
+        {
+            throw new TournamentProgressException("不能把不完整赛程写入赛事存档。");
+        }
+
+        var state = Read(filePath);
+        ValidateScheduleReplacement(state.Snapshot.Schedule, schedule);
+        var backupPath = CreateBackup(filePath);
+        try
+        {
+            using var connection = OpenConnection(filePath, SqliteOpenMode.ReadWrite);
+            using var transaction = connection.BeginTransaction();
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText =
+                """
+                UPDATE snapshot
+                SET schedule_json = $schedule
+                WHERE id = 1;
+                """;
+            command.Parameters.AddWithValue("$schedule", Serialize(schedule));
+            command.ExecuteNonQuery();
+
+            WriteMetadata(connection, transaction, "updated_at", DateTimeOffset.UtcNow.ToString("O"));
+            transaction.Commit();
+
+            EnsureIntegrity(connection);
+            return new TournamentProgressScheduleUpdateOutcome(Read(filePath), backupPath);
+        }
+        catch (TournamentProgressException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is IOException or SqliteException or JsonException)
+        {
+            throw new TournamentProgressException(
+                $"更新赛事存档赛程失败，原存档已保留备份：{backupPath}。错误：{ex.Message}",
+                ex);
+        }
+    }
+
     private ImportEvaluation EvaluateImport(string filePath, IEnumerable<string> recordFilePaths)
     {
         var paths = recordFilePaths
@@ -447,6 +491,22 @@ public sealed class TournamentProgressStore
         {
             throw new TournamentProgressException(
                 $"赛事存档包含不属于当前赛程的场次：{string.Join("、", unknownMatches)}。");
+        }
+    }
+
+    private static void ValidateScheduleReplacement(SchedulePlan original, SchedulePlan replacement)
+    {
+        var originalNames = original.Matches
+            .Select(match => match.MatchName)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+        var replacementNames = replacement.Matches
+            .Select(match => match.MatchName)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+        if (!originalNames.SequenceEqual(replacementNames, StringComparer.Ordinal))
+        {
+            throw new TournamentProgressException("调整后的赛程场次集合与原存档不一致，已停止写入。");
         }
     }
 

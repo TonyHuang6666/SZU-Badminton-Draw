@@ -71,3 +71,7 @@ public sealed record TournamentProgressImportOutcome(
     TournamentProgressState State,
     TournamentProgressImportPreview Preview,
     string? BackupPath);
+
+public sealed record TournamentProgressScheduleUpdateOutcome(
+    TournamentProgressState State,
+    string? BackupPath);

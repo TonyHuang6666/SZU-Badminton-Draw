@@ -1173,6 +1173,347 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void CrossEventConflictDetectorClassifiesSeverity()
+    {
+        var firstSource = CreateCrossEventSource(
+            "男单",
+            CreateCrossEventMatch(1, "男单1", "张三", "李四", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1", ["张三"], ["李四"]),
+            CreateCrossEventMatch(2, "男单2", "王五", "赵六", new TimeOnly(15, 0), new TimeOnly(15, 30), "B2", ["王五"], ["赵六"]),
+            CreateCrossEventMatch(3, "男单3", "孙七", "周八", new TimeOnly(17, 0), new TimeOnly(17, 30), "B3", ["孙七"], ["周八"]));
+        var secondSource = CreateCrossEventSource(
+            "混双",
+            CreateCrossEventMatch(1, "混双1", "[张三 郑九]", "[钱十 吴一]", new TimeOnly(14, 10), new TimeOnly(14, 40), "C1", ["张三", "郑九"], ["钱十", "吴一"]),
+            CreateCrossEventMatch(2, "混双2", "[王五 李二]", "[赵三 陈四]", new TimeOnly(15, 40), new TimeOnly(16, 10), "C2", ["王五", "李二"], ["赵三", "陈四"]),
+            CreateCrossEventMatch(3, "混双3", "[孙七 胡五]", "[朱六 高八]", new TimeOnly(18, 0), new TimeOnly(18, 30), "C3", ["孙七", "胡五"], ["朱六", "高八"]));
+
+        var report = new CrossEventConflictDetector().Analyze([firstSource, secondSource], minimumRestMinutes: 20);
+
+        Assert.Equal(1, report.SevereCount);
+        Assert.Equal(1, report.WarningCount);
+        Assert.Equal(1, report.NoticeCount);
+        Assert.Contains(report.Issues, issue =>
+            issue.Severity == CrossEventConflictSeverity.Severe
+            && issue.PlayerName == "张三"
+            && issue.RestMinutes is null);
+        Assert.Contains(report.Issues, issue =>
+            issue.Severity == CrossEventConflictSeverity.Warning
+            && issue.PlayerName == "王五"
+            && issue.RestMinutes == 10);
+        Assert.Contains(report.Issues, issue =>
+            issue.Severity == CrossEventConflictSeverity.Notice
+            && issue.PlayerName == "孙七"
+            && issue.RestMinutes == 30);
+    }
+
+    [Fact]
+    public void CrossEventConflictWorkflowExportsProgressReportWorkbook()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "混双.szbd");
+        var reportPath = Path.Combine(directory, "跨项目选手冲突报告.xlsx");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [new DrawParticipant("张三", PrimaryName: "张三"), new DrawParticipant("李四", PrimaryName: "李四")],
+                    CreateSingleMatchSchedule("男单1", "张三", "李四", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1")));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "混双",
+                    [
+                        new DrawParticipant("[张三 郑九]", PrimaryName: "张三", PartnerName: "郑九"),
+                        new DrawParticipant("[钱十 吴一]", PrimaryName: "钱十", PartnerName: "吴一")
+                    ],
+                    CreateSingleMatchSchedule("混双1", "[张三 郑九]", "[钱十 吴一]", new TimeOnly(14, 10), new TimeOnly(14, 40), "C1")));
+
+            var result = new CrossEventConflictWorkflow().ExportProgressReport(
+                [firstProgressPath, secondProgressPath],
+                reportPath,
+                minimumRestMinutes: 20);
+
+            Assert.Equal(1, result.Report.SevereCount);
+            AssertFileHeader(reportPath, [0x50, 0x4B, 0x03, 0x04]);
+            using var workbook = new XLWorkbook(reportPath);
+            Assert.Contains("冲突汇总", workbook.Worksheets.Select(sheet => sheet.Name));
+            Assert.Contains("严重冲突", workbook.Worksheets.Select(sheet => sheet.Name));
+            Assert.Contains("输入赛事", workbook.Worksheets.Select(sheet => sheet.Name));
+            Assert.Equal("严重冲突", workbook.Worksheet("严重冲突").Cell(2, 1).GetString());
+            Assert.Equal("张三", workbook.Worksheet("严重冲突").Cell(2, 2).GetString());
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void CrossEventScheduleBoardMovesAndSavesAdjustedMatch()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-board-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "混双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [new DrawParticipant("张三", PrimaryName: "张三"), new DrawParticipant("李四", PrimaryName: "李四")],
+                    CreateSingleMatchSchedule("男单1", "张三", "李四", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1")));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "混双",
+                    [
+                        new DrawParticipant("[张三 郑九]", PrimaryName: "张三", PartnerName: "郑九"),
+                        new DrawParticipant("[钱十 吴一]", PrimaryName: "钱十", PartnerName: "吴一")
+                    ],
+                    CreateSingleMatchSchedule("混双1", "[张三 郑九]", "[钱十 吴一]", new TimeOnly(14, 10), new TimeOnly(14, 40), "C1")));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 20);
+            var mixedDoublesKey = board.Items.Single(item => item.EventName == "混双").Key;
+            var originalPlayer = board.PlayerDetails.Single(entry => entry.PlayerName == "张三");
+
+            Assert.Equal(2, originalPlayer.EventCount);
+            Assert.Equal(2, originalPlayer.MatchCount);
+            Assert.Equal(1, originalPlayer.SevereIssueCount);
+            Assert.Equal(0, originalPlayer.WarningIssueCount);
+            Assert.Contains(
+                originalPlayer.Appearances,
+                appearance => appearance.EventName == "男单"
+                              && appearance.ConflictSeverity == CrossEventConflictSeverity.Severe);
+
+            var adjusted = workflow.MoveScheduleItem(
+                board,
+                mixedDoublesKey,
+                "2026-06-13",
+                new TimeOnly(15, 0),
+                "C1");
+            var saveResult = workflow.SaveScheduleBoard(adjusted);
+            var reopened = store.Read(secondProgressPath);
+            var adjustedPlayer = adjusted.PlayerDetails.Single(entry => entry.PlayerName == "张三");
+
+            Assert.Equal(0, adjusted.BlockingConflictItemCount);
+            Assert.True(adjusted.HasUnsavedChanges);
+            Assert.Equal(0, adjustedPlayer.SevereIssueCount);
+            Assert.Equal(0, adjustedPlayer.WarningIssueCount);
+            Assert.Equal(30, adjustedPlayer.ShortestRestMinutes);
+            Assert.Contains(
+                adjustedPlayer.Appearances,
+                appearance => appearance.EventName == "混双"
+                              && appearance.StartTime == new TimeOnly(15, 0)
+                              && appearance.ConflictSeverity is null);
+            Assert.Equal(2, saveResult.UpdatedPaths.Count);
+            Assert.Equal(new TimeOnly(15, 0), reopened.Snapshot.Schedule.Matches.Single().StartTime);
+            Assert.Equal(new TimeOnly(15, 30), reopened.Snapshot.Schedule.Matches.Single().EndTime);
+            Assert.Contains("C1", reopened.Snapshot.Schedule.Settings.Days.Single().Courts);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void CrossEventScheduleBoardAutoAdjustsSimpleConflict()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-auto-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "混双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [new DrawParticipant("张三", PrimaryName: "张三"), new DrawParticipant("李四", PrimaryName: "李四")],
+                    CreateSingleMatchSchedule("男单1", "张三", "李四", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1")));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "混双",
+                    [
+                        new DrawParticipant("[张三 郑九]", PrimaryName: "张三", PartnerName: "郑九"),
+                        new DrawParticipant("[钱十 吴一]", PrimaryName: "钱十", PartnerName: "吴一")
+                    ],
+                    CreateSingleMatchSchedule("混双1", "[张三 郑九]", "[钱十 吴一]", new TimeOnly(14, 10), new TimeOnly(14, 40), "C1")));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 20);
+            var adjusted = workflow.AutoAdjustScheduleBoard(board);
+
+            Assert.True(adjusted.MovedCount > 0);
+            Assert.Equal(0, adjusted.RemainingBlockingConflictItemCount);
+            Assert.Empty(adjusted.Messages);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void ScheduleWorkflowMovesScheduledMatchAndRejectsOccupiedSlot()
+    {
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1", 1, "A组", "首轮赛", "男单1", "张三", "李四"),
+                new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B2", 1, "A组", "首轮赛", "男单2", "王五", "赵六")
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1", "B2"])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        var moved = ScheduleWorkflow.MoveScheduledMatch(
+            schedule,
+            "男单2",
+            "2026-06-13",
+            new TimeOnly(14, 30),
+            "B1");
+        var adjusted = moved.Matches.Single(match => match.MatchName == "男单2");
+
+        Assert.Equal(new TimeOnly(14, 30), adjusted.StartTime);
+        Assert.Equal(new TimeOnly(15, 0), adjusted.EndTime);
+        Assert.Equal("B1", adjusted.Court);
+        Assert.Equal([1, 2], moved.Matches.Select(match => match.Order).ToArray());
+        Assert.Throws<DrawValidationException>(() => ScheduleWorkflow.MoveScheduledMatch(
+            schedule,
+            "男单2",
+            "2026-06-13",
+            new TimeOnly(14, 0),
+            "B1"));
+    }
+
+    [Fact]
+    public void CrossEventWorkflowExportsMergedMaterialsWhenNoSevereConflict()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-merged-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "混双.szbd");
+        var outputDirectory = Path.Combine(directory, "output");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [new DrawParticipant("张三", PrimaryName: "张三"), new DrawParticipant("李四", PrimaryName: "李四")],
+                    CreateSingleMatchSchedule("第1场", "张三", "李四", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1")));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "混双",
+                    [
+                        new DrawParticipant("[王五 赵六]", PrimaryName: "王五", PartnerName: "赵六"),
+                        new DrawParticipant("[钱七 孙八]", PrimaryName: "钱七", PartnerName: "孙八")
+                    ],
+                    CreateSingleMatchSchedule("第1场", "[王五 赵六]", "[钱七 孙八]", new TimeOnly(15, 0), new TimeOnly(15, 30), "C1")));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 20);
+            var result = workflow.ExportMergedScheduleMaterials(board, outputDirectory);
+
+            Assert.Equal(0, board.Report.SevereCount);
+            Assert.Equal(["2026-06-13"], result.DayLabels);
+            Assert.Equal(3, result.OutputPaths.Count);
+            Assert.NotEqual(outputDirectory, result.OutputDirectory);
+            Assert.True(Directory.Exists(result.OutputDirectory));
+            Assert.All(result.OutputPaths, path => Assert.StartsWith(result.OutputDirectory, path, StringComparison.Ordinal));
+            Assert.Contains(result.Schedule.Matches, match => match.MatchName == "男单 · 第1场");
+            Assert.Contains(result.Schedule.Matches, match => match.MatchName == "混双 · 第1场");
+            Assert.All(result.OutputPaths, path => Assert.True(File.Exists(path), path));
+            Assert.Contains(result.OutputPaths, path => path.EndsWith("合并赛程记录表.xlsx", StringComparison.Ordinal));
+            Assert.Contains(result.OutputPaths, path => path.EndsWith("合并赛程安排表.pdf", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void CrossEventMergedRecordKeepsWinnerReferenceFormulas()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-formula-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "混双.szbd");
+        var outputDirectory = Path.Combine(directory, "output");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var singlesSchedule = new SchedulePlan(
+                [
+                    new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1", 1, "A组", "首轮赛", "A组首轮赛1", "张三", "李四"),
+                    new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 30), new TimeOnly(15, 0), "B1", 1, "A组", "决赛", "A组决赛1", "A组首轮赛1胜者", "王五")
+                ],
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "C1"])],
+                    MatchMinutes: 30,
+                    MaxMatchesPerEntrantPerDay: 2));
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [
+                        new DrawParticipant("张三", PrimaryName: "张三"),
+                        new DrawParticipant("李四", PrimaryName: "李四"),
+                        new DrawParticipant("王五", PrimaryName: "王五")
+                    ],
+                    singlesSchedule));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "混双",
+                    [
+                        new DrawParticipant("[钱七 孙八]", PrimaryName: "钱七", PartnerName: "孙八"),
+                        new DrawParticipant("[周九 吴十]", PrimaryName: "周九", PartnerName: "吴十")
+                    ],
+                    CreateSingleMatchSchedule("混双1", "[钱七 孙八]", "[周九 吴十]", new TimeOnly(15, 30), new TimeOnly(16, 0), "C1")));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 20);
+            var result = workflow.ExportMergedScheduleMaterials(board, outputDirectory);
+            var mergedFinal = result.Schedule.Matches.Single(match => match.MatchName == "男单 · A组决赛1");
+            var recordPath = result.OutputPaths.Single(path => path.EndsWith("合并赛程记录表.xlsx", StringComparison.Ordinal));
+
+            Assert.Equal("男单 · A组首轮赛1胜者", mergedFinal.SideA);
+
+            using var workbook = new XLWorkbook(recordPath);
+            var sheet = workbook.Worksheet("对阵记录表");
+            var finalRow = sheet.RowsUsed()
+                .Single(row => row.Cell(14).GetString() == "男单 · A组决赛1")
+                .RowNumber();
+
+            Assert.Contains("$L$", sheet.Cell(finalRow, 15).FormulaA1, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("SUBSTITUTE", sheet.Cell(finalRow, 6).FormulaA1, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
     public void WorkflowDefaultFileNamesKeepCompetitionMetadata()
     {
         var participants = CreateParticipants(32);
@@ -1401,18 +1742,21 @@ public sealed class DrawWorkflowTests
                 directory,
                 includePrintablePdf: false);
             var expectedScoreSheetCount = snapshot.Schedule.Matches.Count(match => match.DayLabel == package.DayLabel);
-            var scorePdfPath = Path.Combine(directory, "6月7日单场比赛计分表.pdf");
+            var scorePdfPath = Path.Combine(package.OutputDirectory, "6月7日单场比赛计分表.pdf");
 
             Assert.Equal("2026-06-07", package.DayLabel);
             Assert.Equal(4, package.OutputPaths.Count);
+            Assert.NotEqual(directory, package.OutputDirectory);
+            Assert.True(Directory.Exists(package.OutputDirectory));
+            Assert.All(package.OutputPaths, path => Assert.StartsWith(package.OutputDirectory, path, StringComparison.Ordinal));
             Assert.All(package.OutputPaths, path => Assert.True(File.Exists(path), path));
             Assert.Contains(package.OutputPaths, path => Path.GetFileName(path) == "6月7日赛程记录表.xlsx");
             Assert.Contains(package.OutputPaths, path => Path.GetFileName(path) == "6月7日赛程安排表.xlsx");
             Assert.Contains(package.OutputPaths, path => Path.GetFileName(path) == "6月7日带时间场地对阵表.xlsx");
             Assert.Contains(scorePdfPath, package.OutputPaths);
 
-            using var recordWorkbook = new XLWorkbook(Path.Combine(directory, "6月7日赛程记录表.xlsx"));
-            using var scheduleWorkbook = new XLWorkbook(Path.Combine(directory, "6月7日赛程安排表.xlsx"));
+            using var recordWorkbook = new XLWorkbook(Path.Combine(package.OutputDirectory, "6月7日赛程记录表.xlsx"));
+            using var scheduleWorkbook = new XLWorkbook(Path.Combine(package.OutputDirectory, "6月7日赛程安排表.xlsx"));
             Assert.Equal("对阵记录表", recordWorkbook.Worksheet("对阵记录表").Name);
             Assert.DoesNotContain(scheduleWorkbook.Worksheets, worksheet => worksheet.Name == "对阵记录表");
             Assert.Contains("2026-06-07", scheduleWorkbook.Worksheet("赛程明细").Cell(5, 2).GetString());
@@ -1446,18 +1790,21 @@ public sealed class DrawWorkflowTests
                 directory,
                 includePrintablePdf: false);
             var expectedScoreSheetCount = snapshot.Schedule.Matches.Count(match => match.DayLabel == package.DayLabel);
-            var scorePdfPath = Path.Combine(directory, "6月6日单场比赛计分表.pdf");
+            var scorePdfPath = Path.Combine(package.OutputDirectory, "6月6日单场比赛计分表.pdf");
 
             Assert.Equal("2026-06-06", package.DayLabel);
             Assert.Equal(4, package.OutputPaths.Count);
+            Assert.NotEqual(directory, package.OutputDirectory);
+            Assert.True(Directory.Exists(package.OutputDirectory));
+            Assert.All(package.OutputPaths, path => Assert.StartsWith(package.OutputDirectory, path, StringComparison.Ordinal));
             Assert.All(package.OutputPaths, path => Assert.True(File.Exists(path), path));
             Assert.Contains(package.OutputPaths, path => Path.GetFileName(path) == "6月6日赛程记录表.xlsx");
             Assert.Contains(package.OutputPaths, path => Path.GetFileName(path) == "6月6日赛程安排表.xlsx");
             Assert.Contains(package.OutputPaths, path => Path.GetFileName(path) == "6月6日带时间场地对阵表.xlsx");
             Assert.Contains(scorePdfPath, package.OutputPaths);
 
-            using var recordWorkbook = new XLWorkbook(Path.Combine(directory, "6月6日赛程记录表.xlsx"));
-            using var scheduleWorkbook = new XLWorkbook(Path.Combine(directory, "6月6日赛程安排表.xlsx"));
+            using var recordWorkbook = new XLWorkbook(Path.Combine(package.OutputDirectory, "6月6日赛程记录表.xlsx"));
+            using var scheduleWorkbook = new XLWorkbook(Path.Combine(package.OutputDirectory, "6月6日赛程安排表.xlsx"));
             Assert.Equal("对阵记录表", recordWorkbook.Worksheet("对阵记录表").Name);
             Assert.DoesNotContain(scheduleWorkbook.Worksheets, worksheet => worksheet.Name == "对阵记录表");
             Assert.Contains("2026-06-06", scheduleWorkbook.Worksheet("赛程明细").Cell(5, 2).GetString());
@@ -1518,7 +1865,7 @@ public sealed class DrawWorkflowTests
                 state,
                 directory,
                 includePrintablePdf: false);
-            var teamScorePath = Path.Combine(directory, "6月7日团体赛记分表.xlsx");
+            var teamScorePath = Path.Combine(package.OutputDirectory, "6月7日团体赛记分表.xlsx");
 
             Assert.Contains(teamScorePath, package.OutputPaths);
             Assert.True(File.Exists(teamScorePath));
@@ -2719,6 +3066,112 @@ public sealed class DrawWorkflowTests
             participants,
             [],
             schedule);
+    }
+
+    private static CrossEventScheduleSource CreateCrossEventSource(
+        string eventName,
+        params CrossEventScheduledMatch[] matches)
+    {
+        return new CrossEventScheduleSource(
+            eventName,
+            eventName,
+            $"{eventName}.szbd",
+            EventKind.Singles,
+            matches);
+    }
+
+    private static CrossEventScheduledMatch CreateCrossEventMatch(
+        int order,
+        string matchName,
+        string sideA,
+        string sideB,
+        TimeOnly start,
+        TimeOnly end,
+        string court,
+        IReadOnlyList<string> sideAPlayers,
+        IReadOnlyList<string> sideBPlayers)
+    {
+        return new CrossEventScheduledMatch(
+            order,
+            "2026-06-13",
+            start,
+            end,
+            court,
+            "A组",
+            "首轮赛",
+            matchName,
+            sideA,
+            sideB,
+            sideAPlayers,
+            sideBPlayers);
+    }
+
+    private static TournamentProgressSnapshot CreateManualProgressSnapshot(
+        string eventName,
+        IReadOnlyList<DrawParticipant> participants,
+        SchedulePlan schedule)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var settings = new DrawSettings(
+            CompetitionMode.SinglesKnockout,
+            participants.Any(participant => !string.IsNullOrWhiteSpace(participant.PartnerName))
+                ? EventKind.Doubles
+                : EventKind.Singles,
+            1,
+            "manual-test",
+            KnockoutGoal: KnockoutGoal.Champion);
+        var result = new DrawResult(
+            [new DrawGroup(1, participants)],
+            [],
+            [new DrawGroup(1, participants)],
+            settings,
+            new DrawAuditInfo(
+                DrawAlgorithmVersion.PerGroupPowerOfTwo,
+                "manual-test",
+                now,
+                "manual",
+                participants.Count,
+                participants.Count(participant => participant.IsSeed),
+                1));
+        return new TournamentProgressSnapshot(
+            Guid.NewGuid().ToString("N"),
+            eventName,
+            now,
+            now,
+            $"{eventName}参赛名单.xlsx",
+            result,
+            participants,
+            [],
+            schedule);
+    }
+
+    private static SchedulePlan CreateSingleMatchSchedule(
+        string matchName,
+        string sideA,
+        string sideB,
+        TimeOnly start,
+        TimeOnly end,
+        string court)
+    {
+        return new SchedulePlan(
+            [
+                new ScheduledMatch(
+                    1,
+                    "2026-06-13",
+                    start,
+                    end,
+                    court,
+                    1,
+                    "A组",
+                    "首轮赛",
+                    matchName,
+                    sideA,
+                    sideB)
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), [court])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
     }
 
     private static IReadOnlyDictionary<string, MatchRecordResult> BuildCompletedResultsForDay(

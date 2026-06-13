@@ -4,6 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/szuba-app-icon.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
@@ -22,5 +23,9 @@
     <ProjectReference Include="../BadmintonDraw.Core/BadmintonDraw.Core.csproj" />
     <ProjectReference Include="../BadmintonDraw.Excel/BadmintonDraw.Excel.csproj" />
     <ProjectReference Include="../BadmintonDraw.Workflows/BadmintonDraw.Workflows.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets/**" />
   </ItemGroup>
 </Project>

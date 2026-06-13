@@ -16,4 +16,6 @@ public sealed record ScheduledMatch(
     bool SameUnit = false)
 {
     public string TimeRange => $"{StartTime:HH:mm}-{EndTime:HH:mm}";
+
+    public int DurationMinutes => Math.Max(1, (int)(EndTime - StartTime).TotalMinutes);
 }

@@ -248,4 +248,23 @@ public static class WorkflowExportHelpers
     {
         return Path.ChangeExtension(selectedPath, GetExtension(format));
     }
+
+    public static string CreateUniqueDirectory(string parentDirectory, string folderName)
+    {
+        Directory.CreateDirectory(parentDirectory);
+        var sanitizedName = WorkflowFileNames.Sanitize(folderName);
+        if (string.IsNullOrWhiteSpace(sanitizedName))
+        {
+            sanitizedName = $"导出材料_{DateTime.Now:yyyyMMdd_HHmmss}";
+        }
+
+        var candidate = Path.Combine(parentDirectory, sanitizedName);
+        for (var index = 2; Directory.Exists(candidate); index++)
+        {
+            candidate = Path.Combine(parentDirectory, $"{sanitizedName}_{index}");
+        }
+
+        Directory.CreateDirectory(candidate);
+        return candidate;
+    }
 }

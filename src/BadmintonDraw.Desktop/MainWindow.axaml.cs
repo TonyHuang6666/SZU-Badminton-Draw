@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -49,6 +50,12 @@ public partial class MainWindow : Window
     private readonly DrawWorkflow _drawWorkflow = new();
     private readonly ScheduleWorkflow _scheduleWorkflow = new();
     private readonly TournamentProgressWorkflow _progressWorkflow = new();
+    private readonly CrossEventConflictWorkflow _crossEventConflictWorkflow = new();
+    private const double CrossEventBoardMinZoom = 0.65;
+    private const double CrossEventBoardWindowMinZoom = 0.25;
+    private const double CrossEventBoardMaxZoom = 1.6;
+    private const double CrossEventBoardZoomStep = 0.15;
+    private const string ScheduleDragPrefix = "schedule:";
     private static readonly IBrush ReadyStatusBrush = new SolidColorBrush(Color.FromRgb(25, 169, 116));
     private static readonly IBrush WarningStatusBrush = new SolidColorBrush(Color.FromRgb(217, 119, 6));
     private static readonly IBrush ErrorStatusBrush = new SolidColorBrush(Color.FromRgb(185, 28, 28));
@@ -73,15 +80,42 @@ public partial class MainWindow : Window
     private string? _loadedInputPath;
     private string? _progressFilePath;
     private TournamentProgressState? _progressState;
+    private double _scheduleBoardWindowZoom = 1.0;
+    private Window? _scheduleBoardWindow;
+    private ComboBox? _scheduleBoardWindowDayBox;
+    private TextBlock? _scheduleBoardWindowSummaryText;
+    private Grid? _scheduleBoardWindowGrid;
+    private CrossEventScheduleBoard? _crossEventScheduleBoard;
+    private double _crossEventBoardZoom = 1.0;
+    private double _crossEventBoardWindowZoom = 1.0;
+    private Window? _crossEventBoardWindow;
+    private ComboBox? _crossEventBoardWindowDayBox;
+    private TextBlock? _crossEventBoardWindowSummaryText;
+    private Grid? _crossEventBoardWindowGrid;
     private bool _uiReady;
 
     public MainWindow()
     {
         InitializeComponent();
+        ApplyWindowIcon();
         SeedBox.Text = DrawWorkflow.GenerateSeed();
         ScheduleDatePicker.SelectedDate = new DateTimeOffset(DateTime.Today);
         ScheduleDaysList.ItemsSource = _scheduleDays;
         Opened += MainWindow_Opened;
+    }
+
+    private void ApplyWindowIcon()
+    {
+        try
+        {
+            using var iconStream = Avalonia.Platform.AssetLoader.Open(
+                new Uri("avares://BadmintonDraw.Desktop/Assets/szuba-app-icon.ico"));
+            Icon = new WindowIcon(iconStream);
+        }
+        catch
+        {
+            // The packaged application icon remains available even if a host cannot load a window icon.
+        }
     }
 
     private void MainWindow_Opened(object? sender, EventArgs e)
@@ -444,7 +478,7 @@ public partial class MainWindow : Window
                     _latestSchedule,
                     includePrintablePdf: true,
                     GetDrawVisualOptions(WorkflowExportFormat.A4Pdf));
-            SetStatus($"{package.DayLabel} 首日材料包已导出：{FormatOutputPaths(package.OutputPaths)}");
+            SetStatus($"{package.DayLabel} 首日材料包已导出到：{package.OutputDirectory}（共 {package.OutputPaths.Count} 个文件）。");
         }
         catch (Exception ex) when (IsHandledWorkflowException(ex))
         {
@@ -538,7 +572,7 @@ public partial class MainWindow : Window
                 : "";
             SetStatus(
                 $"已从 {paths.Length} 张记录表累计读取 {importResult.Results.Count} 场结果{pendingText}，"
-                + $"并导出 {package.DayLabel} 材料包：{FormatOutputPaths(package.OutputPaths)}");
+                + $"并导出 {package.DayLabel} 材料包到：{package.OutputDirectory}（共 {package.OutputPaths.Count} 个文件）。");
         }
         catch (Exception ex) when (IsHandledWorkflowException(ex))
         {
@@ -593,6 +627,1042 @@ public partial class MainWindow : Window
         {
             SetStatus(ex.Message, isError: true);
         }
+    }
+
+    private async void ExportCrossEventConflictReport_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_crossEventScheduleBoard is not null)
+        {
+            await ExportCurrentCrossEventBoardReport();
+            return;
+        }
+
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择需要一起检查的赛事存档（至少两个）",
+            AllowMultiple = true,
+            FileTypeFilter = [ProgressFileType]
+        });
+        var paths = files
+            .Select(file => file.TryGetLocalPath())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path!)
+            .ToList();
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        var outputPath = await PickSavePath(
+            "保存跨项目冲突报告",
+            CrossEventConflictWorkflow.BuildDefaultReportFileName(),
+            WorkflowExportFormat.Excel);
+        if (string.IsNullOrWhiteSpace(outputPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var minimumRestMinutes = GetCrossEventMinimumRestMinutes();
+            var result = _crossEventConflictWorkflow.ExportProgressReport(
+                paths,
+                outputPath,
+                minimumRestMinutes);
+            SetStatus(
+                $"跨项目冲突报告已导出：{result.OutputPath}。"
+                + $"严重 {result.Report.SevereCount} 条，间隔过短 {result.Report.WarningCount} 条，"
+                + $"同日提醒 {result.Report.NoticeCount} 条。");
+        }
+        catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
+        {
+            SetStatus(ex.Message, isError: true);
+        }
+    }
+
+    private async void LoadCrossEventScheduleBoard_Click(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择需要一起编排的赛事存档（至少两个）",
+            AllowMultiple = true,
+            FileTypeFilter = [ProgressFileType]
+        });
+        var paths = files
+            .Select(file => file.TryGetLocalPath())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path!)
+            .ToList();
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            _crossEventScheduleBoard = _crossEventConflictWorkflow.LoadScheduleBoard(
+                paths,
+                GetCrossEventMinimumRestMinutes());
+            RefreshCrossEventScheduleBoard();
+            RefreshCrossEventBoardWindow(GetSelectedCrossEventDayLabel());
+            PreviewTabs.SelectedItem = CrossEventPreviewTab;
+            SetStatus(BuildCrossEventStatus("多项目赛程已加载", _crossEventScheduleBoard));
+        }
+        catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
+        {
+            SetStatus(ex.Message, isError: true);
+        }
+    }
+
+    private void AutoAdjustCrossEventSchedule_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            SetStatus("请先加载多项目赛程。", isError: true);
+            return;
+        }
+
+        try
+        {
+            var result = _crossEventConflictWorkflow.AutoAdjustScheduleBoard(_crossEventScheduleBoard);
+            _crossEventScheduleBoard = result.Board;
+            RefreshCrossEventScheduleBoard(GetSelectedCrossEventDayLabel());
+            RefreshCrossEventBoardWindow(GetSelectedCrossEventDayLabel());
+            PreviewTabs.SelectedItem = CrossEventPreviewTab;
+            var message = $"自动调整完成：移动 {result.MovedCount} 场，仍有 {result.RemainingBlockingConflictItemCount} 张冲突卡片。";
+            if (result.Messages.Count > 0)
+            {
+                message += $" {string.Join("；", result.Messages.Take(3))}";
+            }
+
+            SetStatus(message, isWarning: result.RemainingBlockingConflictItemCount > 0);
+        }
+        catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
+        {
+            SetStatus(ex.Message, isError: true);
+        }
+    }
+
+    private void SaveCrossEventScheduleBoard_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            SetStatus("请先加载多项目赛程。", isError: true);
+            return;
+        }
+
+        try
+        {
+            var result = _crossEventConflictWorkflow.SaveScheduleBoard(_crossEventScheduleBoard);
+            _crossEventScheduleBoard = _crossEventScheduleBoard with { HasUnsavedChanges = false };
+            RefreshCrossEventScheduleBoard(GetSelectedCrossEventDayLabel());
+            RefreshCrossEventBoardWindow(GetSelectedCrossEventDayLabel());
+            SetStatus($"已保存 {result.UpdatedPaths.Count} 个赛事存档，备份 {result.BackupPaths.Count} 个。");
+        }
+        catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
+        {
+            SetStatus(ex.Message, isError: true);
+        }
+    }
+
+    private async System.Threading.Tasks.Task ExportCurrentCrossEventBoardReport()
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            return;
+        }
+
+        var outputPath = await PickSavePath(
+            "保存跨项目冲突报告",
+            CrossEventConflictWorkflow.BuildDefaultReportFileName(),
+            WorkflowExportFormat.Excel);
+        if (string.IsNullOrWhiteSpace(outputPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var result = _crossEventConflictWorkflow.ExportScheduleBoardReport(_crossEventScheduleBoard, outputPath);
+            SetStatus(
+                $"当前多项目冲突报告已导出：{result.OutputPath}。"
+                + $"严重 {result.Report.SevereCount} 条，间隔过短 {result.Report.WarningCount} 条，"
+                + $"同日提醒 {result.Report.NoticeCount} 条。");
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or DrawValidationException)
+        {
+            SetStatus(ex.Message, isError: true);
+        }
+    }
+
+    private async void ExportCrossEventMergedMaterials_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            SetStatus("请先加载多项目赛程。", isError: true);
+            return;
+        }
+
+        var outputDirectory = await PickFolderPath("选择合并材料包保存文件夹");
+        if (string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            return;
+        }
+
+        try
+        {
+            var result = _crossEventConflictWorkflow.ExportMergedScheduleMaterials(_crossEventScheduleBoard, outputDirectory);
+            SetStatus(
+                $"多项目合并材料包已导出到：{result.OutputDirectory}（共 {result.OutputPaths.Count} 个文件）。",
+                isWarning: _crossEventScheduleBoard.Report.WarningCount > 0);
+        }
+        catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
+        {
+            SetStatus(ex.Message, isError: true);
+        }
+    }
+
+    private void CrossEventDayBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        RefreshCrossEventScheduleBoard(GetSelectedCrossEventDayLabel());
+    }
+
+    private async void ShowCrossEventPlayerDetails_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            SetStatus("请先加载多项目赛程。", isError: true);
+            return;
+        }
+
+        var rows = BuildCrossEventPlayerSummaryRows(_crossEventScheduleBoard.PlayerDetails, CrossEventPlayerSortMode.Default);
+        if (rows.Count == 0)
+        {
+            SetStatus("当前没有识别到跨项目兼项选手。", isWarning: true);
+            return;
+        }
+
+        var sortBox = new ComboBox
+        {
+            Width = 190,
+            ItemsSource = new[]
+            {
+                "默认排序",
+                "休息时间从短到长",
+                "休息时间从长到短"
+            },
+            SelectedIndex = 0
+        };
+        var listBox = new ListBox
+        {
+            ItemsSource = rows,
+            MinWidth = 330
+        };
+        var detailStack = new StackPanel { Spacing = 10 };
+        listBox.SelectionChanged += (_, _) =>
+        {
+            if (listBox.SelectedItem is CrossEventPlayerSummaryRow row)
+            {
+                RenderCrossEventPlayerDetailCards(detailStack, row.Entry);
+            }
+        };
+        void RefreshPlayerRows()
+        {
+            var sortMode = sortBox.SelectedIndex switch
+            {
+                1 => CrossEventPlayerSortMode.RestAscending,
+                2 => CrossEventPlayerSortMode.RestDescending,
+                _ => CrossEventPlayerSortMode.Default
+            };
+            listBox.ItemsSource = BuildCrossEventPlayerSummaryRows(_crossEventScheduleBoard.PlayerDetails, sortMode);
+            listBox.SelectedIndex = 0;
+        }
+
+        sortBox.SelectionChanged += (_, _) => RefreshPlayerRows();
+
+        var root = new Grid { Margin = new Avalonia.Thickness(14) };
+        root.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+        root.RowDefinitions.Add(new RowDefinition(GridLength.Star));
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        header.Children.Add(new TextBlock
+        {
+            Text = $"兼项选手 {rows.Count} 人；明细会随多项目赛程调整实时重新计算。",
+            FontSize = 16,
+            FontWeight = FontWeight.SemiBold,
+            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+            Margin = new Avalonia.Thickness(0, 0, 0, 10)
+        });
+        var sortPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        sortPanel.Children.Add(new TextBlock
+        {
+            Text = "排序",
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        sortPanel.Children.Add(sortBox);
+        Grid.SetColumn(sortPanel, 1);
+        header.Children.Add(sortPanel);
+        root.Children.Add(header);
+
+        var body = new Grid { ColumnDefinitions = new ColumnDefinitions("350,14,*") };
+        Grid.SetRow(body, 1);
+        root.Children.Add(body);
+
+        var playerPanel = CreateCrossEventDialogPanel("选手兼项汇总", listBox);
+        var detailPanel = CreateCrossEventDialogPanel(
+            "该选手赛程明细",
+            new ScrollViewer
+            {
+                VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                Content = detailStack
+            });
+        Grid.SetColumn(playerPanel, 0);
+        Grid.SetColumn(detailPanel, 2);
+        body.Children.Add(playerPanel);
+        body.Children.Add(detailPanel);
+
+        var dialog = new Window
+        {
+            Title = "兼项明细",
+            Width = 1240,
+            Height = 780,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = root
+        };
+        RefreshPlayerRows();
+        await dialog.ShowDialog(this);
+    }
+
+    private static Border CreateCrossEventDialogPanel(string title, Control content)
+    {
+        var grid = new Grid();
+        grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+        grid.RowDefinitions.Add(new RowDefinition(GridLength.Star));
+        grid.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(39, 59, 99)),
+            Margin = new Avalonia.Thickness(0, 0, 0, 8)
+        });
+        Grid.SetRow(content, 1);
+        grid.Children.Add(content);
+        return new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(248, 250, 252)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(10),
+            Padding = new Avalonia.Thickness(10),
+            Child = grid
+        };
+    }
+
+    private static void RenderCrossEventPlayerDetailCards(
+        StackPanel detailStack,
+        CrossEventPlayerMultiEntry entry)
+    {
+        detailStack.Children.Clear();
+        detailStack.Children.Add(new TextBlock
+        {
+            Text = $"{entry.PlayerName}：{string.Join("、", entry.EventNames)}",
+            FontSize = 15,
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78)),
+            TextWrapping = TextWrapping.Wrap
+        });
+        detailStack.Children.Add(new TextBlock
+        {
+            Text = $"共 {entry.MatchCount} 场，未完成 {entry.PendingMatchCount} 场；严重 {entry.SevereIssueCount} 条，间隔过短 {entry.WarningIssueCount} 条；最短休息 {FormatRestMinutes(entry.ShortestRestMinutes)}。",
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        foreach (var appearance in entry.Appearances)
+        {
+            var borderColor = appearance.ConflictSeverity is CrossEventConflictSeverity.Severe or CrossEventConflictSeverity.Warning
+                ? Color.FromRgb(220, 38, 38)
+                : Color.FromRgb(199, 210, 228);
+            var backgroundColor = appearance.ConflictSeverity is CrossEventConflictSeverity.Severe or CrossEventConflictSeverity.Warning
+                ? Color.FromRgb(254, 242, 242)
+                : Color.FromRgb(255, 255, 255);
+            var card = new Border
+            {
+                Background = new SolidColorBrush(backgroundColor),
+                BorderBrush = new SolidColorBrush(borderColor),
+                BorderThickness = new Avalonia.Thickness(1),
+                CornerRadius = new Avalonia.CornerRadius(8),
+                Padding = new Avalonia.Thickness(10)
+            };
+            var stack = new StackPanel { Spacing = 4 };
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"{appearance.DayLabel} {appearance.TimeRange} · {appearance.Court} · {appearance.EventName}",
+                FontWeight = FontWeight.Bold,
+                Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+                TextWrapping = TextWrapping.Wrap
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"{appearance.Phase} {appearance.MatchName} · {appearance.Status}",
+                Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+                TextWrapping = TextWrapping.Wrap
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"本方：{appearance.SideText}    对方：{appearance.OpponentText}",
+                TextWrapping = TextWrapping.Wrap
+            });
+            if (!string.IsNullOrWhiteSpace(appearance.ConflictSummary))
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = appearance.ConflictSummary,
+                    Foreground = new SolidColorBrush(Color.FromRgb(185, 28, 28)),
+                    TextWrapping = TextWrapping.Wrap
+                });
+            }
+
+            card.Child = stack;
+            detailStack.Children.Add(card);
+        }
+    }
+
+    private void OpenScheduleBoardWindow_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_latestSchedule is null)
+        {
+            SetStatus("请先生成或打开赛程。", isError: true);
+            return;
+        }
+
+        if (_scheduleBoardWindow is { IsVisible: true })
+        {
+            _scheduleBoardWindow.Activate();
+            return;
+        }
+
+        _scheduleBoardWindowZoom = 1.0;
+        _scheduleBoardWindowDayBox = new ComboBox { Width = 180 };
+        _scheduleBoardWindowDayBox.SelectionChanged += ScheduleBoardWindowDayBox_SelectionChanged;
+        _scheduleBoardWindowSummaryText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            TextWrapping = TextWrapping.Wrap
+        };
+        _scheduleBoardWindowGrid = new Grid
+        {
+            Margin = new Avalonia.Thickness(10),
+            MinWidth = 980,
+            MinHeight = 560
+        };
+
+        _scheduleBoardWindow = new Window
+        {
+            Title = "赛程安排窗口",
+            Width = 1420,
+            Height = 880,
+            MinWidth = 980,
+            MinHeight = 620,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = BuildScheduleBoardWindowContent()
+        };
+        _scheduleBoardWindow.Closed += (_, _) =>
+        {
+            _scheduleBoardWindow = null;
+            _scheduleBoardWindowDayBox = null;
+            _scheduleBoardWindowSummaryText = null;
+            _scheduleBoardWindowGrid = null;
+        };
+        RefreshScheduleBoardWindow();
+        _scheduleBoardWindow.Show(this);
+    }
+
+    private Control BuildScheduleBoardWindowContent()
+    {
+        var root = new Grid
+        {
+            RowDefinitions = new RowDefinitions("Auto,*"),
+            Margin = new Avalonia.Thickness(16)
+        };
+        var header = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(248, 250, 252)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(10),
+            Padding = new Avalonia.Thickness(12)
+        };
+        var headerGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        var titleStack = new StackPanel { Spacing = 2 };
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = "赛程安排窗口",
+            FontSize = 18,
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78))
+        });
+        titleStack.Children.Add(_scheduleBoardWindowSummaryText!);
+        headerGrid.Children.Add(titleStack);
+
+        var controls = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Bottom
+        };
+        controls.Children.Add(new TextBlock
+        {
+            Text = "比赛日",
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        controls.Children.Add(_scheduleBoardWindowDayBox!);
+        controls.Children.Add(CreateCrossEventWindowButton("缩小", (_, _) => SetScheduleBoardWindowZoom(_scheduleBoardWindowZoom - CrossEventBoardZoomStep)));
+        controls.Children.Add(CreateCrossEventWindowButton("100%", (_, _) => SetScheduleBoardWindowZoom(1.0)));
+        controls.Children.Add(CreateCrossEventWindowButton("放大", (_, _) => SetScheduleBoardWindowZoom(_scheduleBoardWindowZoom + CrossEventBoardZoomStep)));
+        Grid.SetColumn(controls, 1);
+        headerGrid.Children.Add(controls);
+        header.Child = headerGrid;
+        root.Children.Add(header);
+
+        var boardHost = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(251, 252, 255)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(216, 224, 236)),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(10),
+            Margin = new Avalonia.Thickness(0, 10, 0, 0),
+            Child = new ScrollViewer
+            {
+                HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                Content = _scheduleBoardWindowGrid
+            }
+        };
+        Grid.SetRow(boardHost, 1);
+        root.Children.Add(boardHost);
+        return root;
+    }
+
+    private void ScheduleBoardWindowDayBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        RefreshScheduleBoardWindow(_scheduleBoardWindowDayBox?.SelectedItem?.ToString());
+    }
+
+    private void SetScheduleBoardWindowZoom(double value)
+    {
+        _scheduleBoardWindowZoom = Math.Clamp(value, CrossEventBoardWindowMinZoom, CrossEventBoardMaxZoom);
+        RefreshScheduleBoardWindow(_scheduleBoardWindowDayBox?.SelectedItem?.ToString());
+    }
+
+    private void RefreshScheduleBoardWindow(string? preferredDayLabel = null)
+    {
+        if (_scheduleBoardWindowDayBox is null
+            || _scheduleBoardWindowSummaryText is null
+            || _scheduleBoardWindowGrid is null)
+        {
+            return;
+        }
+
+        if (_latestSchedule is null)
+        {
+            _scheduleBoardWindowSummaryText.Text = "尚未生成赛程。";
+            RenderScheduleBoard(_scheduleBoardWindowGrid, null, _scheduleBoardWindowZoom);
+            return;
+        }
+
+        var dayLabels = ScheduleWorkflow.BuildBoardDays(_latestSchedule)
+            .Select(day => day.DayLabel)
+            .ToList();
+        _scheduleBoardWindowDayBox.SelectionChanged -= ScheduleBoardWindowDayBox_SelectionChanged;
+        _scheduleBoardWindowDayBox.ItemsSource = dayLabels;
+        var selectedDay = !string.IsNullOrWhiteSpace(preferredDayLabel) && dayLabels.Contains(preferredDayLabel)
+            ? preferredDayLabel
+            : _scheduleBoardWindowDayBox.SelectedItem?.ToString();
+        if (string.IsNullOrWhiteSpace(selectedDay) || !dayLabels.Contains(selectedDay))
+        {
+            selectedDay = dayLabels.FirstOrDefault();
+        }
+
+        _scheduleBoardWindowDayBox.SelectedItem = selectedDay;
+        _scheduleBoardWindowDayBox.SelectionChanged += ScheduleBoardWindowDayBox_SelectionChanged;
+        _scheduleBoardWindowSummaryText.Text = BuildScheduleBoardSummary(_latestSchedule, _scheduleBoardWindowZoom);
+        RenderScheduleBoard(_scheduleBoardWindowGrid, selectedDay, _scheduleBoardWindowZoom);
+    }
+
+    private static string BuildScheduleBoardSummary(SchedulePlan schedule, double zoom)
+    {
+        var unscheduledText = schedule.UnscheduledMatches.Count > 0
+            ? $"，未安排 {schedule.UnscheduledMatches.Count} 场"
+            : "";
+        return $"已安排 {schedule.Matches.Count} 场{unscheduledText}，比赛日 {schedule.DayCount} 个；缩放 {Math.Round(zoom * 100)}%。";
+    }
+
+    private void RenderScheduleBoard(Grid targetGrid, string? dayLabel, double zoom)
+    {
+        targetGrid.Children.Clear();
+        targetGrid.RowDefinitions.Clear();
+        targetGrid.ColumnDefinitions.Clear();
+        if (_latestSchedule is null || string.IsNullOrWhiteSpace(dayLabel))
+        {
+            AddCrossEventEmptyText(targetGrid, "尚未选择比赛日。", zoom);
+            return;
+        }
+
+        var days = ScheduleWorkflow.BuildBoardDays(_latestSchedule);
+        var day = days.FirstOrDefault(item => string.Equals(item.DayLabel, dayLabel, StringComparison.Ordinal));
+        if (day is null)
+        {
+            AddCrossEventEmptyText(targetGrid, "当前比赛日没有赛程。", zoom);
+            return;
+        }
+
+        targetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ScaleCrossEvent(96, zoom)) });
+        foreach (var _ in day.Courts)
+        {
+            targetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ScaleCrossEvent(190, zoom)) });
+        }
+
+        targetGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        foreach (var _ in day.TimeSlots)
+        {
+            targetGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+
+        AddCrossEventHeaderCell(targetGrid, "比赛时间", 0, 0, zoom);
+        for (var courtIndex = 0; courtIndex < day.Courts.Count; courtIndex++)
+        {
+            AddCrossEventHeaderCell(targetGrid, day.Courts[courtIndex], 0, courtIndex + 1, zoom);
+        }
+
+        var dayMatches = _latestSchedule.Matches
+            .Where(match => string.Equals(match.DayLabel, day.DayLabel, StringComparison.Ordinal))
+            .ToList();
+        for (var slotIndex = 0; slotIndex < day.TimeSlots.Count; slotIndex++)
+        {
+            var slot = day.TimeSlots[slotIndex];
+            AddCrossEventTimeCell(targetGrid, slot, slotIndex + 1, zoom);
+            for (var courtIndex = 0; courtIndex < day.Courts.Count; courtIndex++)
+            {
+                var court = day.Courts[courtIndex];
+                var cellMatches = dayMatches
+                    .Where(match => string.Equals(match.Court, court, StringComparison.Ordinal)
+                                    && match.StartTime == slot)
+                    .OrderBy(match => match.Order)
+                    .ToList();
+                AddScheduleDropCell(targetGrid, day.DayLabel, slot, court, slotIndex + 1, courtIndex + 1, cellMatches, zoom);
+            }
+        }
+    }
+
+    private void AddScheduleDropCell(
+        Grid targetGrid,
+        string dayLabel,
+        TimeOnly slot,
+        string court,
+        int row,
+        int column,
+        IReadOnlyList<ScheduledMatch> matches,
+        double zoom)
+    {
+        var stack = new StackPanel();
+        foreach (var match in matches)
+        {
+            stack.Children.Add(CreateScheduleMatchCard(match, zoom));
+        }
+
+        var border = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            BorderThickness = new Avalonia.Thickness(0, 0, 1, 1),
+            MinHeight = ScaleCrossEvent(72, zoom),
+            Padding = new Avalonia.Thickness(ScaleCrossEvent(6, zoom)),
+            Tag = new ScheduleDropTarget(dayLabel, slot, court),
+            Child = stack
+        };
+        DragDrop.SetAllowDrop(border, true);
+        DragDrop.AddDragOverHandler(border, ScheduleCell_DragOver);
+        DragDrop.AddDropHandler(border, ScheduleCell_Drop);
+        Grid.SetRow(border, row);
+        Grid.SetColumn(border, column);
+        targetGrid.Children.Add(border);
+    }
+
+    private Border CreateScheduleMatchCard(ScheduledMatch match, double zoom)
+    {
+        var isCompleted = IsScheduleMatchCompleted(match);
+        var card = new Border
+        {
+            Background = new SolidColorBrush(isCompleted ? Color.FromRgb(241, 245, 249) : Color.FromRgb(248, 251, 255)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(199, 210, 228)),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(8),
+            Padding = new Avalonia.Thickness(ScaleCrossEvent(8, zoom)),
+            Margin = new Avalonia.Thickness(0, 0, 0, ScaleCrossEvent(6, zoom)),
+            Tag = match,
+            Cursor = isCompleted ? Cursor.Default : new Cursor(StandardCursorType.Hand)
+        };
+        var stack = new StackPanel { Spacing = 3 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{match.GroupName} · {match.MatchName}",
+            FontSize = ScaleCrossEventFont(13, zoom),
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+            TextWrapping = TextWrapping.Wrap
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{match.TimeRange} · {match.Phase}" + (isCompleted ? " · 已完成" : ""),
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            FontSize = ScaleCrossEventFont(12, zoom)
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{match.SideA}  vs  {match.SideB}",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = ScaleCrossEventFont(12, zoom)
+        });
+        card.Child = stack;
+        card.PointerPressed += ScheduleMatchCard_PointerPressed;
+        return card;
+    }
+
+    private bool IsScheduleMatchCompleted(ScheduledMatch match)
+    {
+        return _progressState?.Results.ContainsKey(match.MatchName) == true;
+    }
+
+    private async void ScheduleMatchCard_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Border { Tag: ScheduledMatch match } || IsScheduleMatchCompleted(match))
+        {
+            return;
+        }
+
+        var data = new DataTransfer();
+        data.Add(DataTransferItem.CreateText($"{ScheduleDragPrefix}{match.MatchName}"));
+        await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move);
+    }
+
+    private void ScheduleCell_DragOver(object? sender, DragEventArgs e)
+    {
+        var text = e.DataTransfer.TryGetText();
+        e.DragEffects = !string.IsNullOrWhiteSpace(text) && text.StartsWith(ScheduleDragPrefix, StringComparison.Ordinal)
+            ? DragDropEffects.Move
+            : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void ScheduleCell_Drop(object? sender, DragEventArgs e)
+    {
+        if (_latestSchedule is null || sender is not Border { Tag: ScheduleDropTarget target })
+        {
+            return;
+        }
+
+        var text = e.DataTransfer.TryGetText();
+        if (string.IsNullOrWhiteSpace(text) || !text.StartsWith(ScheduleDragPrefix, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var matchName = text[ScheduleDragPrefix.Length..];
+        try
+        {
+            _latestSchedule = ScheduleWorkflow.MoveScheduledMatch(
+                _latestSchedule,
+                matchName,
+                target.DayLabel,
+                target.StartTime,
+                target.Court,
+                _progressState?.Results.Keys.ToHashSet(StringComparer.Ordinal));
+            if (_progressState is not null)
+            {
+                _progressState = ReplaceProgressSchedule(_progressState, _latestSchedule);
+                UpdateProgressDisplay();
+            }
+
+            ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
+            ScheduleSummaryText.Text = $"已调整 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。";
+            RefreshScheduleBoardWindow(target.DayLabel);
+            SetStatus("赛程安排已调整；后续导出会使用调整后的时间和场地。");
+        }
+        catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
+        {
+            SetStatus(ex.Message, isError: true);
+        }
+    }
+
+    private static TournamentProgressState ReplaceProgressSchedule(TournamentProgressState state, SchedulePlan schedule)
+    {
+        return state with
+        {
+            Snapshot = state.Snapshot with
+            {
+                Schedule = schedule,
+                UpdatedAt = DateTimeOffset.UtcNow
+            }
+        };
+    }
+
+    private void ZoomOutCrossEventBoard_Click(object? sender, RoutedEventArgs e)
+    {
+        SetCrossEventBoardZoom(_crossEventBoardZoom - CrossEventBoardZoomStep);
+    }
+
+    private void ResetCrossEventBoardZoom_Click(object? sender, RoutedEventArgs e)
+    {
+        SetCrossEventBoardZoom(1.0);
+    }
+
+    private void ZoomInCrossEventBoard_Click(object? sender, RoutedEventArgs e)
+    {
+        SetCrossEventBoardZoom(_crossEventBoardZoom + CrossEventBoardZoomStep);
+    }
+
+    private void OpenCrossEventBoardWindow_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            SetStatus("请先加载多项目赛程。", isError: true);
+            return;
+        }
+
+        if (_crossEventBoardWindow is { IsVisible: true })
+        {
+            _crossEventBoardWindow.Activate();
+            return;
+        }
+
+        _crossEventBoardWindowZoom = Math.Max(_crossEventBoardZoom, 0.85);
+        _crossEventBoardWindowDayBox = new ComboBox { Width = 180 };
+        _crossEventBoardWindowDayBox.SelectionChanged += CrossEventBoardWindowDayBox_SelectionChanged;
+        _crossEventBoardWindowSummaryText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            TextWrapping = TextWrapping.Wrap
+        };
+        _crossEventBoardWindowGrid = new Grid
+        {
+            Margin = new Avalonia.Thickness(10),
+            MinWidth = 980,
+            MinHeight = 560
+        };
+
+        var root = BuildCrossEventBoardWindowContent();
+        _crossEventBoardWindow = new Window
+        {
+            Title = "多项目赛程窗口",
+            Width = 1420,
+            Height = 880,
+            MinWidth = 980,
+            MinHeight = 620,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = root
+        };
+        _crossEventBoardWindow.Closed += (_, _) =>
+        {
+            _crossEventBoardWindow = null;
+            _crossEventBoardWindowDayBox = null;
+            _crossEventBoardWindowSummaryText = null;
+            _crossEventBoardWindowGrid = null;
+        };
+        RefreshCrossEventBoardWindow(GetSelectedCrossEventDayLabel());
+        _crossEventBoardWindow.Show(this);
+    }
+
+    private Control BuildCrossEventBoardWindowContent()
+    {
+        var root = new Grid
+        {
+            RowDefinitions = new RowDefinitions("Auto,*"),
+            Margin = new Avalonia.Thickness(16)
+        };
+        var header = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(248, 250, 252)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(10),
+            Padding = new Avalonia.Thickness(12)
+        };
+        var headerGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        var titleStack = new StackPanel { Spacing = 2 };
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = "多项目赛程窗口",
+            FontSize = 18,
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78))
+        });
+        titleStack.Children.Add(_crossEventBoardWindowSummaryText!);
+        headerGrid.Children.Add(titleStack);
+
+        var controls = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Bottom
+        };
+        controls.Children.Add(new TextBlock
+        {
+            Text = "比赛日",
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        controls.Children.Add(_crossEventBoardWindowDayBox!);
+        controls.Children.Add(CreateCrossEventWindowButton("缩小", (_, _) => SetCrossEventBoardWindowZoom(_crossEventBoardWindowZoom - CrossEventBoardZoomStep)));
+        controls.Children.Add(CreateCrossEventWindowButton("100%", (_, _) => SetCrossEventBoardWindowZoom(1.0)));
+        controls.Children.Add(CreateCrossEventWindowButton("放大", (_, _) => SetCrossEventBoardWindowZoom(_crossEventBoardWindowZoom + CrossEventBoardZoomStep)));
+        Grid.SetColumn(controls, 1);
+        headerGrid.Children.Add(controls);
+        header.Child = headerGrid;
+        root.Children.Add(header);
+
+        var boardHost = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(251, 252, 255)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(216, 224, 236)),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(10),
+            Margin = new Avalonia.Thickness(0, 10, 0, 0),
+            Child = new ScrollViewer
+            {
+                HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                Content = _crossEventBoardWindowGrid
+            }
+        };
+        Grid.SetRow(boardHost, 1);
+        root.Children.Add(boardHost);
+        return root;
+    }
+
+    private static Button CreateCrossEventWindowButton(string text, EventHandler<RoutedEventArgs> handler)
+    {
+        var button = new Button
+        {
+            Content = text,
+            Width = 64,
+            HorizontalContentAlignment = HorizontalAlignment.Center
+        };
+        button.Click += handler;
+        return button;
+    }
+
+    private void CrossEventBoardWindowDayBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        RefreshCrossEventBoardWindow(_crossEventBoardWindowDayBox?.SelectedItem?.ToString());
+    }
+
+    private void SetCrossEventBoardWindowZoom(double value)
+    {
+        _crossEventBoardWindowZoom = Math.Clamp(value, CrossEventBoardWindowMinZoom, CrossEventBoardMaxZoom);
+        RefreshCrossEventBoardWindow(_crossEventBoardWindowDayBox?.SelectedItem?.ToString());
+    }
+
+    private void RefreshCrossEventBoardWindow(string? preferredDayLabel = null)
+    {
+        if (_crossEventScheduleBoard is null
+            || _crossEventBoardWindowDayBox is null
+            || _crossEventBoardWindowSummaryText is null
+            || _crossEventBoardWindowGrid is null)
+        {
+            return;
+        }
+
+        var dayLabels = _crossEventScheduleBoard.Days.Select(day => day.DayLabel).ToList();
+        _crossEventBoardWindowDayBox.SelectionChanged -= CrossEventBoardWindowDayBox_SelectionChanged;
+        _crossEventBoardWindowDayBox.ItemsSource = dayLabels;
+        var selectedDay = !string.IsNullOrWhiteSpace(preferredDayLabel) && dayLabels.Contains(preferredDayLabel)
+            ? preferredDayLabel
+            : _crossEventBoardWindowDayBox.SelectedItem?.ToString();
+        if (string.IsNullOrWhiteSpace(selectedDay) || !dayLabels.Contains(selectedDay))
+        {
+            selectedDay = dayLabels.FirstOrDefault();
+        }
+
+        _crossEventBoardWindowDayBox.SelectedItem = selectedDay;
+        _crossEventBoardWindowDayBox.SelectionChanged += CrossEventBoardWindowDayBox_SelectionChanged;
+        _crossEventBoardWindowSummaryText.Text = BuildCrossEventBoardSummary(_crossEventScheduleBoard, _crossEventBoardWindowZoom);
+        RenderCrossEventScheduleBoard(_crossEventBoardWindowGrid, selectedDay, _crossEventBoardWindowZoom);
+    }
+
+    private void SetCrossEventBoardZoom(double value)
+    {
+        var next = Math.Clamp(value, CrossEventBoardMinZoom, CrossEventBoardMaxZoom);
+        if (Math.Abs(next - _crossEventBoardZoom) < 0.001)
+        {
+            return;
+        }
+
+        _crossEventBoardZoom = next;
+        RefreshCrossEventScheduleBoard(GetSelectedCrossEventDayLabel());
+    }
+
+    private static IReadOnlyList<CrossEventPlayerSummaryRow> BuildCrossEventPlayerSummaryRows(
+        IReadOnlyList<CrossEventPlayerMultiEntry> entries,
+        CrossEventPlayerSortMode sortMode)
+    {
+        var orderedEntries = SortCrossEventPlayerEntries(entries, sortMode);
+        return orderedEntries
+            .Select((entry, index) => new CrossEventPlayerSummaryRow(
+                entry,
+                index + 1,
+                $"{index + 1}. {entry.PlayerName} · {entry.EventCount} 项 · {entry.MatchCount} 场",
+                $"{string.Join("、", entry.EventNames)}\n未完成 {entry.PendingMatchCount} 场；严重 {entry.SevereIssueCount} 条，间隔过短 {entry.WarningIssueCount} 条；最短休息 {FormatRestMinutes(entry.ShortestRestMinutes)}"))
+            .ToList();
+    }
+
+    private static IEnumerable<CrossEventPlayerMultiEntry> SortCrossEventPlayerEntries(
+        IEnumerable<CrossEventPlayerMultiEntry> entries,
+        CrossEventPlayerSortMode sortMode)
+    {
+        return sortMode switch
+        {
+            CrossEventPlayerSortMode.RestAscending => entries
+                .OrderBy(entry => entry.ShortestRestMinutes.HasValue ? 0 : 1)
+                .ThenBy(entry => entry.ShortestRestMinutes ?? int.MaxValue)
+                .ThenBy(entry => entry.PlayerName, StringComparer.Ordinal),
+            CrossEventPlayerSortMode.RestDescending => entries
+                .OrderBy(entry => entry.ShortestRestMinutes.HasValue ? 0 : 1)
+                .ThenByDescending(entry => entry.ShortestRestMinutes ?? int.MinValue)
+                .ThenBy(entry => entry.PlayerName, StringComparer.Ordinal),
+            _ => entries
+        };
+    }
+
+    private static string FormatRestMinutes(int? minutes)
+    {
+        return minutes.HasValue ? $"{minutes.Value} 分钟" : "-";
+    }
+
+    private double ScaleCrossEvent(double value)
+    {
+        return ScaleCrossEvent(value, _crossEventBoardZoom);
+    }
+
+    private double ScaleCrossEventFont(double value)
+    {
+        return ScaleCrossEventFont(value, _crossEventBoardZoom);
+    }
+
+    private static double ScaleCrossEvent(double value, double zoom)
+    {
+        return Math.Round(value * zoom);
+    }
+
+    private static double ScaleCrossEventFont(double value, double zoom)
+    {
+        return Math.Round(value * Math.Clamp(zoom, 0.82, 1.35), 1);
     }
 
     private async void OpenProgress_Click(object? sender, RoutedEventArgs e)
@@ -692,7 +1762,7 @@ public partial class MainWindow : Window
             SetStatus(
                 $"赛事存档已更新：新增 {preview.NewResultCount} 场结果，"
                 + $"累计完成 {outcome.State.Results.Count} 场，待决 {outcome.State.RemainingMatchCount} 场；"
-                + $"{package.DayLabel} 材料包已导出：{FormatOutputPaths(package.OutputPaths)}");
+                + $"{package.DayLabel} 材料包已导出到：{package.OutputDirectory}（共 {package.OutputPaths.Count} 个文件）。");
         }
         catch (Exception ex) when (IsHandledWorkflowException(ex))
         {
@@ -721,6 +1791,7 @@ public partial class MainWindow : Window
                 ? $"已生成 {_latestSchedule.Matches.Count} 场，预计 {_latestSchedule.DayCount} 个比赛日。{ScheduleWorkflow.BuildScheduleCapacityText(settings)}"
                 : $"已安排 {_latestSchedule.Matches.Count} 场，未安排 {_latestSchedule.UnscheduledMatches.Count} 场，共 {_latestSchedule.TotalMatchCount} 场。{ScheduleWorkflow.BuildScheduleCapacityText(settings)}";
             ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
+            RefreshScheduleBoardWindow();
             SetStatus(_latestSchedule.IsComplete
                 ? "赛程预览已生成，可导出赛程 Excel。"
                 : "赛程资源不足：预览已保留，未安排场次会在列表底部显示。",
@@ -901,6 +1972,16 @@ public partial class MainWindow : Window
     private static string FormatOutputPaths(IReadOnlyList<string> outputPaths)
     {
         return string.Join("；", outputPaths);
+    }
+
+    private int GetCrossEventMinimumRestMinutes()
+    {
+        if (!int.TryParse(CrossEventRestMinutesBox.Text?.Trim(), out var minutes) || minutes < 0)
+        {
+            throw new DrawValidationException("跨项目最小休息间隔必须是大于或等于 0 的整数。");
+        }
+
+        return minutes;
     }
 
     private void ApplyScheduleCourtPreset()
@@ -1166,6 +2247,7 @@ public partial class MainWindow : Window
         RoundOneList.ItemsSource = FormatGroups(state.Snapshot.DrawResult.RoundOneGroups);
         ByeList.ItemsSource = FormatGroups(state.Snapshot.DrawResult.ByeGroups);
         ScheduleList.ItemsSource = FormatScheduleRows(state.Snapshot.Schedule);
+        RefreshScheduleBoardWindow();
         ScheduleSummaryText.Text =
             $"已恢复 {state.Snapshot.Schedule.Matches.Count} 场赛程，累计完成 {state.Results.Count} 场";
         UpdateEventKindForMode();
@@ -1248,6 +2330,333 @@ public partial class MainWindow : Window
             ? "尚未创建或打开赛事存档"
             : $"{Path.GetFileName(_progressFilePath)} · 已完成 {_progressState.Results.Count} 场"
               + $" · 待决 {_progressState.RemainingMatchCount} 场";
+    }
+
+    private void RefreshCrossEventScheduleBoard(string? preferredDayLabel = null)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            CrossEventBoardSummaryText.Text = "尚未加载多项目赛程。请先在左侧选择至少两个赛事存档。";
+            CrossEventDayBox.ItemsSource = null;
+            CrossEventScheduleBoardGrid.Children.Clear();
+            CrossEventScheduleBoardGrid.RowDefinitions.Clear();
+            CrossEventScheduleBoardGrid.ColumnDefinitions.Clear();
+            return;
+        }
+
+        var dayLabels = _crossEventScheduleBoard.Days.Select(day => day.DayLabel).ToList();
+        CrossEventDayBox.SelectionChanged -= CrossEventDayBox_SelectionChanged;
+        CrossEventDayBox.ItemsSource = dayLabels;
+        var selectedDay = !string.IsNullOrWhiteSpace(preferredDayLabel) && dayLabels.Contains(preferredDayLabel)
+            ? preferredDayLabel
+            : GetSelectedCrossEventDayLabel();
+        if (string.IsNullOrWhiteSpace(selectedDay) || !dayLabels.Contains(selectedDay))
+        {
+            selectedDay = dayLabels.FirstOrDefault();
+        }
+
+        CrossEventDayBox.SelectedItem = selectedDay;
+        CrossEventDayBox.SelectionChanged += CrossEventDayBox_SelectionChanged;
+        UpdateCrossEventSummary();
+        RenderCrossEventScheduleBoard(selectedDay);
+    }
+
+    private void UpdateCrossEventSummary()
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            return;
+        }
+
+        var changedText = _crossEventScheduleBoard.HasUnsavedChanges ? " · 有未保存调整" : "";
+        CrossEventBoardSummaryText.Text = BuildCrossEventBoardSummary(_crossEventScheduleBoard, _crossEventBoardZoom, changedText, includeZoom: false);
+    }
+
+    private static string BuildCrossEventBoardSummary(
+        CrossEventScheduleBoard board,
+        double zoom,
+        string changedText = "",
+        bool includeZoom = true)
+    {
+        var zoomText = includeZoom ? $"；缩放 {Math.Round(zoom * 100)}%" : "";
+        return $"项目 {board.Sources.Count}，场次 {board.Items.Count}，兼项 {board.MultiEventPlayerCount}；"
+               + $"严重 {board.Report.SevereCount}，间隔 {board.Report.WarningCount}，同日 {board.Report.NoticeCount}，"
+               + $"冲突卡 {board.BlockingConflictItemCount}{zoomText}{changedText}";
+    }
+
+    private void RenderCrossEventScheduleBoard(string? dayLabel)
+    {
+        RenderCrossEventScheduleBoard(CrossEventScheduleBoardGrid, dayLabel, _crossEventBoardZoom);
+    }
+
+    private void RenderCrossEventScheduleBoard(Grid targetGrid, string? dayLabel, double zoom)
+    {
+        targetGrid.Children.Clear();
+        targetGrid.RowDefinitions.Clear();
+        targetGrid.ColumnDefinitions.Clear();
+        if (_crossEventScheduleBoard is null || string.IsNullOrWhiteSpace(dayLabel))
+        {
+            AddCrossEventEmptyText(targetGrid, "尚未选择比赛日。", zoom);
+            return;
+        }
+
+        var day = _crossEventScheduleBoard.Days.FirstOrDefault(item => string.Equals(item.DayLabel, dayLabel, StringComparison.Ordinal));
+        if (day is null)
+        {
+            AddCrossEventEmptyText(targetGrid, "当前比赛日没有赛程。", zoom);
+            return;
+        }
+
+        targetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ScaleCrossEvent(96, zoom)) });
+        foreach (var _ in day.Courts)
+        {
+            targetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ScaleCrossEvent(190, zoom)) });
+        }
+
+        targetGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        foreach (var _ in day.TimeSlots)
+        {
+            targetGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+
+        AddCrossEventHeaderCell(targetGrid, "比赛时间", 0, 0, zoom);
+        for (var courtIndex = 0; courtIndex < day.Courts.Count; courtIndex++)
+        {
+            AddCrossEventHeaderCell(targetGrid, day.Courts[courtIndex], 0, courtIndex + 1, zoom);
+        }
+
+        var dayItems = _crossEventScheduleBoard.Items
+            .Where(item => string.Equals(item.DayLabel, day.DayLabel, StringComparison.Ordinal))
+            .ToList();
+        for (var slotIndex = 0; slotIndex < day.TimeSlots.Count; slotIndex++)
+        {
+            var slot = day.TimeSlots[slotIndex];
+            AddCrossEventTimeCell(targetGrid, slot, slotIndex + 1, zoom);
+            for (var courtIndex = 0; courtIndex < day.Courts.Count; courtIndex++)
+            {
+                var court = day.Courts[courtIndex];
+                var cellItems = dayItems
+                    .Where(item => string.Equals(item.Court, court, StringComparison.Ordinal)
+                                   && item.StartTime == slot)
+                    .OrderBy(item => item.EventName, StringComparer.Ordinal)
+                    .ToList();
+                AddCrossEventDropCell(targetGrid, day.DayLabel, slot, court, slotIndex + 1, courtIndex + 1, cellItems, zoom);
+            }
+        }
+    }
+
+    private void AddCrossEventEmptyText(Grid targetGrid, string text, double zoom)
+    {
+        targetGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        targetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        targetGrid.Children.Add(new TextBlock
+        {
+            Text = text,
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            FontSize = ScaleCrossEventFont(13, zoom),
+            Margin = new Avalonia.Thickness(12)
+        });
+    }
+
+    private void AddCrossEventHeaderCell(Grid targetGrid, string text, int row, int column, double zoom)
+    {
+        var border = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(237, 225, 252)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(216, 199, 244)),
+            BorderThickness = new Avalonia.Thickness(0, 0, 1, 1),
+            Padding = new Avalonia.Thickness(ScaleCrossEvent(10, zoom), ScaleCrossEvent(8, zoom)),
+            Child = new TextBlock
+            {
+                Text = text,
+                FontSize = ScaleCrossEventFont(13, zoom),
+                FontWeight = FontWeight.Bold,
+                Foreground = new SolidColorBrush(Color.FromRgb(50, 17, 109)),
+                TextAlignment = TextAlignment.Center
+            }
+        };
+        Grid.SetRow(border, row);
+        Grid.SetColumn(border, column);
+        targetGrid.Children.Add(border);
+    }
+
+    private void AddCrossEventTimeCell(Grid targetGrid, TimeOnly slot, int row, double zoom)
+    {
+        var border = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(248, 250, 252)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            BorderThickness = new Avalonia.Thickness(0, 0, 1, 1),
+            Padding = new Avalonia.Thickness(ScaleCrossEvent(10, zoom), ScaleCrossEvent(14, zoom)),
+            Child = new TextBlock
+            {
+                Text = slot.ToString("HH:mm"),
+                FontSize = ScaleCrossEventFont(13, zoom),
+                FontWeight = FontWeight.SemiBold,
+                TextAlignment = TextAlignment.Center
+            }
+        };
+        Grid.SetRow(border, row);
+        Grid.SetColumn(border, 0);
+        targetGrid.Children.Add(border);
+    }
+
+    private void AddCrossEventDropCell(
+        Grid targetGrid,
+        string dayLabel,
+        TimeOnly slot,
+        string court,
+        int row,
+        int column,
+        IReadOnlyList<CrossEventScheduleBoardItem> items,
+        double zoom)
+    {
+        var stack = new StackPanel();
+        foreach (var item in items)
+        {
+            stack.Children.Add(CreateCrossEventMatchCard(item, zoom));
+        }
+
+        var border = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            BorderThickness = new Avalonia.Thickness(0, 0, 1, 1),
+            MinHeight = ScaleCrossEvent(72, zoom),
+            Padding = new Avalonia.Thickness(ScaleCrossEvent(6, zoom)),
+            Tag = new CrossEventDropTarget(dayLabel, slot, court),
+            Child = stack
+        };
+        DragDrop.SetAllowDrop(border, true);
+        DragDrop.AddDragOverHandler(border, CrossEventCell_DragOver);
+        DragDrop.AddDropHandler(border, CrossEventCell_Drop);
+        Grid.SetRow(border, row);
+        Grid.SetColumn(border, column);
+        targetGrid.Children.Add(border);
+    }
+
+    private Border CreateCrossEventMatchCard(CrossEventScheduleBoardItem item, double zoom)
+    {
+        var borderColor = item.IsBlockingConflict
+            ? Color.FromRgb(220, 38, 38)
+            : Color.FromRgb(199, 210, 228);
+        var backgroundColor = item.IsBlockingConflict
+            ? Color.FromRgb(254, 242, 242)
+            : item.IsCompleted
+                ? Color.FromRgb(241, 245, 249)
+                : Color.FromRgb(248, 251, 255);
+        var card = new Border
+        {
+            Background = new SolidColorBrush(backgroundColor),
+            BorderBrush = new SolidColorBrush(borderColor),
+            BorderThickness = new Avalonia.Thickness(item.IsBlockingConflict ? 2 : 1),
+            CornerRadius = new Avalonia.CornerRadius(8),
+            Padding = new Avalonia.Thickness(ScaleCrossEvent(8, zoom)),
+            Margin = new Avalonia.Thickness(0, 0, 0, ScaleCrossEvent(6, zoom)),
+            Tag = item,
+            Cursor = item.IsCompleted ? Cursor.Default : new Cursor(StandardCursorType.Hand)
+        };
+        if (!string.IsNullOrWhiteSpace(item.ConflictSummary))
+        {
+            ToolTip.SetTip(card, item.ConflictSummary);
+        }
+        var stack = new StackPanel { Spacing = 3 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = item.MatchLabel,
+            FontSize = ScaleCrossEventFont(13, zoom),
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+            TextWrapping = TextWrapping.Wrap
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{item.TimeRange} · {item.Status}",
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            FontSize = ScaleCrossEventFont(12, zoom)
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{item.SideA}  vs  {item.SideB}",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = ScaleCrossEventFont(12, zoom)
+        });
+        if (item.IsBlockingConflict)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = item.ConflictSummary,
+                Foreground = new SolidColorBrush(Color.FromRgb(185, 28, 28)),
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = ScaleCrossEventFont(12, zoom)
+            });
+        }
+
+        card.Child = stack;
+        card.PointerPressed += CrossEventMatchCard_PointerPressed;
+        return card;
+    }
+
+    private async void CrossEventMatchCard_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Border { Tag: CrossEventScheduleBoardItem item } || item.IsCompleted)
+        {
+            return;
+        }
+
+        var data = new DataTransfer();
+        data.Add(DataTransferItem.CreateText(item.Key));
+        await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move);
+    }
+
+    private void CrossEventCell_DragOver(object? sender, DragEventArgs e)
+    {
+        e.DragEffects = e.DataTransfer.Contains(DataFormat.Text) ? DragDropEffects.Move : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void CrossEventCell_Drop(object? sender, DragEventArgs e)
+    {
+        if (_crossEventScheduleBoard is null
+            || sender is not Border { Tag: CrossEventDropTarget target })
+        {
+            return;
+        }
+
+        var key = e.DataTransfer.TryGetText();
+        if (string.IsNullOrWhiteSpace(key) || key.StartsWith(ScheduleDragPrefix, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            _crossEventScheduleBoard = _crossEventConflictWorkflow.MoveScheduleItem(
+                _crossEventScheduleBoard,
+                key,
+                target.DayLabel,
+                target.StartTime,
+                target.Court);
+            RefreshCrossEventScheduleBoard(target.DayLabel);
+            RefreshCrossEventBoardWindow(target.DayLabel);
+            PreviewTabs.SelectedItem = CrossEventPreviewTab;
+            SetStatus(BuildCrossEventStatus("已调整多项目赛程", _crossEventScheduleBoard));
+        }
+        catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
+        {
+            SetStatus(ex.Message, isError: true);
+        }
+    }
+
+    private string? GetSelectedCrossEventDayLabel()
+    {
+        return CrossEventDayBox.SelectedItem?.ToString();
+    }
+
+    private static string BuildCrossEventStatus(string prefix, CrossEventScheduleBoard board)
+    {
+        return $"{prefix}：兼项选手 {board.MultiEventPlayerCount} 人，严重 {board.Report.SevereCount} 条，间隔过短 {board.Report.WarningCount} 条，"
+               + $"同日提醒 {board.Report.NoticeCount} 条，冲突卡片 {board.BlockingConflictItemCount} 张。";
     }
 
     private CompetitionMode GetCompetitionMode()
@@ -1420,6 +2829,7 @@ public partial class MainWindow : Window
         _latestSchedule = null;
         ScheduleSummaryText.Text = "尚未生成赛程";
         ScheduleList.ItemsSource = Array.Empty<SchedulePreviewRow>();
+        RefreshScheduleBoardWindow();
         UpdateScheduleTimingSplitVisibility();
     }
 
@@ -1480,4 +2890,33 @@ public partial class MainWindow : Window
         IBrush BorderBrush,
         IBrush BadgeBrush,
         IBrush BadgeForeground);
+
+    private sealed record CrossEventPlayerSummaryRow(
+        CrossEventPlayerMultiEntry Entry,
+        int Order,
+        string Title,
+        string Detail)
+    {
+        public override string ToString()
+        {
+            return $"{Title}\n{Detail}";
+        }
+    }
+
+    private sealed record CrossEventDropTarget(
+        string DayLabel,
+        TimeOnly StartTime,
+        string Court);
+
+    private sealed record ScheduleDropTarget(
+        string DayLabel,
+        TimeOnly StartTime,
+        string Court);
+
+    private enum CrossEventPlayerSortMode
+    {
+        Default,
+        RestAscending,
+        RestDescending
+    }
 }

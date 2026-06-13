@@ -149,6 +149,99 @@ public sealed class ScheduleWorkflow
         return _matchRecordReader.ReadMany(filePaths);
     }
 
+    public static IReadOnlyList<ScheduleBoardDay> BuildBoardDays(SchedulePlan schedule)
+    {
+        var dayBuilders = new Dictionary<string, BoardDayBuilder>(StringComparer.Ordinal);
+        foreach (var day in schedule.Settings.Days)
+        {
+            var builder = GetDayBuilder(dayBuilders, day.DayLabel);
+            builder.StartTime = MinTime(builder.StartTime, day.DayStart);
+            builder.EndTime = MaxTime(builder.EndTime, day.DayEnd);
+            foreach (var court in day.Courts)
+            {
+                builder.Courts.Add(court);
+            }
+        }
+
+        foreach (var match in schedule.Matches)
+        {
+            var builder = GetDayBuilder(dayBuilders, match.DayLabel);
+            builder.StartTime = MinTime(builder.StartTime, match.StartTime);
+            builder.EndTime = MaxTime(builder.EndTime, match.EndTime);
+            builder.Courts.Add(match.Court);
+            builder.Durations.Add(match.DurationMinutes);
+        }
+
+        return dayBuilders
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair =>
+            {
+                var start = pair.Value.StartTime ?? new TimeOnly(8, 0);
+                var end = pair.Value.EndTime ?? new TimeOnly(22, 0);
+                var slotMinutes = NormalizeSlotMinutes(pair.Value.Durations);
+                return new ScheduleBoardDay(
+                    pair.Key,
+                    start,
+                    end,
+                    pair.Value.Courts.OrderBy(court => court, StringComparer.OrdinalIgnoreCase).ToList(),
+                    slotMinutes,
+                    BuildTimeSlots(start, end, slotMinutes));
+            })
+            .ToList();
+    }
+
+    public static SchedulePlan MoveScheduledMatch(
+        SchedulePlan schedule,
+        string matchName,
+        string dayLabel,
+        TimeOnly startTime,
+        string court,
+        IReadOnlySet<string>? lockedMatchNames = null)
+    {
+        var match = schedule.Matches.FirstOrDefault(item => string.Equals(item.MatchName, matchName, StringComparison.Ordinal))
+            ?? throw new DrawValidationException("找不到需要调整的比赛。");
+        if (lockedMatchNames?.Contains(match.MatchName) == true)
+        {
+            throw new DrawValidationException("该场比赛已有赛果，不能再拖动调整。");
+        }
+
+        var day = schedule.Settings.Days.FirstOrDefault(item => string.Equals(item.DayLabel, dayLabel, StringComparison.Ordinal))
+            ?? throw new DrawValidationException("目标比赛日不在当前赛程设置中。");
+        if (!day.Courts.Contains(court, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new DrawValidationException("目标场地不在当前比赛日的场地列表中。");
+        }
+
+        var endTime = startTime.AddMinutes(match.DurationMinutes);
+        if (startTime < day.DayStart || endTime > day.DayEnd)
+        {
+            throw new DrawValidationException("目标时间超出了当前比赛日的可用时间段。");
+        }
+
+        var hasCourtOverlap = schedule.Matches.Any(other =>
+            !string.Equals(other.MatchName, match.MatchName, StringComparison.Ordinal)
+            && string.Equals(other.DayLabel, dayLabel, StringComparison.Ordinal)
+            && string.Equals(other.Court, court, StringComparison.OrdinalIgnoreCase)
+            && HasTimeOverlap(startTime, endTime, other.StartTime, other.EndTime));
+        if (hasCourtOverlap)
+        {
+            throw new DrawValidationException("目标时间和场地已有比赛，请选择空位后再调整。");
+        }
+
+        var matches = schedule.Matches
+            .Select(item => string.Equals(item.MatchName, match.MatchName, StringComparison.Ordinal)
+                ? item with
+                {
+                    DayLabel = dayLabel,
+                    StartTime = startTime,
+                    EndTime = endTime,
+                    Court = court
+                }
+                : item)
+            .ToList();
+        return schedule with { Matches = NormalizeScheduledMatchOrders(matches) };
+    }
+
     public static ScheduleSettings BuildSettings(ScheduleWorkflowRequest request)
     {
         var day = new ScheduleDayWorkflowRequest(
@@ -278,6 +371,78 @@ public sealed class ScheduleWorkflow
         }
 
         return courts;
+    }
+
+    private static IReadOnlyList<ScheduledMatch> NormalizeScheduledMatchOrders(IReadOnlyList<ScheduledMatch> matches)
+    {
+        return matches
+            .OrderBy(match => match.DayLabel, StringComparer.Ordinal)
+            .ThenBy(match => match.StartTime)
+            .ThenBy(match => match.Court, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(match => match.Order)
+            .Select((match, index) => match with { Order = index + 1 })
+            .ToList();
+    }
+
+    private static BoardDayBuilder GetDayBuilder(IDictionary<string, BoardDayBuilder> builders, string dayLabel)
+    {
+        if (!builders.TryGetValue(dayLabel, out var builder))
+        {
+            builder = new BoardDayBuilder();
+            builders.Add(dayLabel, builder);
+        }
+
+        return builder;
+    }
+
+    private static TimeOnly? MinTime(TimeOnly? current, TimeOnly candidate)
+    {
+        return current.HasValue && current.Value <= candidate ? current.Value : candidate;
+    }
+
+    private static TimeOnly? MaxTime(TimeOnly? current, TimeOnly candidate)
+    {
+        return current.HasValue && current.Value >= candidate ? current.Value : candidate;
+    }
+
+    private static int NormalizeSlotMinutes(IReadOnlyCollection<int> durations)
+    {
+        if (durations.Count == 0)
+        {
+            return 20;
+        }
+
+        return Math.Clamp(durations.Aggregate(GreatestCommonDivisor), 5, 30);
+    }
+
+    private static int GreatestCommonDivisor(int left, int right)
+    {
+        left = Math.Abs(left);
+        right = Math.Abs(right);
+        while (right != 0)
+        {
+            var remainder = left % right;
+            left = right;
+            right = remainder;
+        }
+
+        return Math.Max(1, left);
+    }
+
+    private static IReadOnlyList<TimeOnly> BuildTimeSlots(TimeOnly startTime, TimeOnly endTime, int slotMinutes)
+    {
+        var slots = new List<TimeOnly>();
+        for (var cursor = startTime; cursor < endTime; cursor = cursor.AddMinutes(slotMinutes))
+        {
+            slots.Add(cursor);
+        }
+
+        return slots;
+    }
+
+    private static bool HasTimeOverlap(TimeOnly leftStart, TimeOnly leftEnd, TimeOnly rightStart, TimeOnly rightEnd)
+    {
+        return leftStart < rightEnd && rightStart < leftEnd;
     }
 
     private static IReadOnlyList<string> ExpandNumberRange(string prefix, int startNumber, int endNumber)
@@ -468,6 +633,17 @@ public sealed class ScheduleWorkflow
     {
         return side.EndsWith("胜者", StringComparison.Ordinal)
             || side.EndsWith("负者", StringComparison.Ordinal);
+    }
+
+    private sealed class BoardDayBuilder
+    {
+        public TimeOnly? StartTime { get; set; }
+
+        public TimeOnly? EndTime { get; set; }
+
+        public SortedSet<string> Courts { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public List<int> Durations { get; } = [];
     }
 }
 

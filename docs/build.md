@@ -89,7 +89,7 @@ artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
 2. 再跑 `dotnet build BadmintonDraw.sln --no-restore --verbosity minimal`。
 3. macOS 包使用 `VERSION=x.y.z bash scripts/publish-macos.sh osx-arm64` 生成，并上传 `artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg`。
 4. Windows 发布目录可压缩为类似 `SZU-Badminton-Draw_v3.3.0_win-x64_self-contained.zip` 的文件后上传。
-5. Release 说明中列出规则化抽签、赛程编排、多格式导出、赛事存档、记录表导入确认和 macOS 预览版等重要变化。
+5. Release 说明中列出规则化抽签、赛程编排、多格式导出、赛事存档、记录表导入确认和跨平台桌面版等重要变化。
 
 GitHub CLI 示例：
 
@@ -110,7 +110,7 @@ gh release create v3.3.0 \
 
 ## 跨平台说明
 
-`BadmintonDraw.Core`、`BadmintonDraw.Excel` 和 `BadmintonDraw.Workflows` 是普通 .NET 项目，可以在 macOS/Linux 上参与构建和测试。Windows WPF GUI 只能在 Windows 上运行；Avalonia GUI 位于 `src/BadmintonDraw.Desktop`，用于 macOS/Windows/Linux 跨平台预览。
+`BadmintonDraw.Core`、`BadmintonDraw.Excel` 和 `BadmintonDraw.Workflows` 是普通 .NET 项目，可以在 macOS/Linux 上参与构建和测试。Windows WPF GUI 只能在 Windows 上运行；Avalonia GUI 位于 `src/BadmintonDraw.Desktop`，用于 macOS/Windows/Linux 跨平台桌面版。
 
 跨平台维护时应保持：
 

@@ -91,7 +91,9 @@ public sealed class TournamentProgressWorkflow
         bool includePrintablePdf,
         DrawResultVisualOptions? visualOptions)
     {
-        Directory.CreateDirectory(outputDirectory);
+        var packageDirectory = WorkflowExportHelpers.CreateUniqueDirectory(
+            outputDirectory,
+            BuildPackageFolderName(dayLabel));
 
         var outputPaths = new List<string>();
         var schedule = state.Snapshot.Schedule;
@@ -100,7 +102,7 @@ public sealed class TournamentProgressWorkflow
         var workflowResult = BuildDrawWorkflowResult(state);
         var scoreSheetProjectName = BuildScoreSheetProjectName(state);
 
-        var recordPath = Path.Combine(outputDirectory, ScheduleWorkflow.BuildDefaultMatchRecordFileName(dayLabel));
+        var recordPath = Path.Combine(packageDirectory, ScheduleWorkflow.BuildDefaultMatchRecordFileName(dayLabel));
         _scheduleWorkflow.ExportMatchRecord(
             recordPath,
             schedule,
@@ -110,7 +112,7 @@ public sealed class TournamentProgressWorkflow
             state.Snapshot.TournamentId);
         outputPaths.Add(recordPath);
 
-        var dailySchedulePath = Path.Combine(outputDirectory, ScheduleWorkflow.BuildDefaultDailyScheduleFileName(dayLabel));
+        var dailySchedulePath = Path.Combine(packageDirectory, ScheduleWorkflow.BuildDefaultDailyScheduleFileName(dayLabel));
         outputPaths.AddRange(_scheduleWorkflow.ExportDailyScheduleFiles(
             dailySchedulePath,
             WorkflowExportFormat.Excel,
@@ -131,7 +133,7 @@ public sealed class TournamentProgressWorkflow
                 state.Snapshot.TournamentId));
         }
 
-        var timedBracketPath = Path.Combine(outputDirectory, ScheduleWorkflow.BuildDefaultDailyTimedBracketFileName(dayLabel));
+        var timedBracketPath = Path.Combine(packageDirectory, ScheduleWorkflow.BuildDefaultDailyTimedBracketFileName(dayLabel));
         outputPaths.AddRange(_scheduleWorkflow.ExportTimedBracketFilesAtPath(
             timedBracketPath,
             WorkflowExportFormat.Excel,
@@ -148,7 +150,7 @@ public sealed class TournamentProgressWorkflow
                 visualOptions));
         }
 
-        var individualScorePath = Path.Combine(outputDirectory, ScheduleWorkflow.BuildDefaultIndividualScoreSheetFileName(dayLabel));
+        var individualScorePath = Path.Combine(packageDirectory, ScheduleWorkflow.BuildDefaultIndividualScoreSheetFileName(dayLabel));
         _scheduleWorkflow.ExportIndividualScoreSheetPdf(
             individualScorePath,
             schedule,
@@ -160,7 +162,7 @@ public sealed class TournamentProgressWorkflow
 
         if (IsTeamEvent(state))
         {
-            var teamScorePath = Path.Combine(outputDirectory, ScheduleWorkflow.BuildDefaultTeamScoreSheetFileName(dayLabel));
+            var teamScorePath = Path.Combine(packageDirectory, ScheduleWorkflow.BuildDefaultTeamScoreSheetFileName(dayLabel));
             _scheduleWorkflow.ExportTeamScoreSheets(
                 teamScorePath,
                 schedule,
@@ -171,7 +173,7 @@ public sealed class TournamentProgressWorkflow
         }
 
         return new TournamentProgressPackageExportResult(
-            outputDirectory,
+            packageDirectory,
             dayLabel,
             outputPaths);
     }
@@ -255,6 +257,13 @@ public sealed class TournamentProgressWorkflow
             .Select(WorkflowFileNames.Sanitize)
             .Where(part => !string.IsNullOrWhiteSpace(part)));
         return $"{WorkflowFileNames.Limit(stem)}.szbd";
+    }
+
+    private static string BuildPackageFolderName(string dayLabel)
+    {
+        return DateOnly.TryParse(dayLabel, out var date)
+            ? $"{date.Month}月{date.Day}日材料包"
+            : $"{dayLabel}材料包";
     }
 
     public static string? GetNextMatchRecordDayLabel(TournamentProgressState state)
