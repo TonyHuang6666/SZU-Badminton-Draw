@@ -1163,8 +1163,8 @@ public sealed class DrawResultVisualWriter
 
     private static bool TypefaceSupportsText(SKTypeface typeface, string text)
     {
-        var trimmed = text.Trim();
-        return trimmed.Length == 0 || typeface.ContainsGlyphs(trimmed);
+        var textToCheck = string.Concat(text.Where(character => !char.IsWhiteSpace(character) && !char.IsControl(character)));
+        return textToCheck.Length == 0 || typeface.ContainsGlyphs(textToCheck);
     }
 
     private sealed class EmbeddedTypefaceHolder(SKData data, SKTypeface typeface)
