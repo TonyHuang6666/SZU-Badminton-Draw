@@ -94,6 +94,35 @@ public sealed class DrawResultVisualWriter
         }
     }
 
+    public void WriteSheetsA4Pdf(
+        string outputPath,
+        string workbookPath,
+        IReadOnlyList<string> sheetNames,
+        bool stretchToPrintableArea = false,
+        float horizontalSafetyInset = 10f,
+        float? leftPageInset = null,
+        float? rightPageInset = null)
+    {
+        if (sheetNames.Count == 0)
+        {
+            throw new InvalidOperationException("没有可导出的工作表。");
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
+
+        using var workbook = new XLWorkbook(workbookPath);
+        var pageLayouts = sheetNames
+            .Select(sheetName => BuildLayout(workbook.Worksheet(sheetName)))
+            .ToList();
+        WritePageLayoutsA4Pdf(
+            outputPath,
+            pageLayouts,
+            horizontalSafetyInset,
+            stretchToPrintableArea,
+            leftPageInset,
+            rightPageInset);
+    }
+
     private static WorksheetLayout BuildLayout(IXLWorksheet sheet)
     {
         var usedRange = sheet.RangeUsed(XLCellsUsedOptions.All)
@@ -790,24 +819,32 @@ public sealed class DrawResultVisualWriter
     private static void WritePageLayoutsA4Pdf(
         string outputPath,
         IReadOnlyList<WorksheetLayout> pageLayouts,
-        float horizontalSafetyInset)
+        float horizontalSafetyInset,
+        bool stretchToPrintableArea = false,
+        float? leftPageInset = null,
+        float? rightPageInset = null)
     {
         using var stream = File.Create(outputPath);
         using var document = SKDocument.CreatePdf(stream);
 
         var pageSize = new PageSize(A4LandscapeWidth, A4LandscapeHeight);
-        var printableWidth = pageSize.Width - (A4Margin + horizontalSafetyInset) * 2;
+        var leftInset = leftPageInset ?? A4Margin + horizontalSafetyInset;
+        var rightInset = rightPageInset ?? A4Margin + horizontalSafetyInset;
+        var printableWidth = pageSize.Width - leftInset - rightInset;
         var printableHeight = pageSize.Height - A4Margin * 2;
 
         foreach (var sourceLayout in pageLayouts)
         {
-            var layout = StretchLayoutToPageHeight(sourceLayout, printableHeight / printableWidth);
+            var targetAspectRatio = printableHeight / printableWidth;
+            var layout = stretchToPrintableArea
+                ? StretchLayoutToPageAspect(sourceLayout, targetAspectRatio)
+                : StretchLayoutToPageHeight(sourceLayout, targetAspectRatio);
             var scale = Math.Min(
                 printableWidth / (layout.Width * PdfScale),
                 printableHeight / (layout.Height * PdfScale));
             var drawWidth = layout.Width * PdfScale * scale;
             var drawHeight = layout.Height * PdfScale * scale;
-            var originX = A4Margin + horizontalSafetyInset + (printableWidth - drawWidth) / 2;
+            var originX = leftInset + (printableWidth - drawWidth) / 2;
             var originY = A4Margin + (printableHeight - drawHeight) / 2;
 
             using var canvas = document.BeginPage(pageSize.Width, pageSize.Height);
@@ -821,6 +858,35 @@ public sealed class DrawResultVisualWriter
         }
 
         document.Close();
+    }
+
+    private static WorksheetLayout StretchLayoutToPageAspect(WorksheetLayout layout, float targetAspectRatio)
+    {
+        var currentAspectRatio = layout.Height / Math.Max(1f, layout.Width);
+        if (currentAspectRatio > targetAspectRatio + 0.001f)
+        {
+            return StretchLayoutToPageWidth(layout, layout.Height / targetAspectRatio);
+        }
+
+        return StretchLayoutToPageHeight(layout, targetAspectRatio);
+    }
+
+    private static WorksheetLayout StretchLayoutToPageWidth(WorksheetLayout layout, float targetWidth)
+    {
+        targetWidth = Math.Max(layout.Width, targetWidth);
+        if (targetWidth <= layout.Width + 1f)
+        {
+            return layout;
+        }
+
+        var sourceContentWidth = Math.Max(1f, layout.Width - CanvasMargin * 2);
+        var targetContentWidth = Math.Max(1f, targetWidth - CanvasMargin * 2);
+        var horizontalScale = targetContentWidth / sourceContentWidth;
+        var stretchedCells = layout.Cells
+            .Select(cell => cell with { Bounds = StretchRectHorizontally(cell.Bounds, horizontalScale) })
+            .ToList();
+
+        return layout with { Width = targetWidth, Cells = stretchedCells };
     }
 
     private static WorksheetLayout StretchLayoutToPageHeight(WorksheetLayout layout, float targetAspectRatio)
@@ -848,6 +914,15 @@ public sealed class DrawResultVisualWriter
             CanvasMargin + (rect.Top - CanvasMargin) * verticalScale,
             rect.Right,
             CanvasMargin + (rect.Bottom - CanvasMargin) * verticalScale);
+    }
+
+    private static SKRect StretchRectHorizontally(SKRect rect, float horizontalScale)
+    {
+        return new SKRect(
+            CanvasMargin + (rect.Left - CanvasMargin) * horizontalScale,
+            rect.Top,
+            CanvasMargin + (rect.Right - CanvasMargin) * horizontalScale,
+            rect.Bottom);
     }
 
     private static PageSize GetA4PageSize(float sourceTileWidth, float sourceTileHeight)

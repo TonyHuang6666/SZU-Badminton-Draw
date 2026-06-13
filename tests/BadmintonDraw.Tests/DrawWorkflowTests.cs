@@ -1378,6 +1378,161 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void TournamentProgressWorkflowExportsNextDayPackage()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-next-package-{Guid.NewGuid():N}");
+
+        try
+        {
+            var snapshot = CreateTournamentProgressSnapshot("tournament-package");
+            var dayOne = snapshot.Schedule.Matches[0].DayLabel;
+            var dayOneResults = BuildCompletedResultsForDay(snapshot.Schedule, dayOne);
+            var state = new TournamentProgressState(
+                snapshot,
+                dayOneResults,
+                [],
+                [dayOne],
+                []);
+
+            var package = new TournamentProgressWorkflow().ExportNextDayPackage(
+                state,
+                directory,
+                includePrintablePdf: false);
+            var expectedScoreSheetCount = snapshot.Schedule.Matches.Count(match => match.DayLabel == package.DayLabel);
+            var scorePdfPath = Path.Combine(directory, "6月7日单场比赛计分表.pdf");
+
+            Assert.Equal("2026-06-07", package.DayLabel);
+            Assert.Equal(4, package.OutputPaths.Count);
+            Assert.All(package.OutputPaths, path => Assert.True(File.Exists(path), path));
+            Assert.Contains(package.OutputPaths, path => Path.GetFileName(path) == "6月7日赛程记录表.xlsx");
+            Assert.Contains(package.OutputPaths, path => Path.GetFileName(path) == "6月7日赛程安排表.xlsx");
+            Assert.Contains(package.OutputPaths, path => Path.GetFileName(path) == "6月7日带时间场地对阵表.xlsx");
+            Assert.Contains(scorePdfPath, package.OutputPaths);
+
+            using var recordWorkbook = new XLWorkbook(Path.Combine(directory, "6月7日赛程记录表.xlsx"));
+            using var scheduleWorkbook = new XLWorkbook(Path.Combine(directory, "6月7日赛程安排表.xlsx"));
+            Assert.Equal("对阵记录表", recordWorkbook.Worksheet("对阵记录表").Name);
+            Assert.DoesNotContain(scheduleWorkbook.Worksheets, worksheet => worksheet.Name == "对阵记录表");
+            Assert.Contains("2026-06-07", scheduleWorkbook.Worksheet("赛程明细").Cell(5, 2).GetString());
+            AssertFileHeader(scorePdfPath, [0x25, 0x50, 0x44, 0x46]);
+            AssertPdfUsesTextLayer(scorePdfPath);
+            Assert.Equal(expectedScoreSheetCount, CountPdfPages(scorePdfPath));
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void TournamentProgressWorkflowExportsFirstDayPackage()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-first-package-{Guid.NewGuid():N}");
+
+        try
+        {
+            var snapshot = CreateTournamentProgressSnapshot("tournament-first-package");
+            var state = new TournamentProgressState(
+                snapshot,
+                new Dictionary<string, MatchRecordResult>(StringComparer.Ordinal),
+                [],
+                [],
+                []);
+
+            var package = new TournamentProgressWorkflow().ExportFirstDayPackage(
+                state,
+                directory,
+                includePrintablePdf: false);
+            var expectedScoreSheetCount = snapshot.Schedule.Matches.Count(match => match.DayLabel == package.DayLabel);
+            var scorePdfPath = Path.Combine(directory, "6月6日单场比赛计分表.pdf");
+
+            Assert.Equal("2026-06-06", package.DayLabel);
+            Assert.Equal(4, package.OutputPaths.Count);
+            Assert.All(package.OutputPaths, path => Assert.True(File.Exists(path), path));
+            Assert.Contains(package.OutputPaths, path => Path.GetFileName(path) == "6月6日赛程记录表.xlsx");
+            Assert.Contains(package.OutputPaths, path => Path.GetFileName(path) == "6月6日赛程安排表.xlsx");
+            Assert.Contains(package.OutputPaths, path => Path.GetFileName(path) == "6月6日带时间场地对阵表.xlsx");
+            Assert.Contains(scorePdfPath, package.OutputPaths);
+
+            using var recordWorkbook = new XLWorkbook(Path.Combine(directory, "6月6日赛程记录表.xlsx"));
+            using var scheduleWorkbook = new XLWorkbook(Path.Combine(directory, "6月6日赛程安排表.xlsx"));
+            Assert.Equal("对阵记录表", recordWorkbook.Worksheet("对阵记录表").Name);
+            Assert.DoesNotContain(scheduleWorkbook.Worksheets, worksheet => worksheet.Name == "对阵记录表");
+            Assert.Contains("2026-06-06", scheduleWorkbook.Worksheet("赛程明细").Cell(5, 2).GetString());
+            AssertFileHeader(scorePdfPath, [0x25, 0x50, 0x44, 0x46]);
+            AssertPdfUsesTextLayer(scorePdfPath);
+            Assert.Equal(expectedScoreSheetCount, CountPdfPages(scorePdfPath));
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void TournamentProgressWorkflowExportsTeamScoreSheetInNextDayPackage()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-team-package-{Guid.NewGuid():N}");
+
+        try
+        {
+            var participants = CreateParticipants(4);
+            var result = new DrawService().Generate(
+                participants,
+                CreateSettings(
+                    groupCount: 1,
+                    mode: CompetitionMode.TeamKnockout,
+                    eventKind: EventKind.Team,
+                    knockoutGoal: KnockoutGoal.Champion));
+            var schedule = new ScheduleService().Generate(
+                result,
+                new ScheduleSettings(
+                    [
+                        new ScheduleDaySettings(new DateOnly(2026, 6, 6), new TimeOnly(14, 0), new TimeOnly(15, 0), ["A1"]),
+                        new ScheduleDaySettings(new DateOnly(2026, 6, 7), new TimeOnly(14, 0), new TimeOnly(16, 0), ["A1"])
+                    ],
+                    MatchMinutes: 30,
+                    MaxMatchesPerEntrantPerDay: 2));
+            Assert.True(schedule.IsComplete);
+            var now = DateTimeOffset.UtcNow;
+            var dayOne = schedule.Matches[0].DayLabel;
+            var state = new TournamentProgressState(
+                new TournamentProgressSnapshot(
+                    "team-package",
+                    "校长杯团体",
+                    now,
+                    now,
+                    "/tmp/校长杯团体参赛名单.xlsx",
+                    result,
+                    participants,
+                    [],
+                    schedule),
+                BuildCompletedResultsForDay(schedule, dayOne),
+                [],
+                [dayOne],
+                []);
+
+            var package = new TournamentProgressWorkflow().ExportNextDayPackage(
+                state,
+                directory,
+                includePrintablePdf: false);
+            var teamScorePath = Path.Combine(directory, "6月7日团体赛记分表.xlsx");
+
+            Assert.Contains(teamScorePath, package.OutputPaths);
+            Assert.True(File.Exists(teamScorePath));
+            using var workbook = new XLWorkbook(teamScorePath);
+            var sheet = workbook.Worksheet("团体记分表");
+            Assert.Contains("团体赛记分表", sheet.Cell(1, 1).GetString());
+            Assert.Equal("阶段", sheet.Cell(4, 1).GetString());
+            Assert.Equal("分场记录", sheet.Cell(7, 1).GetString());
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
     public void MatchRecordImportWarningListsEveryDetectedIssue()
     {
         var importResult = new MatchRecordImportResult(
@@ -2561,6 +2716,32 @@ public sealed class DrawWorkflowTests
             participants,
             [],
             schedule);
+    }
+
+    private static IReadOnlyDictionary<string, MatchRecordResult> BuildCompletedResultsForDay(
+        SchedulePlan schedule,
+        string dayLabel)
+    {
+        return schedule.Matches
+            .Where(match => match.DayLabel == dayLabel)
+            .ToDictionary(
+                match => match.MatchName,
+                match => new MatchRecordResult(
+                    match.MatchName,
+                    match.DayLabel,
+                    ScheduleMatchTextForTest(match.SideA),
+                    ScheduleMatchTextForTest(match.SideB),
+                    "15-10, 15-12",
+                    "18m"),
+                StringComparer.Ordinal);
+    }
+
+    private static string ScheduleMatchTextForTest(string side)
+    {
+        var trimmed = side.Trim();
+        return trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[^1] == ']'
+            ? trimmed[1..^1].Trim()
+            : trimmed;
     }
 
     private static IReadOnlyList<DrawParticipant> CreateParticipants(int count)

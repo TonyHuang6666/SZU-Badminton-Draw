@@ -65,6 +65,26 @@ public sealed class ScheduleExcelWriter
         workbook.SaveAs(outputPath);
     }
 
+    public void WriteDailySchedule(
+        string outputPath,
+        SchedulePlan plan,
+        string dayLabel,
+        IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null,
+        IReadOnlyCollection<string>? carryOverMatchNames = null,
+        string? tournamentId = null)
+    {
+        EnsureCompleteSchedule(plan);
+
+        var dayPlan = BuildDaySchedulePlan(plan, dayLabel);
+        using var workbook = new XLWorkbook();
+        WriteDetailSheet(workbook, dayPlan, plan, completedResults);
+        WriteGridSheet(workbook, dayPlan, plan, completedResults);
+        WriteSettingsSheet(workbook, dayPlan);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
+        workbook.SaveAs(outputPath);
+    }
+
     public void WriteMatchRecord(
         string outputPath,
         SchedulePlan plan,
@@ -91,10 +111,17 @@ public sealed class ScheduleExcelWriter
         }
     }
 
-    private static void WriteDetailSheet(XLWorkbook workbook, SchedulePlan plan)
+    private static void WriteDetailSheet(
+        XLWorkbook workbook,
+        SchedulePlan plan,
+        SchedulePlan? sourcePlan = null,
+        IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null)
     {
         var sheet = workbook.Worksheets.Add("赛程明细");
         var lastColumn = 10;
+        var scheduleByName = (sourcePlan ?? plan).Matches
+            .GroupBy(match => match.MatchName, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
 
         sheet.Range(1, 1, 1, lastColumn).Merge().Value = "比赛赛程明细表";
         sheet.Range(2, 1, 2, lastColumn).Merge().Value =
@@ -117,8 +144,12 @@ public sealed class ScheduleExcelWriter
             sheet.Cell(row, 5).Value = match.GroupName;
             sheet.Cell(row, 6).Value = match.Phase;
             sheet.Cell(row, 7).Value = match.MatchName;
-            sheet.Cell(row, 8).Value = match.SideA;
-            sheet.Cell(row, 9).Value = match.SideB;
+            sheet.Cell(row, 8).Value = completedResults is null
+                ? match.SideA
+                : ScheduleMatchText.ResolveSide(match.SideA, match, scheduleByName, completedResults);
+            sheet.Cell(row, 9).Value = completedResults is null
+                ? match.SideB
+                : ScheduleMatchText.ResolveSide(match.SideB, match, scheduleByName, completedResults);
             sheet.Cell(row, 10).Value = match.Note;
         }
 
@@ -143,10 +174,14 @@ public sealed class ScheduleExcelWriter
         sheet.SheetView.FreezeRows(4);
     }
 
-    private static void WriteGridSheet(XLWorkbook workbook, SchedulePlan plan)
+    private static void WriteGridSheet(
+        XLWorkbook workbook,
+        SchedulePlan plan,
+        SchedulePlan? sourcePlan = null,
+        IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null)
     {
         var sheet = workbook.Worksheets.Add("时间场地网格");
-        var matchByName = plan.Matches
+        var matchByName = (sourcePlan ?? plan).Matches
             .GroupBy(match => match.MatchName, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         var bodyRowHeights = new Dictionary<int, double>();
@@ -184,7 +219,7 @@ public sealed class ScheduleExcelWriter
                         .First(item => string.Equals(item.court, match.Court, StringComparison.Ordinal))
                         .index;
                     var cell = sheet.Cell(currentRow, courtIndex + 2);
-                    var cellText = BuildGridMatchText(match, matchByName);
+                    var cellText = BuildGridMatchText(match, matchByName, completedResults);
                     if (!string.IsNullOrWhiteSpace(match.Note))
                     {
                         cellText += $"\n{match.Note}";
@@ -537,47 +572,39 @@ public sealed class ScheduleExcelWriter
         return (Regex.Replace(trimmed, @"\s+", " "), isBracketedPair);
     }
 
+    private static SchedulePlan BuildDaySchedulePlan(SchedulePlan plan, string dayLabel)
+    {
+        var dayMatches = plan.Matches
+            .Where(match => match.DayLabel == dayLabel)
+            .ToList();
+        var daySettings = plan.Settings.Days
+            .Where(day => day.DayLabel == dayLabel)
+            .ToList();
+        if (daySettings.Count == 0 && dayMatches.Count > 0)
+        {
+            daySettings =
+            [
+                new ScheduleDaySettings(
+                    DateOnly.TryParse(dayLabel, out var date) ? date : DateOnly.FromDateTime(DateTime.Today),
+                    dayMatches.Min(match => match.StartTime),
+                    dayMatches.Max(match => match.EndTime),
+                    dayMatches.Select(match => match.Court).Distinct(StringComparer.Ordinal).ToList())
+            ];
+        }
+
+        return new SchedulePlan(
+            dayMatches,
+            plan.Settings with { Days = daySettings });
+    }
+
     private static string BuildGridMatchText(
         ScheduledMatch match,
-        IReadOnlyDictionary<string, ScheduledMatch> matchByName)
+        IReadOnlyDictionary<string, ScheduledMatch> matchByName,
+        IReadOnlyDictionary<string, MatchRecordResult>? completedResults = null)
     {
-        var sideA = BuildGridSideText(match.SideA, match, matchByName);
-        var sideB = BuildGridSideText(match.SideB, match, matchByName);
+        var sideA = ScheduleMatchText.ResolveSide(match.SideA, match, matchByName, completedResults);
+        var sideB = ScheduleMatchText.ResolveSide(match.SideB, match, matchByName, completedResults);
         return $"{match.MatchName}\n{sideA} vs {sideB}";
-    }
-
-    private static string BuildGridSideText(
-        string side,
-        ScheduledMatch currentMatch,
-        IReadOnlyDictionary<string, ScheduledMatch> matchByName)
-    {
-        var outcomeSuffix = side.EndsWith("胜者", StringComparison.Ordinal)
-            ? "胜者"
-            : side.EndsWith("负者", StringComparison.Ordinal)
-                ? "负者"
-                : null;
-        if (outcomeSuffix is null)
-        {
-            return side;
-        }
-
-        var sourceMatchName = side[..^outcomeSuffix.Length];
-        if (!matchByName.TryGetValue(sourceMatchName, out var sourceMatch))
-        {
-            return side;
-        }
-
-        var sourceLabel = sourceMatch.DayLabel == currentMatch.DayLabel
-            ? $"{sourceMatch.TimeRange} {sourceMatch.Court}"
-            : $"{FormatShortDayLabel(sourceMatch.DayLabel)} {sourceMatch.TimeRange} {sourceMatch.Court}";
-        return $"{sourceLabel}{(outcomeSuffix == "胜者" ? "胜" : "负")}";
-    }
-
-    private static string FormatShortDayLabel(string dayLabel)
-    {
-        return DateOnly.TryParse(dayLabel, out var date)
-            ? $"{date.Month}/{date.Day}"
-            : dayLabel;
     }
 
     private static int EstimateWrappedLineCount(string text, int estimatedCharsPerLine)

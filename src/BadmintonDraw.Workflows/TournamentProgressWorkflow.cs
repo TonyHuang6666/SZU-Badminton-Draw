@@ -6,6 +6,7 @@ namespace BadmintonDraw.Workflows;
 public sealed class TournamentProgressWorkflow
 {
     private readonly TournamentProgressStore _store = new();
+    private readonly ScheduleWorkflow _scheduleWorkflow = new();
 
     public TournamentProgressState Create(
         string filePath,
@@ -45,6 +46,189 @@ public sealed class TournamentProgressWorkflow
         bool allowCorrections = false)
     {
         return _store.Import(filePath, recordFilePaths, allowCorrections);
+    }
+
+    public TournamentProgressPackageExportResult ExportNextDayPackage(
+        TournamentProgressState state,
+        string outputDirectory,
+        bool includePrintablePdf = true,
+        DrawResultVisualOptions? visualOptions = null)
+    {
+        var nextDayLabel = GetNextMatchRecordDayLabel(state);
+        if (string.IsNullOrWhiteSpace(nextDayLabel))
+        {
+            throw new InvalidOperationException("当前赛事没有下一比赛日可导出。");
+        }
+
+        return ExportDayPackage(state, nextDayLabel, outputDirectory, includePrintablePdf, visualOptions);
+    }
+
+    public TournamentProgressPackageExportResult ExportFirstDayPackage(
+        TournamentProgressState state,
+        string outputDirectory,
+        bool includePrintablePdf = true,
+        DrawResultVisualOptions? visualOptions = null)
+    {
+        var firstDayLabel = ScheduleWorkflow.GetFirstRecordDayLabel(state.Snapshot.Schedule);
+        if (string.IsNullOrWhiteSpace(firstDayLabel))
+        {
+            throw new InvalidOperationException("当前赛程没有可导出的比赛日。");
+        }
+
+        var initialState = state with
+        {
+            Results = new Dictionary<string, MatchRecordResult>(StringComparer.Ordinal),
+            PendingMatchNames = [],
+            ProcessedDayLabels = []
+        };
+        return ExportDayPackage(initialState, firstDayLabel, outputDirectory, includePrintablePdf, visualOptions);
+    }
+
+    private TournamentProgressPackageExportResult ExportDayPackage(
+        TournamentProgressState state,
+        string dayLabel,
+        string outputDirectory,
+        bool includePrintablePdf,
+        DrawResultVisualOptions? visualOptions)
+    {
+        Directory.CreateDirectory(outputDirectory);
+
+        var outputPaths = new List<string>();
+        var schedule = state.Snapshot.Schedule;
+        var completedResults = state.Results;
+        var carryOverMatchNames = state.PendingMatchNames.ToHashSet(StringComparer.Ordinal);
+        var workflowResult = BuildDrawWorkflowResult(state);
+        var scoreSheetProjectName = BuildScoreSheetProjectName(state);
+
+        var recordPath = Path.Combine(outputDirectory, ScheduleWorkflow.BuildDefaultMatchRecordFileName(dayLabel));
+        _scheduleWorkflow.ExportMatchRecord(
+            recordPath,
+            schedule,
+            dayLabel,
+            completedResults,
+            carryOverMatchNames,
+            state.Snapshot.TournamentId);
+        outputPaths.Add(recordPath);
+
+        var dailySchedulePath = Path.Combine(outputDirectory, ScheduleWorkflow.BuildDefaultDailyScheduleFileName(dayLabel));
+        outputPaths.AddRange(_scheduleWorkflow.ExportDailyScheduleFiles(
+            dailySchedulePath,
+            WorkflowExportFormat.Excel,
+            schedule,
+            dayLabel,
+            completedResults,
+            carryOverMatchNames,
+            state.Snapshot.TournamentId));
+        if (includePrintablePdf)
+        {
+            outputPaths.AddRange(_scheduleWorkflow.ExportDailyScheduleFiles(
+                Path.ChangeExtension(dailySchedulePath, WorkflowExportHelpers.GetExtension(WorkflowExportFormat.A4Pdf)),
+                WorkflowExportFormat.A4Pdf,
+                schedule,
+                dayLabel,
+                completedResults,
+                carryOverMatchNames,
+                state.Snapshot.TournamentId));
+        }
+
+        var timedBracketPath = Path.Combine(outputDirectory, ScheduleWorkflow.BuildDefaultDailyTimedBracketFileName(dayLabel));
+        outputPaths.AddRange(_scheduleWorkflow.ExportTimedBracketFilesAtPath(
+            timedBracketPath,
+            WorkflowExportFormat.Excel,
+            workflowResult,
+            schedule,
+            visualOptions));
+        if (includePrintablePdf)
+        {
+            outputPaths.AddRange(_scheduleWorkflow.ExportTimedBracketFilesAtPath(
+                Path.ChangeExtension(timedBracketPath, WorkflowExportHelpers.GetExtension(WorkflowExportFormat.A4Pdf)),
+                WorkflowExportFormat.A4Pdf,
+                workflowResult,
+                schedule,
+                visualOptions));
+        }
+
+        var individualScorePath = Path.Combine(outputDirectory, ScheduleWorkflow.BuildDefaultIndividualScoreSheetFileName(dayLabel));
+        _scheduleWorkflow.ExportIndividualScoreSheetPdf(
+            individualScorePath,
+            schedule,
+            scoreSheetProjectName,
+            dayLabel,
+            completedResults,
+            carryOverMatchNames);
+        outputPaths.Add(individualScorePath);
+
+        if (IsTeamEvent(state))
+        {
+            var teamScorePath = Path.Combine(outputDirectory, ScheduleWorkflow.BuildDefaultTeamScoreSheetFileName(dayLabel));
+            _scheduleWorkflow.ExportTeamScoreSheets(
+                teamScorePath,
+                schedule,
+                dayLabel,
+                completedResults,
+                carryOverMatchNames);
+            outputPaths.Add(teamScorePath);
+        }
+
+        return new TournamentProgressPackageExportResult(
+            outputDirectory,
+            dayLabel,
+            outputPaths);
+    }
+
+    public TournamentProgressPackageExportResult ExportNextDayPackage(
+        string outputDirectory,
+        string? sourceInputPath,
+        DrawWorkflowResult workflowResult,
+        SchedulePlan schedule,
+        MatchRecordImportResult importResult,
+        bool includePrintablePdf = true,
+        DrawResultVisualOptions? visualOptions = null)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var state = new TournamentProgressState(
+            new TournamentProgressSnapshot(
+                "",
+                WorkflowFileNames.ExtractEventName(sourceInputPath),
+                now,
+                now,
+                sourceInputPath,
+                workflowResult.Result,
+                workflowResult.Participants,
+                workflowResult.ImportWarnings,
+                schedule),
+            importResult.Results,
+            importResult.PendingMatchNames,
+            importResult.DayLabels,
+            []);
+        return ExportNextDayPackage(state, outputDirectory, includePrintablePdf, visualOptions);
+    }
+
+    public TournamentProgressPackageExportResult ExportFirstDayPackage(
+        string outputDirectory,
+        string? sourceInputPath,
+        DrawWorkflowResult workflowResult,
+        SchedulePlan schedule,
+        bool includePrintablePdf = true,
+        DrawResultVisualOptions? visualOptions = null)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var state = new TournamentProgressState(
+            new TournamentProgressSnapshot(
+                "",
+                WorkflowFileNames.ExtractEventName(sourceInputPath),
+                now,
+                now,
+                sourceInputPath,
+                workflowResult.Result,
+                workflowResult.Participants,
+                workflowResult.ImportWarnings,
+                schedule),
+            new Dictionary<string, MatchRecordResult>(StringComparer.Ordinal),
+            [],
+            [],
+            []);
+        return ExportFirstDayPackage(state, outputDirectory, includePrintablePdf, visualOptions);
     }
 
     public static DrawWorkflowResult BuildDrawWorkflowResult(TournamentProgressState state)
@@ -149,4 +333,27 @@ public sealed class TournamentProgressWorkflow
             + $"用时 {WorkflowIssueText.ValueOrEmpty(result.Duration)}，"
             + $"比赛日 {WorkflowIssueText.ValueOrEmpty(result.DayLabel)}";
     }
+
+    private static bool IsTeamEvent(TournamentProgressState state)
+    {
+        return state.Snapshot.DrawResult.Settings.EventKind == EventKind.Team
+            || state.Snapshot.DrawResult.Settings.CompetitionMode is CompetitionMode.TeamKnockout or CompetitionMode.TeamRoundRobin;
+    }
+
+    private static string BuildScoreSheetProjectName(TournamentProgressState state)
+    {
+        var eventKind = WorkflowLabels.GetEventKindDisplay(state.Snapshot.DrawResult.Settings.EventKind);
+        var eventName = state.Snapshot.EventName?.Trim();
+        if (string.IsNullOrWhiteSpace(eventName) || eventName == "深大羽协")
+        {
+            return eventKind;
+        }
+
+        return eventName;
+    }
 }
+
+public sealed record TournamentProgressPackageExportResult(
+    string OutputDirectory,
+    string DayLabel,
+    IReadOnlyList<string> OutputPaths);

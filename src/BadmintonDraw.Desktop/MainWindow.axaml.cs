@@ -398,20 +398,7 @@ public partial class MainWindow : Window
         try
         {
             var schedulePaths = _scheduleWorkflow.ExportFiles(path, exportFormat, _latestSchedule);
-            if (ExportTimedBracketBox.IsChecked == true && _latestWorkflowResult is not null)
-            {
-                var timedBracketPaths = _scheduleWorkflow.ExportTimedBracketFiles(
-                    path,
-                    exportFormat,
-                    _latestWorkflowResult,
-                    _latestSchedule,
-                    GetDrawVisualOptions(exportFormat));
-                SetStatus($"赛程表已导出：{FormatOutputPaths(schedulePaths)}；带比赛时间和场地的对阵表已导出：{FormatOutputPaths(timedBracketPaths)}");
-            }
-            else
-            {
-                SetStatus($"赛程表已导出：{FormatOutputPaths(schedulePaths)}");
-            }
+            SetStatus($"完整赛程表已导出：{FormatOutputPaths(schedulePaths)}");
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or DrawValidationException)
         {
@@ -419,9 +406,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void ExportMatchRecord_Click(object? sender, RoutedEventArgs e)
+    private async void ExportFirstDayPackage_Click(object? sender, RoutedEventArgs e)
     {
-        if ((_latestSchedule is null && !TryGenerateSchedule()) || _latestSchedule is null)
+        if ((_latestSchedule is null && !TryGenerateSchedule())
+            || _latestSchedule is null
+            || _latestWorkflowResult is null)
         {
             return;
         }
@@ -434,31 +423,30 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dayLabel = GetSelectedMatchRecordDayLabel(_latestSchedule);
-        if (string.IsNullOrWhiteSpace(dayLabel))
-        {
-            SetStatus("当前赛程没有可导出的比赛日。", isError: true);
-            return;
-        }
-
-        var path = await PickSavePath("保存赛程记录表", ScheduleWorkflow.BuildDefaultMatchRecordFileName(dayLabel), WorkflowExportFormat.Excel);
-        if (string.IsNullOrWhiteSpace(path))
+        var outputDirectory = await PickFolderPath("选择首日材料包保存文件夹");
+        if (string.IsNullOrWhiteSpace(outputDirectory))
         {
             return;
         }
 
         try
         {
-            _scheduleWorkflow.ExportMatchRecord(
-                path,
-                _latestSchedule,
-                dayLabel,
-                _progressState?.Results,
-                _progressState?.PendingMatchNames.ToHashSet(StringComparer.Ordinal),
-                _progressState?.Snapshot.TournamentId);
-            SetStatus($"赛程记录表已导出：{path}");
+            var package = _progressState is not null
+                ? _progressWorkflow.ExportFirstDayPackage(
+                    _progressState,
+                    outputDirectory,
+                    includePrintablePdf: true,
+                    GetDrawVisualOptions(WorkflowExportFormat.A4Pdf))
+                : _progressWorkflow.ExportFirstDayPackage(
+                    outputDirectory,
+                    _loadedInputPath ?? InputPathBox.Text,
+                    _latestWorkflowResult,
+                    _latestSchedule,
+                    includePrintablePdf: true,
+                    GetDrawVisualOptions(WorkflowExportFormat.A4Pdf));
+            SetStatus($"{package.DayLabel} 首日材料包已导出：{FormatOutputPaths(package.OutputPaths)}");
         }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or DrawValidationException)
+        catch (Exception ex) when (IsHandledWorkflowException(ex))
         {
             SetStatus(ex.Message, isError: true);
         }
@@ -525,25 +513,32 @@ public partial class MainWindow : Window
                 }
             }
 
-            var exportPath = await PickSavePath(
-                "保存下一比赛日赛程记录表",
-                ScheduleWorkflow.BuildDefaultMatchRecordFileName(nextDayLabel),
-                WorkflowExportFormat.Excel);
-            if (string.IsNullOrWhiteSpace(exportPath))
+            if (_latestWorkflowResult is null)
+            {
+                SetStatus("请先生成或打开完整赛事，再导出下一比赛日材料包。", isError: true);
+                return;
+            }
+
+            var outputDirectory = await PickFolderPath("选择下一比赛日材料包保存文件夹");
+            if (string.IsNullOrWhiteSpace(outputDirectory))
             {
                 return;
             }
 
-            _scheduleWorkflow.ExportMatchRecord(
-                exportPath,
+            var package = _progressWorkflow.ExportNextDayPackage(
+                outputDirectory,
+                _loadedInputPath ?? InputPathBox.Text,
+                _latestWorkflowResult,
                 _latestSchedule,
-                nextDayLabel,
-                importResult.Results,
-                importResult.PendingMatchNames.ToHashSet(StringComparer.Ordinal));
+                importResult,
+                includePrintablePdf: true,
+                GetDrawVisualOptions(WorkflowExportFormat.A4Pdf));
             var pendingText = importResult.PendingMatchNames.Count > 0
                 ? $"，顺延 {importResult.PendingMatchNames.Count} 场未决比赛"
                 : "";
-            SetStatus($"已从 {paths.Length} 张记录表累计读取 {importResult.Results.Count} 场结果{pendingText}，并导出下一比赛日记录表：{exportPath}");
+            SetStatus(
+                $"已从 {paths.Length} 张记录表累计读取 {importResult.Results.Count} 场结果{pendingText}，"
+                + $"并导出 {package.DayLabel} 材料包：{FormatOutputPaths(package.OutputPaths)}");
         }
         catch (Exception ex) when (IsHandledWorkflowException(ex))
         {
@@ -679,30 +674,25 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var exportPath = await PickSavePath(
-                "保存下一比赛日赛程记录表",
-                ScheduleWorkflow.BuildDefaultMatchRecordFileName(nextDayLabel),
-                WorkflowExportFormat.Excel);
-            if (string.IsNullOrWhiteSpace(exportPath))
+            var outputDirectory = await PickFolderPath("选择下一比赛日材料包保存文件夹");
+            if (string.IsNullOrWhiteSpace(outputDirectory))
             {
                 SetStatus(
                     $"赛事存档已更新，累计完成 {outcome.State.Results.Count} 场，"
-                    + $"待决 {outcome.State.RemainingMatchCount} 场；已取消导出下一比赛日记录表。",
+                    + $"待决 {outcome.State.RemainingMatchCount} 场；已取消导出下一比赛日材料包。",
                     isWarning: true);
                 return;
             }
 
-            _scheduleWorkflow.ExportMatchRecord(
-                exportPath,
-                outcome.State.Snapshot.Schedule,
-                nextDayLabel,
-                outcome.State.Results,
-                outcome.State.PendingMatchNames.ToHashSet(StringComparer.Ordinal),
-                outcome.State.Snapshot.TournamentId);
+            var package = _progressWorkflow.ExportNextDayPackage(
+                outcome.State,
+                outputDirectory,
+                includePrintablePdf: true,
+                GetDrawVisualOptions(WorkflowExportFormat.A4Pdf));
             SetStatus(
                 $"赛事存档已更新：新增 {preview.NewResultCount} 场结果，"
                 + $"累计完成 {outcome.State.Results.Count} 场，待决 {outcome.State.RemainingMatchCount} 场；"
-                + $"下一比赛日记录表已导出：{exportPath}");
+                + $"{package.DayLabel} 材料包已导出：{FormatOutputPaths(package.OutputPaths)}");
         }
         catch (Exception ex) when (IsHandledWorkflowException(ex))
         {
@@ -834,6 +824,16 @@ public partial class MainWindow : Window
         return file?.TryGetLocalPath();
     }
 
+    private async System.Threading.Tasks.Task<string?> PickFolderPath(string title)
+    {
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = title,
+            AllowMultiple = false
+        });
+        return folders.FirstOrDefault()?.TryGetLocalPath();
+    }
+
     private static FilePickerFileType GetFileType(WorkflowExportFormat format)
     {
         return format switch
@@ -945,17 +945,6 @@ public partial class MainWindow : Window
         return Enumerable.Range(1, 10)
             .Select(index => $"至畅{index}")
             .ToList();
-    }
-
-    private string? GetSelectedMatchRecordDayLabel(SchedulePlan plan)
-    {
-        if (ScheduleDaysList.SelectedItem is ScheduleDayWorkflowRequest selectedDay
-            && plan.Matches.Any(match => match.DayLabel == selectedDay.DateText))
-        {
-            return selectedDay.DateText;
-        }
-
-        return ScheduleWorkflow.GetFirstRecordDayLabel(plan);
     }
 
     private void UpdateEventKindForMode()

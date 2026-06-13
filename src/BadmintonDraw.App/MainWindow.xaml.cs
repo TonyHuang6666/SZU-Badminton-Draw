@@ -186,15 +186,7 @@ public partial class MainWindow : Window
             try
             {
                 var schedulePaths = ExportScheduleFiles(dialog.FileName, exportFormat);
-                if (ExportTimedBracketBox.IsChecked == true)
-                {
-                    var timedBracketPaths = ExportTimedBracketFiles(dialog.FileName, exportFormat);
-                    SetStatus($"赛程表已导出：{FormatOutputPaths(schedulePaths)}；带比赛时间和场地的对阵表已导出：{FormatOutputPaths(timedBracketPaths)}");
-                }
-                else
-                {
-                    SetStatus($"赛程表已导出：{FormatOutputPaths(schedulePaths)}");
-                }
+                SetStatus($"完整赛程表已导出：{FormatOutputPaths(schedulePaths)}");
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or DrawValidationException)
             {
@@ -203,14 +195,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ExportMatchRecord_Click(object sender, RoutedEventArgs e)
+    private void ExportFirstDayPackage_Click(object sender, RoutedEventArgs e)
     {
         if (_latestSchedule is null && !TryGenerateSchedule())
         {
             return;
         }
 
-        if (_latestSchedule is null)
+        if (_latestSchedule is null || _latestWorkflowResult is null)
         {
             return;
         }
@@ -223,39 +215,32 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dayLabel = GetSelectedMatchRecordDayLabel(_latestSchedule);
-        if (string.IsNullOrWhiteSpace(dayLabel))
+        var outputDirectory = PickFolderPath("选择首日材料包保存文件夹");
+        if (string.IsNullOrWhiteSpace(outputDirectory))
         {
-            SetStatus("当前赛程没有可导出的比赛日。", isError: true);
             return;
         }
 
-        var dialog = new SaveFileDialog
+        try
         {
-            Filter = "Excel 文件 (*.xlsx)|*.xlsx",
-            DefaultExt = ".xlsx",
-            AddExtension = true,
-            FileName = ScheduleWorkflow.BuildDefaultMatchRecordFileName(dayLabel),
-            Title = "保存赛程记录表"
-        };
-
-        if (dialog.ShowDialog(this) == true)
-        {
-            try
-            {
-                _scheduleWorkflow.ExportMatchRecord(
-                    dialog.FileName,
+            var package = _progressState is not null
+                ? _progressWorkflow.ExportFirstDayPackage(
+                    _progressState,
+                    outputDirectory,
+                    includePrintablePdf: true,
+                    GetDrawVisualOptions(ExportFormat.A4Pdf))
+                : _progressWorkflow.ExportFirstDayPackage(
+                    outputDirectory,
+                    _loadedInputPath ?? InputPathBox.Text,
+                    _latestWorkflowResult,
                     _latestSchedule,
-                    dayLabel,
-                    _progressState?.Results,
-                    _progressState?.PendingMatchNames.ToHashSet(StringComparer.Ordinal),
-                    _progressState?.Snapshot.TournamentId);
-                SetStatus($"赛程记录表已导出：{dialog.FileName}");
-            }
-            catch (Exception ex) when (ex is IOException or InvalidOperationException or DrawValidationException)
-            {
-                SetStatus(ex.Message, isError: true);
-            }
+                    includePrintablePdf: true,
+                    GetDrawVisualOptions(ExportFormat.A4Pdf));
+            SetStatus($"{package.DayLabel} 首日材料包已导出：{FormatOutputPaths(package.OutputPaths)}");
+        }
+        catch (Exception ex) when (ex is TournamentProgressException or ExcelImportException or IOException or InvalidOperationException or DrawValidationException)
+        {
+            SetStatus(ex.Message, isError: true);
         }
     }
 
@@ -321,28 +306,32 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var exportDialog = new SaveFileDialog
+            if (_latestWorkflowResult is null)
             {
-                Filter = "Excel 文件 (*.xlsx)|*.xlsx",
-                DefaultExt = ".xlsx",
-                AddExtension = true,
-                FileName = ScheduleWorkflow.BuildDefaultMatchRecordFileName(nextDayLabel),
-                Title = "保存下一比赛日赛程记录表"
-            };
-
-            if (exportDialog.ShowDialog(this) == true)
-            {
-                _scheduleWorkflow.ExportMatchRecord(
-                    exportDialog.FileName,
-                    _latestSchedule,
-                    nextDayLabel,
-                    importResult.Results,
-                    importResult.PendingMatchNames.ToHashSet(StringComparer.Ordinal));
-                var pendingText = importResult.PendingMatchNames.Count > 0
-                    ? $"，顺延 {importResult.PendingMatchNames.Count} 场未决比赛"
-                    : "";
-                SetStatus($"已从 {importDialog.FileNames.Length} 张记录表累计读取 {importResult.Results.Count} 场结果{pendingText}，并导出下一比赛日记录表：{exportDialog.FileName}");
+                SetStatus("请先生成或打开完整赛事，再导出下一比赛日材料包。", isError: true);
+                return;
             }
+
+            var outputDirectory = PickFolderPath("选择下一比赛日材料包保存文件夹");
+            if (string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                return;
+            }
+
+            var package = _progressWorkflow.ExportNextDayPackage(
+                outputDirectory,
+                _loadedInputPath ?? InputPathBox.Text,
+                _latestWorkflowResult,
+                _latestSchedule,
+                importResult,
+                includePrintablePdf: true,
+                GetDrawVisualOptions(ExportFormat.A4Pdf));
+            var pendingText = importResult.PendingMatchNames.Count > 0
+                ? $"，顺延 {importResult.PendingMatchNames.Count} 场未决比赛"
+                : "";
+            SetStatus(
+                $"已从 {importDialog.FileNames.Length} 张记录表累计读取 {importResult.Results.Count} 场结果{pendingText}，"
+                + $"并导出 {package.DayLabel} 材料包：{FormatOutputPaths(package.OutputPaths)}");
         }
         catch (Exception ex) when (ex is ExcelImportException or IOException or InvalidOperationException or DrawValidationException)
         {
@@ -489,34 +478,25 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var exportDialog = new SaveFileDialog
-            {
-                Filter = "Excel 文件 (*.xlsx)|*.xlsx",
-                DefaultExt = ".xlsx",
-                AddExtension = true,
-                FileName = ScheduleWorkflow.BuildDefaultMatchRecordFileName(nextDayLabel),
-                Title = "保存下一比赛日赛程记录表"
-            };
-            if (exportDialog.ShowDialog(this) != true)
+            var outputDirectory = PickFolderPath("选择下一比赛日材料包保存文件夹");
+            if (string.IsNullOrWhiteSpace(outputDirectory))
             {
                 SetStatus(
                     $"赛事存档已更新，累计完成 {outcome.State.Results.Count} 场，"
-                    + $"待决 {outcome.State.RemainingMatchCount} 场；已取消导出下一比赛日记录表。",
+                    + $"待决 {outcome.State.RemainingMatchCount} 场；已取消导出下一比赛日材料包。",
                     StatusKind.Warning);
                 return;
             }
 
-            _scheduleWorkflow.ExportMatchRecord(
-                exportDialog.FileName,
-                outcome.State.Snapshot.Schedule,
-                nextDayLabel,
-                outcome.State.Results,
-                outcome.State.PendingMatchNames.ToHashSet(StringComparer.Ordinal),
-                outcome.State.Snapshot.TournamentId);
+            var package = _progressWorkflow.ExportNextDayPackage(
+                outcome.State,
+                outputDirectory,
+                includePrintablePdf: true,
+                GetDrawVisualOptions(ExportFormat.A4Pdf));
             SetStatus(
                 $"赛事存档已更新：新增 {preview.NewResultCount} 场结果，"
                 + $"累计完成 {outcome.State.Results.Count} 场，待决 {outcome.State.RemainingMatchCount} 场；"
-                + $"下一比赛日记录表已导出：{exportDialog.FileName}");
+                + $"{package.DayLabel} 材料包已导出：{FormatOutputPaths(package.OutputPaths)}");
         }
         catch (Exception ex) when (ex is TournamentProgressException or ExcelImportException or IOException or InvalidOperationException)
         {
@@ -1289,31 +1269,6 @@ public partial class MainWindow : Window
         return DrawWorkflow.GenerateSeed();
     }
 
-    private string? GetSelectedMatchRecordDayLabel(SchedulePlan plan)
-    {
-        if (ScheduleDaysGrid.SelectedItem is ScheduleDayRow selectedDay
-            && plan.Matches.Any(match => match.DayLabel == selectedDay.Date))
-        {
-            return selectedDay.Date;
-        }
-
-        return plan.Matches
-            .FirstOrDefault(HasExplicitScheduleSides)
-            ?.DayLabel
-            ?? plan.Matches.FirstOrDefault()?.DayLabel;
-    }
-
-    private static bool HasExplicitScheduleSides(ScheduledMatch match)
-    {
-        return !IsOutcomeReference(match.SideA) && !IsOutcomeReference(match.SideB);
-    }
-
-    private static bool IsOutcomeReference(string side)
-    {
-        return side.EndsWith("胜者", StringComparison.Ordinal)
-            || side.EndsWith("负者", StringComparison.Ordinal);
-    }
-
     private bool ConfirmMatchRecordWarnings(MatchRecordImportResult importResult, string nextDayLabel)
     {
         var message = ScheduleWorkflow.BuildMatchRecordImportWarning(importResult, nextDayLabel);
@@ -1421,6 +1376,17 @@ public partial class MainWindow : Window
     private static string FormatOutputPaths(IReadOnlyList<string> outputPaths)
     {
         return string.Join("；", outputPaths);
+    }
+
+    private string? PickFolderPath(string title)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = title,
+            Multiselect = false
+        };
+
+        return dialog.ShowDialog(this) == true ? dialog.FolderName : null;
     }
 
     private void UpdateExportOptionsVisibility()

@@ -668,11 +668,15 @@
                                             Background="#235494"
                                             BorderBrush="#235494"
                                             Click="GenerateSchedule_Click">生成赛程预览</Button>
-                                    <CheckBox x:Name="ExportTimedBracketBox"
-                                              Margin="0,14,0,0"
-                                              IsChecked="True"
-                                              Content="同时导出带比赛时间和场地的对阵表" />
-                                    <Label Content="导出为" Margin="0,18,0,8" />
+                                    <Button Margin="0,10,0,0"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Height="48"
+                                            Click="ExportFirstDayPackage_Click">导出首日材料包</Button>
+                                    <Button Margin="0,10,0,0"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Height="48"
+                                            Click="ImportMatchRecordAndExportNext_Click">导入记录表并导出下一日材料包</Button>
+                                    <Label Content="完整赛程表导出为" Margin="0,18,0,8" />
                                     <ComboBox x:Name="ScheduleExportFormatBox">
                                         <ComboBoxItem Content="Excel" Tag="Excel" IsSelected="True" />
                                         <ComboBoxItem Content="JPG 图片" Tag="Jpeg" />
@@ -680,18 +684,14 @@
                                         <ComboBoxItem Content="A4 PDF 打印" Tag="A4Pdf" />
                                         <ComboBoxItem Content="全部导出" Tag="All" />
                                     </ComboBox>
+                                    <TextBlock Margin="0,8,0,0"
+                                               Foreground="{StaticResource MutedBrush}"
+                                               TextWrapping="Wrap"
+                                               Text="材料包会固定包含记录表、赛程安排表、带时间场地对阵表和单场计分表 PDF（每场一页横版）；这里的格式只用于完整赛程表单文件导出。" />
                                     <Button Margin="0,14,0,0"
                                             Style="{StaticResource SecondaryButton}"
                                             Height="48"
-                                            Click="ExportSchedule_Click">选择路径并导出赛程</Button>
-                                    <Button Margin="0,10,0,0"
-                                            Style="{StaticResource SecondaryButton}"
-                                            Height="48"
-                                            Click="ExportMatchRecord_Click">单独导出当日记录表</Button>
-                                    <Button Margin="0,10,0,0"
-                                            Style="{StaticResource SecondaryButton}"
-                                            Height="48"
-                                            Click="ImportMatchRecordAndExportNext_Click">导入记录表并导出下一日</Button>
+                                            Click="ExportSchedule_Click">导出完整赛程表</Button>
                                 </StackPanel>
                             </ScrollViewer>
                         </Border>
