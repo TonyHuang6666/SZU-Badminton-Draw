@@ -2788,6 +2788,7 @@ public sealed class DrawWorkflowTests
         var text = Encoding.Latin1.GetString(File.ReadAllBytes(path));
         Assert.Contains("/Font", text);
         Assert.Contains("/ToUnicode", text);
+        Assert.DoesNotContain("/Subtype /Type3", text);
         Assert.DoesNotContain("/Subtype /Image", text);
     }
 

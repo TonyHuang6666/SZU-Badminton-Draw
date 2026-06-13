@@ -22,7 +22,7 @@ public sealed class DrawResultVisualWriter
     private const float TextWidthSafetyFactor = 0.9f;
     private const float DefaultFontSize = 10f * PointsToPixels;
     private const string DefaultFontName = "Microsoft YaHei";
-    private const string EmbeddedExportFontResourceName = "BadmintonDraw.Excel.Fonts.NotoSansCJKsc-Regular.otf";
+    private const string EmbeddedExportFontResourceName = "BadmintonDraw.Excel.Fonts.NotoSansSC-Regular.ttf";
 
     private static readonly float[] PngScaleCandidates = [4f, 3.75f, 3.5f, 3.25f, 3f, 2.75f, 2.5f, 2.25f, 2f, 1.75f, 1.5f, 1.25f, 1f];
     private static readonly string[] ChineseFontCandidates =
