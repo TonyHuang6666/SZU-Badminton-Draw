@@ -1319,12 +1319,14 @@ public sealed class DrawWorkflowTests
     [Fact]
     public void VisualWriterFallsBackToInstalledFontForChineseText()
     {
-        using var typeface = DrawResultVisualWriter.ResolveTypefaceForText(
+        var typeface = DrawResultVisualWriter.ResolveTypefaceForText(
             "Definitely Missing Font",
             isBold: false,
-            "深大羽协赛程");
+            "14:00-14:20\n深大羽协赛程安排表\nA组128进64第1场");
 
-        Assert.True(typeface.ContainsGlyphs("深大羽协赛程"));
+        Assert.True(DrawResultVisualWriter.HasEmbeddedExportTypeface);
+        Assert.Contains("Noto", typeface.FamilyName, StringComparison.OrdinalIgnoreCase);
+        Assert.True(typeface.ContainsGlyphs("深大羽协赛程安排表A组128进64第1场"));
     }
 
     [Fact]
@@ -2121,6 +2123,7 @@ public sealed class DrawWorkflowTests
 
             AssertFileHeader(pdfPath, [0x25, 0x50, 0x44, 0x46]);
             AssertPdfUsesTextLayer(pdfPath);
+            Assert.InRange(new FileInfo(pdfPath).Length, 1, 80L * 1024L * 1024L);
             Assert.Equal(schedule.DayCount, CountPdfPages(pdfPath));
         }
         finally

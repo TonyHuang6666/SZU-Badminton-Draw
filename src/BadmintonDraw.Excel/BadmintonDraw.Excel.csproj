@@ -6,7 +6,9 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Fonts/NotoSansCJKsc-Regular.otf" />
     <EmbeddedResource Include="Templates/IndividualScoreSheetTemplate.xlsx" />
+    <None Include="Fonts/NotoSansCJK-LICENSE.txt" />
     <PackageReference Include="ClosedXML" Version="0.104.2" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.24" />
     <PackageReference Include="SkiaSharp" Version="2.88.9" />

@@ -22,6 +22,7 @@ public sealed class DrawResultVisualWriter
     private const float TextWidthSafetyFactor = 0.9f;
     private const float DefaultFontSize = 10f * PointsToPixels;
     private const string DefaultFontName = "Microsoft YaHei";
+    private const string EmbeddedExportFontResourceName = "BadmintonDraw.Excel.Fonts.NotoSansCJKsc-Regular.otf";
 
     private static readonly float[] PngScaleCandidates = [4f, 3.75f, 3.5f, 3.25f, 3f, 2.75f, 2.5f, 2.25f, 2f, 1.75f, 1.5f, 1.25f, 1f];
     private static readonly string[] ChineseFontCandidates =
@@ -43,6 +44,9 @@ public sealed class DrawResultVisualWriter
     private static readonly SKColor White = SKColors.White;
     private static readonly SKColor Black = SKColors.Black;
     private static readonly SKColor DefaultBorder = SKColor.Parse("#808080");
+    private static readonly Lazy<EmbeddedTypefaceHolder?> EmbeddedExportTypeface = new(LoadEmbeddedExportTypeface);
+    private static readonly Dictionary<string, SKTypeface> FallbackTypefaceCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object FallbackTypefaceCacheLock = new();
 
     public void Write(
         string outputPath,
@@ -1000,7 +1004,7 @@ public sealed class DrawResultVisualWriter
             return;
         }
 
-        using var typeface = ResolveTypefaceForText(cell.FontName, cell.IsBold, cell.Text);
+        var typeface = ResolveTypefaceForText(cell.FontName, cell.IsBold, cell.Text);
         using var paint = new SKPaint
         {
             Color = cell.FontColor,
@@ -1061,6 +1065,12 @@ public sealed class DrawResultVisualWriter
 
     internal static SKTypeface ResolveTypefaceForText(string fontName, bool isBold, string text)
     {
+        var embeddedTypeface = EmbeddedExportTypeface.Value?.Typeface;
+        if (embeddedTypeface is not null && TypefaceSupportsText(embeddedTypeface, text))
+        {
+            return embeddedTypeface;
+        }
+
         var normalized = string.IsNullOrWhiteSpace(fontName)
             ? DefaultFontName
             : fontName.Trim();
@@ -1097,8 +1107,40 @@ public sealed class DrawResultVisualWriter
         return SKTypeface.Default;
     }
 
+    internal static bool HasEmbeddedExportTypeface => EmbeddedExportTypeface.Value is not null;
+
+    private static EmbeddedTypefaceHolder? LoadEmbeddedExportTypeface()
+    {
+        using var stream = typeof(DrawResultVisualWriter).Assembly.GetManifestResourceStream(EmbeddedExportFontResourceName);
+        if (stream is null)
+        {
+            return null;
+        }
+
+        using var memoryStream = new MemoryStream();
+        stream.CopyTo(memoryStream);
+        var data = SKData.CreateCopy(memoryStream.ToArray());
+        var typeface = SKTypeface.FromData(data);
+        if (typeface is null)
+        {
+            data.Dispose();
+            return null;
+        }
+
+        return new EmbeddedTypefaceHolder(data, typeface);
+    }
+
     private static SKTypeface? TryCreateTypeface(string fontName, SKFontStyle style, string text)
     {
+        var cacheKey = $"{fontName}|{style.Weight}|{style.Width}|{style.Slant}";
+        lock (FallbackTypefaceCacheLock)
+        {
+            if (FallbackTypefaceCache.TryGetValue(cacheKey, out var cached))
+            {
+                return TypefaceSupportsText(cached, text) ? cached : null;
+            }
+        }
+
         var typeface = SKTypeface.FromFamilyName(fontName, style);
         if (typeface is null)
         {
@@ -1107,6 +1149,11 @@ public sealed class DrawResultVisualWriter
 
         if (TypefaceSupportsText(typeface, text))
         {
+            lock (FallbackTypefaceCacheLock)
+            {
+                FallbackTypefaceCache.TryAdd(cacheKey, typeface);
+            }
+
             return typeface;
         }
 
@@ -1118,6 +1165,13 @@ public sealed class DrawResultVisualWriter
     {
         var trimmed = text.Trim();
         return trimmed.Length == 0 || typeface.ContainsGlyphs(trimmed);
+    }
+
+    private sealed class EmbeddedTypefaceHolder(SKData data, SKTypeface typeface)
+    {
+        public SKData Data { get; } = data;
+
+        public SKTypeface Typeface { get; } = typeface;
     }
 
     private static float GetFirstBaseline(
