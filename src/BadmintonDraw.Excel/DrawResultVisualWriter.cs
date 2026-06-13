@@ -26,10 +26,7 @@ public sealed class DrawResultVisualWriter
     private static readonly float[] PngScaleCandidates = [4f, 3.75f, 3.5f, 3.25f, 3f, 2.75f, 2.5f, 2.25f, 2f, 1.75f, 1.5f, 1.25f, 1f];
     private static readonly string[] ChineseFontCandidates =
     [
-        "DengXian",
-        "等线",
         "Microsoft YaHei",
-        "Microsoft YaHei UI",
         "微软雅黑",
         "PingFang SC",
         "Heiti SC",
@@ -41,23 +38,6 @@ public sealed class DrawResultVisualWriter
         "SimHei",
         "SimSun",
         "Arial Unicode MS"
-    ];
-    // Prefer Windows .ttf CJK fonts for PDF output; some viewers render TTC-backed YaHei text as tofu boxes.
-    private static readonly string[] WindowsRegularChineseFontFiles =
-    [
-        "Deng.ttf",
-        "simhei.ttf",
-        "msyh.ttc",
-        "simsun.ttc"
-    ];
-    private static readonly string[] WindowsBoldChineseFontFiles =
-    [
-        "Dengb.ttf",
-        "simhei.ttf",
-        "msyhbd.ttc",
-        "Deng.ttf",
-        "msyh.ttc",
-        "simsun.ttc"
     ];
 
     private static readonly SKColor White = SKColors.White;
@@ -1085,18 +1065,6 @@ public sealed class DrawResultVisualWriter
             ? DefaultFontName
             : fontName.Trim();
         var style = isBold ? SKFontStyle.Bold : SKFontStyle.Normal;
-        if (OperatingSystem.IsWindows() && ContainsCjkText(text))
-        {
-            foreach (var fontFile in GetWindowsChineseFontFiles(isBold))
-            {
-                var candidate = TryCreateTypefaceFromFile(fontFile, text);
-                if (candidate is not null)
-                {
-                    return candidate;
-                }
-            }
-        }
-
         var candidateNames = new[] { normalized, GetPlatformFontName(normalized) }
             .Concat(ChineseFontCandidates)
             .Distinct(StringComparer.OrdinalIgnoreCase);
@@ -1129,44 +1097,6 @@ public sealed class DrawResultVisualWriter
         return SKTypeface.Default;
     }
 
-    private static IEnumerable<string> GetWindowsChineseFontFiles(bool isBold)
-    {
-        var fontsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Fonts);
-        if (string.IsNullOrWhiteSpace(fontsDirectory))
-        {
-            fontsDirectory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.Windows),
-                "Fonts");
-        }
-
-        var fileNames = isBold
-            ? WindowsBoldChineseFontFiles
-            : WindowsRegularChineseFontFiles;
-        return fileNames.Select(fileName => Path.Combine(fontsDirectory, fileName));
-    }
-
-    private static SKTypeface? TryCreateTypefaceFromFile(string fontPath, string text)
-    {
-        if (string.IsNullOrWhiteSpace(fontPath) || !File.Exists(fontPath))
-        {
-            return null;
-        }
-
-        var typeface = SKTypeface.FromFile(fontPath);
-        if (typeface is null)
-        {
-            return null;
-        }
-
-        if (TypefaceSupportsText(typeface, text))
-        {
-            return typeface;
-        }
-
-        typeface.Dispose();
-        return null;
-    }
-
     private static SKTypeface? TryCreateTypeface(string fontName, SKFontStyle style, string text)
     {
         var typeface = SKTypeface.FromFamilyName(fontName, style);
@@ -1186,15 +1116,8 @@ public sealed class DrawResultVisualWriter
 
     private static bool TypefaceSupportsText(SKTypeface typeface, string text)
     {
-        var textToCheck = string.Concat(text.Where(character => !char.IsWhiteSpace(character) && !char.IsControl(character)));
-        return textToCheck.Length == 0 || typeface.ContainsGlyphs(textToCheck);
-    }
-
-    private static bool ContainsCjkText(string text)
-    {
-        return text.Any(character =>
-            (character >= '\u3400' && character <= '\u9FFF')
-            || (character >= '\uF900' && character <= '\uFAFF'));
+        var trimmed = text.Trim();
+        return trimmed.Length == 0 || typeface.ContainsGlyphs(trimmed);
     }
 
     private static float GetFirstBaseline(
