@@ -831,7 +831,7 @@ public sealed class CrossEventConflictWorkflow
         string sourceId,
         IReadOnlyDictionary<string, string> mergedNameByItemKey)
     {
-        if (!TryParseOutcomeReference(side, out var sourceMatchName, out var outcome))
+        if (!ScheduleMatchText.TryParseOutcomeReference(side, out var sourceMatchName, out var outcome))
         {
             return side;
         }
@@ -839,27 +839,6 @@ public sealed class CrossEventConflictWorkflow
         return mergedNameByItemKey.TryGetValue(BuildItemKey(sourceId, sourceMatchName), out var mergedMatchName)
             ? $"{mergedMatchName}{outcome}"
             : side;
-    }
-
-    private static bool TryParseOutcomeReference(string side, out string sourceMatchName, out string outcome)
-    {
-        if (side.EndsWith("胜者", StringComparison.Ordinal))
-        {
-            sourceMatchName = side[..^"胜者".Length];
-            outcome = "胜者";
-            return true;
-        }
-
-        if (side.EndsWith("负者", StringComparison.Ordinal))
-        {
-            sourceMatchName = side[..^"负者".Length];
-            outcome = "负者";
-            return true;
-        }
-
-        sourceMatchName = "";
-        outcome = "";
-        return false;
     }
 
     private static ScheduleSettings BuildScheduleSettings(

@@ -24,10 +24,16 @@
 dotnet restore
 dotnet build
 dotnet test
-dotnet run --project src/BadmintonDraw.App
+dotnet run --project src\BadmintonDraw.App\BadmintonDraw.App.csproj
 ```
 
-也可以直接用 Visual Studio 打开 `BadmintonDraw.sln`，将 `BadmintonDraw.App` 设为启动项目。
+也可以直接运行跨平台 Avalonia 版：
+
+```powershell
+dotnet run --project src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj
+```
+
+也可以直接用 Visual Studio 或 Rider 打开 `BadmintonDraw.sln`。Windows WPF 版启动项目是 `BadmintonDraw.App`；跨平台 Avalonia 版启动项目是 `BadmintonDraw.Desktop`。
 
 如果 Visual Studio 正在运行 `BadmintonDraw.App`，重新构建时可能出现 DLL 被锁定。关闭正在运行的抽签工具窗口后重新构建即可；不需要关闭整个 Visual Studio。
 
@@ -49,10 +55,21 @@ dotnet test tests\BadmintonDraw.Tests\BadmintonDraw.Tests.csproj -c Debug --no-r
 - Excel 对阵表、赛程表、图片和 PDF 导出。
 - 多比赛日赛程编排和带比赛时间/场地的对阵表。
 - 对阵记录表导入、逐条提醒、赛事存档和重复导入保护。
+- 单项目时间场地窗口拖拽调整。
+- 多项目冲突检测、兼项明细、自动调整、合并材料包导出。
+- 内置 Noto CJK 字体的中文图片/PDF 导出。
 
 ## 发布单文件程序
 
 ### Windows
+
+Avalonia Windows 版：
+
+```powershell
+dotnet publish src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
+```
+
+WPF Windows 版：
 
 ```powershell
 dotnet publish src\BadmintonDraw.App\BadmintonDraw.App.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
@@ -61,10 +78,11 @@ dotnet publish src\BadmintonDraw.App\BadmintonDraw.App.csproj -c Release -r win-
 生成文件位于：
 
 ```text
+src\BadmintonDraw.Desktop\bin\Release\net8.0\win-x64\publish
 src\BadmintonDraw.App\bin\Release\net8.0-windows\win-x64\publish
 ```
 
-把发布目录中的程序发给干事即可使用。
+把发布目录中的 `.exe` 发给干事即可使用。4.0 起 WPF 版不再要求压缩包包装；Avalonia Windows 版是首选桌面版，WPF 版保留为 Windows 备用版本。
 
 ### macOS
 
@@ -88,16 +106,18 @@ artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
 1. 先跑 `dotnet test tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj --no-restore --verbosity minimal`。
 2. 再跑 `dotnet build BadmintonDraw.sln --no-restore --verbosity minimal`。
 3. macOS 包使用 `VERSION=x.y.z bash scripts/publish-macos.sh osx-arm64` 生成，并上传 `artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg`。
-4. Windows 发布目录可压缩为类似 `SZU-Badminton-Draw_v3.3.0_win-x64_self-contained.zip` 的文件后上传。
-5. Release 说明中列出规则化抽签、赛程编排、多格式导出、赛事存档、记录表导入确认和跨平台桌面版等重要变化。
+4. Windows 版分别上传 Avalonia 单文件 `.exe` 和 WPF 单文件 `.exe`，WPF 版不用压缩包包装。
+5. Release 说明中列出规则化抽签、单项目/多项目赛程编排、多格式导出、赛事存档、记录表导入确认、合并材料包和跨平台桌面版等重要变化。
 
 GitHub CLI 示例：
 
 ```bash
-gh release create v3.3.0 \
-  artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg \
-  --title "Release 3.3.0" \
-  --notes-file /tmp/szu-badminton-release-3.3.0.md
+gh release create v4.0.0 \
+  artifacts/macos/osx-arm64/SZU-Badminton-Draw_Avalonia_macOS_osx-arm64_v4.0.0.dmg \
+  artifacts/windows/win-x64/SZU-Badminton-Draw_Avalonia_Windows_win-x64_v4.0.0.exe \
+  artifacts/windows/win-x64/SZU-Badminton-Draw_WPF_Windows_win-x64_v4.0.0.exe \
+  --title "Release 4.0.0" \
+  --notes-file /tmp/szu-badminton-release-4.0.0.md
 ```
 
 ## 示例名单

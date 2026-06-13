@@ -1450,6 +1450,48 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void CrossEventWorkflowRejectsMergedMaterialsWithSevereConflict()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-merged-conflict-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "混双.szbd");
+        var outputDirectory = Path.Combine(directory, "output");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [new DrawParticipant("张三", PrimaryName: "张三"), new DrawParticipant("李四", PrimaryName: "李四")],
+                    CreateSingleMatchSchedule("第1场", "张三", "李四", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1")));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "混双",
+                    [
+                        new DrawParticipant("[张三 郑九]", PrimaryName: "张三", PartnerName: "郑九"),
+                        new DrawParticipant("[钱十 吴一]", PrimaryName: "钱十", PartnerName: "吴一")
+                    ],
+                    CreateSingleMatchSchedule("第1场", "[张三 郑九]", "[钱十 吴一]", new TimeOnly(14, 10), new TimeOnly(14, 40), "C1")));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 20);
+            var exception = Assert.Throws<DrawValidationException>(() => workflow.ExportMergedScheduleMaterials(board, outputDirectory));
+
+            Assert.Equal(1, board.Report.SevereCount);
+            Assert.Contains("严重冲突", exception.Message, StringComparison.Ordinal);
+            Assert.False(Directory.Exists(outputDirectory));
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
     public void CrossEventMergedRecordKeepsWinnerReferenceFormulas()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-formula-{Guid.NewGuid():N}");
@@ -1506,6 +1548,71 @@ public sealed class DrawWorkflowTests
 
             Assert.Contains("$L$", sheet.Cell(finalRow, 15).FormulaA1, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("SUBSTITUTE", sheet.Cell(finalRow, 6).FormulaA1, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void CrossEventMergedSchedulePrefixesOutcomeReferencesForDuplicateMatchNames()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-duplicate-references-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "混双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var singlesSchedule = new SchedulePlan(
+                [
+                    new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1", 1, "A组", "首轮赛", "第1场", "张三", "李四"),
+                    new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 30), new TimeOnly(15, 0), "B1", 1, "A组", "决赛", "决赛1", "第1场胜者", "王五")
+                ],
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "C1"])],
+                    MatchMinutes: 30,
+                    MaxMatchesPerEntrantPerDay: 2));
+            var mixedSchedule = new SchedulePlan(
+                [
+                    new ScheduledMatch(1, "2026-06-13", new TimeOnly(15, 0), new TimeOnly(15, 30), "C1", 1, "A组", "首轮赛", "第1场", "[赵六 钱七]", "[孙八 周九]"),
+                    new ScheduledMatch(2, "2026-06-13", new TimeOnly(15, 30), new TimeOnly(16, 0), "C1", 1, "A组", "决赛", "决赛1", "第1场胜者", "[吴十 郑一]")
+                ],
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "C1"])],
+                    MatchMinutes: 30,
+                    MaxMatchesPerEntrantPerDay: 2));
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [
+                        new DrawParticipant("张三", PrimaryName: "张三"),
+                        new DrawParticipant("李四", PrimaryName: "李四"),
+                        new DrawParticipant("王五", PrimaryName: "王五")
+                    ],
+                    singlesSchedule));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "混双",
+                    [
+                        new DrawParticipant("[赵六 钱七]", PrimaryName: "赵六", PartnerName: "钱七"),
+                        new DrawParticipant("[孙八 周九]", PrimaryName: "孙八", PartnerName: "周九"),
+                        new DrawParticipant("[吴十 郑一]", PrimaryName: "吴十", PartnerName: "郑一")
+                    ],
+                    mixedSchedule));
+
+            var board = new CrossEventConflictWorkflow().LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 20);
+            var mergedSchedule = CrossEventConflictWorkflow.BuildMergedSchedulePlan(board);
+            var singlesFinal = mergedSchedule.Matches.Single(match => match.MatchName == "男单 · 决赛1");
+            var mixedFinal = mergedSchedule.Matches.Single(match => match.MatchName == "混双 · 决赛1");
+
+            Assert.Equal(0, board.Report.SevereCount);
+            Assert.Equal("男单 · 第1场胜者", singlesFinal.SideA);
+            Assert.Equal("混双 · 第1场胜者", mixedFinal.SideA);
         }
         finally
         {

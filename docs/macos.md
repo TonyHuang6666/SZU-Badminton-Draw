@@ -70,7 +70,7 @@ dotnet test tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj -c Debug
 发布一个未签名的 macOS arm64 `.app` 和 `.dmg`：
 
 ```bash
-VERSION=3.3.0 bash scripts/publish-macos.sh osx-arm64
+VERSION=4.0.0 bash scripts/publish-macos.sh osx-arm64
 ```
 
 生成文件位于：
@@ -90,12 +90,12 @@ Intel Mac 可将 runtime 改为 `osx-x64`。当前脚本生成的是未签名、
 
 1. 不改动抽签核心算法来适配 UI。
 2. 新 UI 优先调用 `BadmintonDraw.Workflows` 的共享工作流；必要时再直接使用 `BadmintonDraw.Core` 的数据类型。
-3. WPF 版继续维护，直到跨平台版覆盖完整赛程工作流。
+3. 4.0 起 Avalonia 版作为 macOS/Windows 的主力桌面版；WPF 版保留为 Windows 备用版本和短期回归对照。
 4. 每迁移一个工作流，都要补一条面向共享服务或 Excel 输出的测试，避免 Windows/macOS 两套 UI 行为漂移。
 5. macOS 版不要依赖 Windows 专属 API，例如 `System.Windows`、`Microsoft.Win32.OpenFileDialog`、WPF `MessageBox`。
 
 ## 后续优先级
 
-1. 在真实 macOS 上验收 ClosedXML 和 SkiaSharp 的中文字体、图片和 PDF 输出。
-2. 补齐跨平台版与 WPF 版之间仍有差异的细节交互，例如更精细的显示/隐藏规则。
-3. 增加 macOS Developer ID 签名、公证和 stapler 脚本。
+1. 增加 macOS Developer ID 签名、公证和 stapler 脚本。
+2. 继续用真实 macOS 与 Windows 验收 Avalonia 版中文字体、图片和 PDF 输出。
+3. 收敛 WPF 与 Avalonia 的重复 UI 逻辑，把新功能优先下沉到 `Core`、`Excel` 和 `Workflows`。

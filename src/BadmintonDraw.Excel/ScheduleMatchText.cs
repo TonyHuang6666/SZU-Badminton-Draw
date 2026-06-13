@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace BadmintonDraw.Excel;
 
-internal static class ScheduleMatchText
+public static class ScheduleMatchText
 {
     public static string ResolveSide(
         string side,
