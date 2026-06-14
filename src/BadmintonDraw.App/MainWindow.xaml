@@ -188,7 +188,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="82" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="230" />
+                        <ColumnDefinition Width="430" />
                         <ColumnDefinition Width="220" />
                     </Grid.ColumnDefinitions>
 
@@ -209,13 +209,20 @@
                                    Foreground="{StaticResource MutedBrush}" />
                     </StackPanel>
 
-                    <Button Grid.Row="0" Grid.Column="2"
-                            Width="184"
-                            Height="46"
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            Style="{StaticResource RoundedButton}"
-                            Click="CreateTemplate_Click">生成名单模板</Button>
+                    <StackPanel Grid.Row="0" Grid.Column="2"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center">
+                        <Button Width="164"
+                                Height="46"
+                                Margin="0,0,10,0"
+                                Style="{StaticResource RoundedButton}"
+                                Click="CreateTemplate_Click">生成名单模板</Button>
+                        <Button Width="236"
+                                Height="46"
+                                Style="{StaticResource RoundedButton}"
+                                Click="BrowseParticipants_Click">浏览参赛选手/队伍信息</Button>
+                    </StackPanel>
 
                     <Image Grid.Row="0" Grid.Column="3"
                            Source="/Assets/szuba-blue-yellow-logo.png"

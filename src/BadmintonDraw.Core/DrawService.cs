@@ -264,7 +264,9 @@ public sealed class DrawService
                 .Append(participant.IsSeed).Append('|')
                 .Append(participant.SeedRank?.ToString() ?? string.Empty).Append('|')
                 .Append(participant.PrimaryName ?? string.Empty).Append('|')
+                .Append(participant.PrimaryStudentId ?? string.Empty).Append('|')
                 .Append(participant.PartnerName ?? string.Empty).Append('|')
+                .Append(participant.PartnerStudentId ?? string.Empty).Append('|')
                 .Append(participant.TeamName ?? string.Empty).Append('|')
                 .Append(participant.PartnerTeamName ?? string.Empty).AppendLine();
         }

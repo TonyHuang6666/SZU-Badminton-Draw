@@ -1221,7 +1221,7 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
-    public void ScheduleConstraintAnalyzerInfersRestFromWinnerPlaceholder()
+    public void ScheduleConstraintAnalyzerGroupsWinnerPlaceholderRestByDependency()
     {
         var schedule = new SchedulePlan(
             [
@@ -1235,17 +1235,82 @@ public sealed class DrawWorkflowTests
 
         var report = new ScheduleConstraintAnalyzer().Analyze(schedule);
 
-        Assert.Contains(report.Issues, issue =>
-            issue.Type == ScheduleConstraintIssueType.ShortRest
+        var issue = Assert.Single(report.Issues, issue =>
+            issue.Type == ScheduleConstraintIssueType.DependencyOrder
             && issue.Severity == ScheduleConstraintSeverity.Warning
-            && issue.PlayerName == "张三"
-            && issue.MatchName == "A组64进32第1场"
-            && issue.Message.Contains("可能", StringComparison.Ordinal)
-            && issue.Message.Contains("胜者/负者占位", StringComparison.Ordinal));
-        Assert.Contains(report.Issues, issue =>
-            issue.Type == ScheduleConstraintIssueType.ShortRest
-            && issue.PlayerName == "李四"
             && issue.MatchName == "A组64进32第1场");
+        Assert.Equal(ScheduleConstraintIssueScope.DirectDependency, issue.Scope);
+        Assert.Null(issue.PlayerName);
+        Assert.Contains("场次接续风险", issue.Message);
+        Assert.Contains("A组128进64第1场 的胜者进入 A组64进32第1场", issue.Message);
+        Assert.Contains("张三", issue.Message);
+        Assert.Contains("李四", issue.Message);
+        Assert.Equal(1, report.DirectDependencyCount);
+    }
+
+    [Fact]
+    public void ScheduleConstraintAnalyzerFlagsDependencyOrderAsSevere()
+    {
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 20), new TimeOnly(14, 40), "B1", 1, "A组", "16进8", "A组16进8第1场", "张三", "李四"),
+                new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 20), new TimeOnly(14, 50), "B2", 1, "A组", "8进4", "A组8进4第1场", "A组16进8第1场胜者", "王五")
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2"])],
+                MatchMinutes: 20,
+                MaxMatchesPerEntrantPerDay: 3));
+
+        var report = new ScheduleConstraintAnalyzer().Analyze(schedule);
+
+        var issue = Assert.Single(report.Issues, issue =>
+            issue.Type == ScheduleConstraintIssueType.DependencyOrder
+            && issue.Severity == ScheduleConstraintSeverity.Severe
+            && issue.MatchName == "A组8进4第1场");
+        Assert.Equal(ScheduleConstraintIssueScope.DirectDependency, issue.Scope);
+        Assert.Contains("赛程顺序错误", issue.Message);
+        Assert.Contains("前序场次结束前开始", issue.Message);
+        Assert.Equal(1, report.SevereCount);
+    }
+
+    [Fact]
+    public void ScheduleConstraintAnalyzerUsesProfileProjectionDepth()
+    {
+        static SchedulePlan CreateSchedule(ScheduleConstraintProfile profile)
+        {
+            return new SchedulePlan(
+                [
+                    new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 20), "B1", 1, "A组", "128进64", "A组128进64第1场", "张三", "李四"),
+                    new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 40), new TimeOnly(15, 0), "B1", 1, "A组", "64进32", "A组64进32第1场", "A组128进64第1场胜者", "王五"),
+                    new ScheduledMatch(3, "2026-06-13", new TimeOnly(15, 0), new TimeOnly(15, 20), "B2", 1, "A组", "32进16", "A组32进16第1场", "A组64进32第1场胜者", "赵六"),
+                    new ScheduledMatch(4, "2026-06-13", new TimeOnly(15, 20), new TimeOnly(15, 40), "B3", 1, "A组", "16进8", "A组16进8第1场", "A组32进16第1场胜者", "孙七")
+                ],
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2"])],
+                    MatchMinutes: 20,
+                    MaxMatchesPerEntrantPerDay: 4)
+                {
+                    ConstraintProfile = profile
+                });
+        }
+
+        var campusReport = new ScheduleConstraintAnalyzer().Analyze(CreateSchedule(ScheduleConstraintProfile.Campus));
+        var campusNextRoundIssue = Assert.Single(campusReport.Issues, issue =>
+            issue.Type == ScheduleConstraintIssueType.DependencyOrder
+            && issue.MatchName == "A组16进8第1场");
+        Assert.Contains("王五", campusNextRoundIssue.Message);
+        Assert.Contains("赵六", campusNextRoundIssue.Message);
+        Assert.DoesNotContain("张三", campusNextRoundIssue.Message);
+        Assert.DoesNotContain("李四", campusNextRoundIssue.Message);
+
+        var auditReport = new ScheduleConstraintAnalyzer().Analyze(CreateSchedule(ScheduleConstraintProfile.Audit));
+        var auditNextRoundIssue = Assert.Single(auditReport.Issues, issue =>
+            issue.Type == ScheduleConstraintIssueType.DependencyOrder
+            && issue.MatchName == "A组16进8第1场");
+        Assert.Contains("张三", auditNextRoundIssue.Message);
+        Assert.Contains("李四", auditNextRoundIssue.Message);
+        Assert.Contains("王五", auditNextRoundIssue.Message);
+        Assert.Contains("赵六", auditNextRoundIssue.Message);
     }
 
     [Fact]
@@ -2743,17 +2808,17 @@ public sealed class DrawWorkflowTests
 
             using var workbook = new XLWorkbook(outputPath);
             var sheet = workbook.Worksheet("参赛名单");
-            var headers = sheet.Range("A1:G1").Cells().Select(cell => cell.GetString()).ToArray();
-            Assert.Equal(["姓名", "学院/学部", "搭档姓名", "搭档学院/学部", "是否种子", "种子序号", "备注"], headers);
+            var headers = sheet.Range("A1:I1").Cells().Select(cell => cell.GetString()).ToArray();
+            Assert.Equal(["姓名", "学号", "学院/学部", "搭档姓名", "搭档学号", "搭档学院/学部", "是否种子", "种子序号", "备注"], headers);
             Assert.True(sheet.Row(1).Height >= 24);
             Assert.True(sheet.Row(2).Height >= 40);
             Assert.True(sheet.Column(2).Width >= 12);
-            Assert.True(sheet.Column(4).Width >= 12);
-            Assert.True(sheet.Column(5).Width >= 12);
-            Assert.True(sheet.Column(7).Width >= 30);
-            Assert.Contains("如为团体赛则仅填写B列学院/学部", sheet.Cell(4, 7).GetString());
+            Assert.True(sheet.Column(3).Width >= 12);
+            Assert.True(sheet.Column(6).Width >= 12);
+            Assert.True(sheet.Column(9).Width >= 30);
+            Assert.Contains("如为团体赛则仅填写C列学院/学部", sheet.Cell(4, 9).GetString());
 
-            foreach (var cell in sheet.Range("A1:G4").Cells())
+            foreach (var cell in sheet.Range("A1:I4").Cells())
             {
                 Assert.True(cell.Style.Alignment.WrapText);
                 Assert.Equal(XLAlignmentVerticalValues.Center, cell.Style.Alignment.Vertical);
@@ -2777,8 +2842,10 @@ public sealed class DrawWorkflowTests
                 doublesPath,
                 new ParticipantWorkbookRow(
                     "张三",
+                    PrimaryStudentId: "20260001",
                     TeamName: "计算机与软件学院",
                     PartnerName: "李四",
+                    PartnerStudentId: "20260002",
                     PartnerTeamName: "管理学院"));
             WriteParticipantRowsWorkbook(
                 teamPath,
@@ -2789,6 +2856,8 @@ public sealed class DrawWorkflowTests
             var doubles = reader.ReadParticipantsWithWarnings(doublesPath, EventKind.Doubles).Participants;
             Assert.Single(doubles);
             Assert.Equal("[张三 李四]", doubles[0].DisplayName);
+            Assert.Equal("20260001", doubles[0].PrimaryStudentId);
+            Assert.Equal("20260002", doubles[0].PartnerStudentId);
             Assert.Equal("计算机与软件学院", doubles[0].TeamName);
             Assert.Equal("管理学院", doubles[0].PartnerTeamName);
 
@@ -2958,8 +3027,8 @@ public sealed class DrawWorkflowTests
         {
             WriteParticipantRowsWorkbook(
                 invalidPath,
-                new ParticipantWorkbookRow("张三"),
-                new ParticipantWorkbookRow("张三"));
+                new ParticipantWorkbookRow("张三", PrimaryStudentId: "20260001"),
+                new ParticipantWorkbookRow("张三", PrimaryStudentId: "20260002"));
 
             var result = new ParticipantExcelReader().ReadParticipantsWithWarnings(invalidPath, EventKind.Singles);
             var warning = Assert.Single(
@@ -2970,6 +3039,8 @@ public sealed class DrawWorkflowTests
             Assert.Contains("同名选手：张三", warning.Summary);
             Assert.Contains("第 2 行", warning.Detail);
             Assert.Contains("第 3 行", warning.Detail);
+            Assert.Contains("学号 20260001", warning.Detail);
+            Assert.Contains("学号 20260002", warning.Detail);
         }
         finally
         {
@@ -3188,24 +3259,28 @@ public sealed class DrawWorkflowTests
         using var workbook = new XLWorkbook();
         var sheet = workbook.AddWorksheet("参赛名单");
         sheet.Cell(1, 1).Value = "姓名";
-        sheet.Cell(1, 2).Value = "学院/学部";
-        sheet.Cell(1, 3).Value = "搭档姓名";
-        sheet.Cell(1, 4).Value = "搭档学院/学部";
-        sheet.Cell(1, 5).Value = "是否种子";
-        sheet.Cell(1, 6).Value = "种子序号";
-        sheet.Cell(1, 7).Value = "备注";
+        sheet.Cell(1, 2).Value = "学号";
+        sheet.Cell(1, 3).Value = "学院/学部";
+        sheet.Cell(1, 4).Value = "搭档姓名";
+        sheet.Cell(1, 5).Value = "搭档学号";
+        sheet.Cell(1, 6).Value = "搭档学院/学部";
+        sheet.Cell(1, 7).Value = "是否种子";
+        sheet.Cell(1, 8).Value = "种子序号";
+        sheet.Cell(1, 9).Value = "备注";
 
         for (var i = 0; i < rows.Length; i++)
         {
             var row = rows[i];
             var rowNumber = i + 2;
             sheet.Cell(rowNumber, 1).Value = row.PrimaryName;
-            sheet.Cell(rowNumber, 2).Value = row.TeamName;
-            sheet.Cell(rowNumber, 3).Value = row.PartnerName;
-            sheet.Cell(rowNumber, 4).Value = row.PartnerTeamName;
-            sheet.Cell(rowNumber, 5).Value = row.SeedFlag;
-            sheet.Cell(rowNumber, 6).Value = row.SeedRank;
-            sheet.Cell(rowNumber, 7).Value = row.Note;
+            sheet.Cell(rowNumber, 2).Value = row.PrimaryStudentId;
+            sheet.Cell(rowNumber, 3).Value = row.TeamName;
+            sheet.Cell(rowNumber, 4).Value = row.PartnerName;
+            sheet.Cell(rowNumber, 5).Value = row.PartnerStudentId;
+            sheet.Cell(rowNumber, 6).Value = row.PartnerTeamName;
+            sheet.Cell(rowNumber, 7).Value = row.SeedFlag;
+            sheet.Cell(rowNumber, 8).Value = row.SeedRank;
+            sheet.Cell(rowNumber, 9).Value = row.Note;
         }
 
         workbook.SaveAs(outputPath);
@@ -3501,7 +3576,9 @@ public sealed class DrawWorkflowTests
 
     private sealed record ParticipantWorkbookRow(
         string PrimaryName,
+        string PrimaryStudentId = "",
         string PartnerName = "",
+        string PartnerStudentId = "",
         string PartnerTeamName = "",
         string TeamName = "",
         string SeedFlag = "",

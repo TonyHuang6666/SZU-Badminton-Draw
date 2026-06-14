@@ -4,7 +4,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -177,6 +179,17 @@ public partial class MainWindow : Window
         }
     }
 
+    private void BrowseParticipants_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_participants.Count == 0)
+        {
+            SetStatus("请先选择并导入参赛名单。", isWarning: true);
+            return;
+        }
+
+        ShowParticipantRosterWindow();
+    }
+
     private void GenerateSeed_Click(object? sender, RoutedEventArgs e)
     {
         SeedBox.Text = DrawWorkflow.GenerateSeed();
@@ -243,6 +256,7 @@ public partial class MainWindow : Window
             PreviewStateText.Text = "待预览";
             SummaryText.Text = $"已导入 {_participants.Count} 个参赛单位";
             SetWarnings(_importWarnings);
+            _ = ShowImportWarningsIfNeededAsync(importResult.ImportWarnings);
             ClearSchedulePreview();
             UpdateDrawPdfOptionsVisibility();
             SetStatus(_importWarnings.Count > 0
@@ -1153,7 +1167,7 @@ public partial class MainWindow : Window
         });
         headerStack.Children.Add(new TextBlock
         {
-            Text = $"严重 {report.SevereCount}，警告 {report.WarningCount}，提醒 {report.NoticeCount}。这些提醒不会自动改变赛程；点击卡片可定位到赛程安排窗口。",
+            Text = $"已确定风险 {report.ConfirmedCount}，下一轮接续 {report.DirectDependencyCount}，推演风险 {report.SpeculativeCount}。严重/警告/提醒只作为卡片颜色和排序依据；点击卡片可定位到赛程安排窗口。",
             Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
             TextWrapping = TextWrapping.Wrap
         });
@@ -1177,24 +1191,46 @@ public partial class MainWindow : Window
         root.Children.Add(issueScroll);
 
         var filterButtons = new List<Button>();
-        void RenderIssues(ScheduleConstraintSeverity? severity)
+        var selectedScope = report.ConfirmedCount > 0
+            ? ScheduleConstraintIssueScope.Confirmed
+            : report.DirectDependencyCount > 0
+                ? ScheduleConstraintIssueScope.DirectDependency
+                : ScheduleConstraintIssueScope.Speculative;
+
+        static int CountIssuesByScope(ScheduleConstraintReport report, ScheduleConstraintIssueScope scope)
         {
+            return scope switch
+            {
+                ScheduleConstraintIssueScope.Confirmed => report.ConfirmedCount,
+                ScheduleConstraintIssueScope.DirectDependency => report.DirectDependencyCount,
+                _ => report.SpeculativeCount
+            };
+        }
+
+        void RenderIssues(ScheduleConstraintIssueScope scope)
+        {
+            selectedScope = scope;
             foreach (var button in filterButtons)
             {
-                var isSelected = Equals(button.Tag, severity);
+                var isSelected = Equals(button.Tag, selectedScope);
+                var count = CountIssuesByScope(report, (ScheduleConstraintIssueScope)button.Tag!);
+                button.IsEnabled = count > 0;
+                button.Opacity = count > 0 || isSelected ? 1 : 0.48;
                 button.Background = new SolidColorBrush(isSelected ? Color.FromRgb(239, 246, 255) : Color.FromRgb(255, 255, 255));
                 button.BorderBrush = new SolidColorBrush(isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(203, 213, 225));
-                button.Foreground = new SolidColorBrush(isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(43, 20, 95));
+                button.Foreground = new SolidColorBrush(count > 0 || isSelected
+                    ? isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(43, 20, 95)
+                    : Color.FromRgb(148, 163, 184));
             }
 
             issueStack.Children.Clear();
-            var issues = severity.HasValue
-                ? report.Issues.Where(issue => issue.Severity == severity.Value).ToList()
-                : report.Issues.ToList();
+            var issues = report.Issues
+                .Where(issue => issue.Scope == selectedScope)
+                .ToList();
             if (issues.Count == 0)
             {
-                issueStack.Children.Add(CreateScheduleConstraintEmptyCard(severity.HasValue
-                    ? $"当前没有{FormatScheduleConstraintSeverity(severity.Value)}级别的提醒。"
+                issueStack.Children.Add(CreateScheduleConstraintEmptyCard(report.HasIssues
+                    ? $"当前没有{FormatScheduleConstraintScope(selectedScope)}。"
                     : "当前赛程暂无高级约束提醒。"));
                 return;
             }
@@ -1205,26 +1241,25 @@ public partial class MainWindow : Window
             }
         }
 
-        Button AddFilterButton(string text, ScheduleConstraintSeverity? severity)
+        Button AddFilterButton(string text, ScheduleConstraintIssueScope scope)
         {
             var button = new Button
             {
                 Content = text,
-                Tag = severity,
+                Tag = scope,
                 Padding = new Avalonia.Thickness(12, 6),
                 HorizontalContentAlignment = HorizontalAlignment.Center
             };
-            button.Click += (_, _) => RenderIssues(severity);
+            button.Click += (_, _) => RenderIssues(scope);
             filterButtons.Add(button);
             filterStack.Children.Add(button);
             return button;
         }
 
-        AddFilterButton($"全部 {report.Issues.Count}", null);
-        AddFilterButton($"严重 {report.SevereCount}", ScheduleConstraintSeverity.Severe);
-        AddFilterButton($"警告 {report.WarningCount}", ScheduleConstraintSeverity.Warning);
-        AddFilterButton($"提醒 {report.NoticeCount}", ScheduleConstraintSeverity.Notice);
-        RenderIssues(null);
+        AddFilterButton($"已确定风险 {report.ConfirmedCount}", ScheduleConstraintIssueScope.Confirmed);
+        AddFilterButton($"下一轮接续 {report.DirectDependencyCount}", ScheduleConstraintIssueScope.DirectDependency);
+        AddFilterButton($"推演风险 {report.SpeculativeCount}", ScheduleConstraintIssueScope.Speculative);
+        RenderIssues(selectedScope);
         return root;
     }
 
@@ -1259,7 +1294,7 @@ public partial class MainWindow : Window
         var stack = new StackPanel { Spacing = 4 };
         stack.Children.Add(new TextBlock
         {
-            Text = $"{FormatScheduleConstraintSeverity(issue.Severity)} · {issue.DayLabel} {FormatOptionalTime(issue.StartTime)} · {issue.Court ?? "-"} · {issue.Phase} {issue.MatchName}",
+            Text = $"{FormatScheduleConstraintSeverity(issue.Severity)} · {FormatScheduleConstraintScope(issue.Scope)} · {issue.DayLabel} {FormatOptionalTime(issue.StartTime)} · {issue.Court ?? "-"} · {issue.Phase} {issue.MatchName}",
             FontWeight = FontWeight.Bold,
             Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
             TextWrapping = TextWrapping.Wrap
@@ -1293,6 +1328,16 @@ public partial class MainWindow : Window
     private static string FormatOptionalTime(TimeOnly? time)
     {
         return time.HasValue ? time.Value.ToString("HH:mm") : "--:--";
+    }
+
+    private static string FormatScheduleConstraintScope(ScheduleConstraintIssueScope scope)
+    {
+        return scope switch
+        {
+            ScheduleConstraintIssueScope.Confirmed => "已确定风险",
+            ScheduleConstraintIssueScope.DirectDependency => "下一轮接续",
+            _ => "推演风险"
+        };
     }
 
     private async Task FocusScheduleConstraintIssueAsync(ScheduleConstraintIssue issue)
@@ -2474,6 +2519,262 @@ public partial class MainWindow : Window
         return await dialog.ShowDialog<bool>(this);
     }
 
+    private async Task ShowInfoAsync(string title, string message)
+    {
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 620,
+            Height = 360,
+            MinWidth = 520,
+            MinHeight = 260,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = true
+        };
+
+        var okButton = new Button
+        {
+            Content = "知道了",
+            MinWidth = 100,
+            Background = new SolidColorBrush(Color.FromRgb(15, 95, 159)),
+            Foreground = Brushes.White,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(15, 95, 159))
+        };
+        okButton.Click += (_, _) => dialog.Close();
+
+        dialog.Content = new Grid
+        {
+            RowDefinitions =
+            {
+                new RowDefinition(GridLength.Star),
+                new RowDefinition(GridLength.Auto)
+            },
+            Margin = new Avalonia.Thickness(22),
+            Children =
+            {
+                new ScrollViewer
+                {
+                    Content = new TextBlock
+                    {
+                        Text = message,
+                        TextWrapping = TextWrapping.Wrap,
+                        Foreground = new SolidColorBrush(Color.FromRgb(31, 41, 55)),
+                        LineHeight = 22
+                    }
+                },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Margin = new Avalonia.Thickness(0, 18, 0, 0),
+                    Children = { okButton },
+                    [Grid.RowProperty] = 1
+                }
+            }
+        };
+
+        await dialog.ShowDialog(this);
+    }
+
+    private Task ShowImportWarningsIfNeededAsync(IReadOnlyList<ParticipantImportWarning> warnings)
+    {
+        var duplicateWarnings = warnings
+            .Where(warning => warning.Kind == ParticipantImportWarningKind.DuplicatePlayerName)
+            .ToList();
+        if (duplicateWarnings.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        var message = "导入名单时发现同名选手，请优先通过“学号”或“搭档学号”确认是否为不同的人："
+            + Environment.NewLine
+            + Environment.NewLine
+            + FormatImportWarningList(duplicateWarnings)
+            + Environment.NewLine
+            + Environment.NewLine
+            + "这些提醒不会阻止预览抽签，但建议在抽签前完成身份核对。";
+        return ShowInfoAsync("名单提醒", message);
+    }
+
+    private static string FormatImportWarningList(IReadOnlyList<ParticipantImportWarning> warnings)
+    {
+        return string.Join(Environment.NewLine, warnings.Select((warning, index) => $"{index + 1}. {warning.Detail}"));
+    }
+
+    private void ShowParticipantRosterWindow()
+    {
+        var window = new Window
+        {
+            Title = "参赛选手/队伍信息",
+            Width = 1120,
+            Height = 640,
+            MinWidth = 760,
+            MinHeight = 420,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = true
+        };
+
+        var title = new TextBlock
+        {
+            Text = $"参赛选手/队伍信息 · {_participants.Count} 个参赛单位",
+            FontSize = 22,
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(47, 22, 93)),
+            Margin = new Avalonia.Thickness(0, 0, 0, 14)
+        };
+
+        window.Content = new Grid
+        {
+            RowDefinitions =
+            {
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Star)
+            },
+            Margin = new Avalonia.Thickness(20),
+            Children =
+            {
+                title,
+                new Border
+                {
+                    BorderBrush = new SolidColorBrush(Color.FromRgb(210, 224, 240)),
+                    BorderThickness = new Avalonia.Thickness(1),
+                    CornerRadius = new CornerRadius(10),
+                    ClipToBounds = true,
+                    Child = new ScrollViewer
+                    {
+                        HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                        Content = BuildParticipantRosterGrid(_participants)
+                    },
+                    [Grid.RowProperty] = 1
+                }
+            }
+        };
+
+        window.Show(this);
+    }
+
+    private static Grid BuildParticipantRosterGrid(IReadOnlyList<DrawParticipant> participants)
+    {
+        var headers = new[]
+        {
+            "序号",
+            "姓名",
+            "学号",
+            "学院/学部",
+            "搭档姓名",
+            "搭档学号",
+            "搭档学院/学部",
+            "是否种子",
+            "种子序号",
+            "备注"
+        };
+        var rows = BuildParticipantRosterRows(participants);
+        var table = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(new GridLength(70)),
+                new ColumnDefinition(new GridLength(130)),
+                new ColumnDefinition(new GridLength(130)),
+                new ColumnDefinition(new GridLength(180)),
+                new ColumnDefinition(new GridLength(130)),
+                new ColumnDefinition(new GridLength(130)),
+                new ColumnDefinition(new GridLength(180)),
+                new ColumnDefinition(new GridLength(100)),
+                new ColumnDefinition(new GridLength(100)),
+                new ColumnDefinition(new GridLength(280))
+            }
+        };
+
+        table.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+        for (var column = 0; column < headers.Length; column++)
+        {
+            AddRosterCell(table, 0, column, headers[column], isHeader: true);
+        }
+
+        for (var rowIndex = 0; rowIndex < rows.Count; rowIndex++)
+        {
+            var row = rows[rowIndex];
+            var gridRow = rowIndex + 1;
+            table.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            var values = new[]
+            {
+                row.Order,
+                row.PrimaryName,
+                row.PrimaryStudentId,
+                row.TeamName,
+                row.PartnerName,
+                row.PartnerStudentId,
+                row.PartnerTeamName,
+                row.SeedFlag,
+                row.SeedRank,
+                row.Note
+            };
+
+            for (var column = 0; column < values.Length; column++)
+            {
+                AddRosterCell(table, gridRow, column, values[column], isHeader: false);
+            }
+        }
+
+        return table;
+    }
+
+    private static void AddRosterCell(Grid table, int row, int column, string text, bool isHeader)
+    {
+        var border = new Border
+        {
+            Background = isHeader
+                ? new SolidColorBrush(Color.FromRgb(226, 214, 248))
+                : new SolidColorBrush(row % 2 == 0 ? Color.FromRgb(255, 255, 255) : Color.FromRgb(248, 250, 252)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(210, 224, 240)),
+            BorderThickness = new Avalonia.Thickness(0, 0, 1, 1),
+            Padding = new Avalonia.Thickness(10, 8),
+            Child = new TextBlock
+            {
+                Text = text,
+                TextWrapping = TextWrapping.Wrap,
+                FontWeight = isHeader ? FontWeight.Bold : FontWeight.Normal,
+                Foreground = new SolidColorBrush(isHeader
+                    ? Color.FromRgb(47, 22, 93)
+                    : Color.FromRgb(17, 24, 39))
+            }
+        };
+        Grid.SetRow(border, row);
+        Grid.SetColumn(border, column);
+        table.Children.Add(border);
+    }
+
+    private static IReadOnlyList<ParticipantRosterRow> BuildParticipantRosterRows(IReadOnlyList<DrawParticipant> participants)
+    {
+        return participants
+            .Select((participant, index) => new ParticipantRosterRow(
+                (index + 1).ToString(),
+                GetPrimaryRosterName(participant),
+                participant.PrimaryStudentId ?? "",
+                participant.TeamName ?? "",
+                participant.PartnerName ?? "",
+                participant.PartnerStudentId ?? "",
+                participant.PartnerTeamName ?? "",
+                participant.IsSeed ? "是" : "",
+                participant.SeedRank?.ToString() ?? "",
+                participant.Note ?? ""))
+            .ToList();
+    }
+
+    private static string GetPrimaryRosterName(DrawParticipant participant)
+    {
+        if (!string.IsNullOrWhiteSpace(participant.PrimaryName))
+        {
+            return participant.PrimaryName;
+        }
+
+        return string.IsNullOrWhiteSpace(participant.TeamName)
+            ? participant.DisplayName
+            : "";
+    }
+
     private void ResetPreview()
     {
         _participants = [];
@@ -3242,6 +3543,18 @@ public partial class MainWindow : Window
         IBrush BorderBrush,
         IBrush BadgeBrush,
         IBrush BadgeForeground);
+
+    private sealed record ParticipantRosterRow(
+        string Order,
+        string PrimaryName,
+        string PrimaryStudentId,
+        string TeamName,
+        string PartnerName,
+        string PartnerStudentId,
+        string PartnerTeamName,
+        string SeedFlag,
+        string SeedRank,
+        string Note);
 
     private sealed record CrossEventPlayerSummaryRow(
         CrossEventPlayerMultiEntry Entry,

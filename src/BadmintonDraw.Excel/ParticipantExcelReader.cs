@@ -6,7 +6,9 @@ namespace BadmintonDraw.Excel;
 public sealed class ParticipantExcelReader
 {
     private static readonly string[] PrimaryNameHeaders = ["姓名"];
+    private static readonly string[] PrimaryStudentIdHeaders = ["学号", "学生证号", "校园卡号"];
     private static readonly string[] PartnerNameHeaders = ["搭档姓名", "搭档"];
+    private static readonly string[] PartnerStudentIdHeaders = ["搭档学号", "搭档学生证号", "搭档校园卡号"];
     private static readonly string[] TeamNameHeaders = ["学院/学部", "队伍", "学院", "学部"];
     private static readonly string[] PartnerTeamNameHeaders = ["搭档学院/学部", "搭档学院", "搭档学部"];
     private static readonly string[] SeedFlagHeaders = ["是否种子"];
@@ -93,7 +95,9 @@ public sealed class ParticipantExcelReader
             }
 
             var primaryName = GetCell(row, headerMap, PrimaryNameHeaders);
+            var primaryStudentId = GetCell(row, headerMap, PrimaryStudentIdHeaders);
             var partnerName = GetCell(row, headerMap, PartnerNameHeaders);
+            var partnerStudentId = GetCell(row, headerMap, PartnerStudentIdHeaders);
             var teamName = GetCell(row, headerMap, TeamNameHeaders);
             var partnerTeamName = GetCell(row, headerMap, PartnerTeamNameHeaders);
             var note = GetCell(row, headerMap, NoteHeaders);
@@ -116,7 +120,9 @@ public sealed class ParticipantExcelReader
                     partnerName,
                     teamName,
                     note,
-                    partnerTeamName),
+                    partnerTeamName,
+                    primaryStudentId,
+                    partnerStudentId),
                 rowNumber));
         }
 
@@ -195,7 +201,12 @@ public sealed class ParticipantExcelReader
 
     private sealed record ParticipantRow(DrawParticipant Participant, int RowNumber);
 
-    private sealed record PlayerNameEntry(string DisplayName, string NormalizedName, int RowNumber, string ColumnName);
+    private sealed record PlayerNameEntry(
+        string DisplayName,
+        string NormalizedName,
+        string StudentId,
+        int RowNumber,
+        string ColumnName);
 
     private static void ValidateImportedParticipantErrors(IReadOnlyList<ParticipantRow> participantRows)
     {
@@ -253,10 +264,20 @@ public sealed class ParticipantExcelReader
         var playerNames = new List<PlayerNameEntry>();
         foreach (var row in participantRows)
         {
-            AddPlayerName(playerNames, row.Participant.PrimaryName, row.RowNumber, "姓名");
+            AddPlayerName(
+                playerNames,
+                row.Participant.PrimaryName,
+                row.Participant.PrimaryStudentId,
+                row.RowNumber,
+                "姓名");
             if (eventKind == EventKind.Doubles)
             {
-                AddPlayerName(playerNames, row.Participant.PartnerName, row.RowNumber, "搭档");
+                AddPlayerName(
+                    playerNames,
+                    row.Participant.PartnerName,
+                    row.Participant.PartnerStudentId,
+                    row.RowNumber,
+                    "搭档姓名");
             }
         }
 
@@ -266,7 +287,7 @@ public sealed class ParticipantExcelReader
             .Select(group =>
             {
                 var first = group.First();
-                var positions = string.Join("、", group.Select(entry => $"第 {entry.RowNumber} 行“{entry.ColumnName}”"));
+                var positions = string.Join("、", group.Select(FormatPlayerNameEntry));
                 return new ParticipantImportWarning(
                     ParticipantImportWarningKind.DuplicatePlayerName,
                     $"同名选手：{first.DisplayName}",
@@ -287,7 +308,12 @@ public sealed class ParticipantExcelReader
             .ToList();
     }
 
-    private static void AddPlayerName(ICollection<PlayerNameEntry> playerNames, string? name, int rowNumber, string columnName)
+    private static void AddPlayerName(
+        ICollection<PlayerNameEntry> playerNames,
+        string? name,
+        string? studentId,
+        int rowNumber,
+        string columnName)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -300,7 +326,20 @@ public sealed class ParticipantExcelReader
             return;
         }
 
-        playerNames.Add(new PlayerNameEntry(name.Trim(), normalizedName, rowNumber, columnName));
+        playerNames.Add(new PlayerNameEntry(
+            name.Trim(),
+            normalizedName,
+            studentId?.Trim() ?? string.Empty,
+            rowNumber,
+            columnName));
+    }
+
+    private static string FormatPlayerNameEntry(PlayerNameEntry entry)
+    {
+        var studentIdPart = string.IsNullOrWhiteSpace(entry.StudentId)
+            ? "未填学号"
+            : $"学号 {entry.StudentId}";
+        return $"第 {entry.RowNumber} 行“{entry.ColumnName}”（{studentIdPart}）";
     }
 
     private static Dictionary<string, int> BuildHeaderMap(IXLRow headerRow)

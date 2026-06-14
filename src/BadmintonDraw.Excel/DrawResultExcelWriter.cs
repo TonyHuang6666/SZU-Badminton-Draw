@@ -2107,7 +2107,18 @@ public sealed class DrawResultExcelWriter
     private static void WriteRosterSheet(XLWorkbook workbook, string sheetName, IReadOnlyList<DrawParticipant> participants)
     {
         var sheet = workbook.Worksheets.Add(sheetName);
-        var headers = new[] { "姓名", "学院/学部", "搭档姓名", "搭档学院/学部", "是否种子", "种子序号", "备注" };
+        var headers = new[]
+        {
+            "姓名",
+            "学号",
+            "学院/学部",
+            "搭档姓名",
+            "搭档学号",
+            "搭档学院/学部",
+            "是否种子",
+            "种子序号",
+            "备注"
+        };
 
         WriteHeader(sheet, headers);
 
@@ -2116,16 +2127,18 @@ public sealed class DrawResultExcelWriter
             var row = i + 2;
             var participant = participants[i];
             sheet.Cell(row, 1).Value = participant.PrimaryName ?? participant.DisplayName;
-            sheet.Cell(row, 2).Value = participant.TeamName ?? "";
-            sheet.Cell(row, 3).Value = participant.PartnerName ?? "";
-            sheet.Cell(row, 4).Value = participant.PartnerTeamName ?? "";
-            sheet.Cell(row, 5).Value = participant.IsSeed ? "是" : "";
-            sheet.Cell(row, 6).Value = participant.SeedRank.HasValue ? participant.SeedRank.Value : "";
-            sheet.Cell(row, 7).Value = participant.Note ?? "";
+            sheet.Cell(row, 2).Value = participant.PrimaryStudentId ?? "";
+            sheet.Cell(row, 3).Value = participant.TeamName ?? "";
+            sheet.Cell(row, 4).Value = participant.PartnerName ?? "";
+            sheet.Cell(row, 5).Value = participant.PartnerStudentId ?? "";
+            sheet.Cell(row, 6).Value = participant.PartnerTeamName ?? "";
+            sheet.Cell(row, 7).Value = participant.IsSeed ? "是" : "";
+            sheet.Cell(row, 8).Value = participant.SeedRank.HasValue ? participant.SeedRank.Value : "";
+            sheet.Cell(row, 9).Value = participant.Note ?? "";
         }
 
         ApplyTableStyle(sheet, headers.Length, participants.Count + 1);
-        HighlightSeedRows(sheet, headers.Length, participants.Count + 1, seedColumn: 5);
+        HighlightSeedRows(sheet, headers.Length, participants.Count + 1, seedColumn: 7);
     }
 
     private static void WriteHeader(IXLWorksheet sheet, IReadOnlyList<string> headers)

@@ -188,10 +188,15 @@
                                         <Button Grid.Column="1" Classes="secondary compact" Content="选择" Click="BrowseInput_Click" />
                                     </Grid>
 
-                                    <Button Classes="subtle"
-                                            Content="生成名单模板"
-                                            Margin="0,8,0,6"
-                                            Click="CreateTemplate_Click" />
+                                    <Grid ColumnDefinitions="1.05*,1.45*" ColumnSpacing="8" Margin="0,8,0,6">
+                                        <Button Classes="subtle"
+                                                Content="生成名单模板"
+                                                Click="CreateTemplate_Click" />
+                                        <Button Grid.Column="1"
+                                                Classes="secondary compact"
+                                                Content="浏览参赛选手/队伍信息"
+                                                Click="BrowseParticipants_Click" />
+                                    </Grid>
 
                                     <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
                                         <StackPanel>
@@ -447,6 +452,7 @@
                                     <ComboBox x:Name="ScheduleConstraintProfileBox" SelectedIndex="0">
                                         <ComboBoxItem Content="校园赛：20分钟休息，关键场次30分钟" Tag="Campus" />
                                         <ComboBoxItem Content="正式赛：30分钟休息，关键场次60分钟" Tag="Formal" />
+                                        <ComboBoxItem Content="审计模式：完整推演所有晋级路径" Tag="Audit" />
                                     </ComboBox>
                                     <TextBlock Text="该设置先用于生成提醒，不会自动改变赛程；裁判长可根据提醒打开窗口拖动调整。"
                                                Foreground="#64748B"

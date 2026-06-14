@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using BadmintonDraw.Core;
 using BadmintonDraw.Excel;
@@ -136,6 +137,17 @@ public partial class MainWindow : Window
             _drawWorkflow.WriteTemplate(dialog.FileName);
             SetStatus($"已生成名单模板：{dialog.FileName}");
         }
+    }
+
+    private void BrowseParticipants_Click(object sender, RoutedEventArgs e)
+    {
+        if (_participants.Count == 0)
+        {
+            SetStatus("请先选择并导入参赛名单。", StatusKind.Warning);
+            return;
+        }
+
+        ShowParticipantRosterWindow();
     }
 
     private void GenerateSeed_Click(object sender, RoutedEventArgs e)
@@ -2075,9 +2087,10 @@ public partial class MainWindow : Window
             .ToList();
         var sections = new List<string>();
 
-        if (duplicateWarnings.Count >= 2)
+        if (duplicateWarnings.Count > 0)
         {
-            sections.Add("发现多组同名选手：\n" + FormatWarningList(duplicateWarnings));
+            sections.Add("发现同名选手，请优先通过“学号”或“搭档学号”确认是否为不同的人：\n"
+                + FormatWarningList(duplicateWarnings));
         }
 
         if (unrankedSeedWarnings.Count >= 2)
@@ -2096,6 +2109,101 @@ public partial class MainWindow : Window
             "名单提醒",
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
+    }
+
+    private void ShowParticipantRosterWindow()
+    {
+        var grid = new DataGrid
+        {
+            AutoGenerateColumns = false,
+            CanUserAddRows = false,
+            CanUserDeleteRows = false,
+            IsReadOnly = true,
+            FrozenColumnCount = 1,
+            HeadersVisibility = DataGridHeadersVisibility.Column,
+            GridLinesVisibility = DataGridGridLinesVisibility.All,
+            ItemsSource = BuildParticipantRosterRows(_participants),
+            Margin = new Thickness(16)
+        };
+
+        AddRosterColumn(grid, "序号", nameof(ParticipantRosterRow.Order), 70);
+        AddRosterColumn(grid, "姓名", nameof(ParticipantRosterRow.PrimaryName), 130);
+        AddRosterColumn(grid, "学号", nameof(ParticipantRosterRow.PrimaryStudentId), 130);
+        AddRosterColumn(grid, "学院/学部", nameof(ParticipantRosterRow.TeamName), 180);
+        AddRosterColumn(grid, "搭档姓名", nameof(ParticipantRosterRow.PartnerName), 130);
+        AddRosterColumn(grid, "搭档学号", nameof(ParticipantRosterRow.PartnerStudentId), 130);
+        AddRosterColumn(grid, "搭档学院/学部", nameof(ParticipantRosterRow.PartnerTeamName), 180);
+        AddRosterColumn(grid, "是否种子", nameof(ParticipantRosterRow.SeedFlag), 100);
+        AddRosterColumn(grid, "种子序号", nameof(ParticipantRosterRow.SeedRank), 100);
+        AddRosterColumn(grid, "备注", nameof(ParticipantRosterRow.Note), 260);
+
+        var window = new Window
+        {
+            Title = "参赛选手/队伍信息",
+            Owner = this,
+            Width = 1120,
+            Height = 640,
+            MinWidth = 760,
+            MinHeight = 420,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new DockPanel
+            {
+                LastChildFill = true,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = $"参赛选手/队伍信息 · {_participants.Count} 个参赛单位",
+                        FontSize = 22,
+                        FontWeight = FontWeights.Bold,
+                        Margin = new Thickness(18, 18, 18, 0)
+                    },
+                    grid
+                }
+            }
+        };
+        DockPanel.SetDock((UIElement)((DockPanel)window.Content).Children[0], Dock.Top);
+
+        window.ShowDialog();
+    }
+
+    private static void AddRosterColumn(DataGrid grid, string header, string bindingPath, double width)
+    {
+        grid.Columns.Add(new DataGridTextColumn
+        {
+            Header = header,
+            Binding = new Binding(bindingPath),
+            Width = width
+        });
+    }
+
+    private static IReadOnlyList<ParticipantRosterRow> BuildParticipantRosterRows(IReadOnlyList<DrawParticipant> participants)
+    {
+        return participants
+            .Select((participant, index) => new ParticipantRosterRow(
+                (index + 1).ToString(),
+                GetPrimaryRosterName(participant),
+                participant.PrimaryStudentId ?? "",
+                participant.TeamName ?? "",
+                participant.PartnerName ?? "",
+                participant.PartnerStudentId ?? "",
+                participant.PartnerTeamName ?? "",
+                participant.IsSeed ? "是" : "",
+                participant.SeedRank?.ToString() ?? "",
+                participant.Note ?? ""))
+            .ToList();
+    }
+
+    private static string GetPrimaryRosterName(DrawParticipant participant)
+    {
+        if (!string.IsNullOrWhiteSpace(participant.PrimaryName))
+        {
+            return participant.PrimaryName;
+        }
+
+        return string.IsNullOrWhiteSpace(participant.TeamName)
+            ? participant.DisplayName
+            : "";
     }
 
     private static string FormatWarningList(IReadOnlyList<ParticipantImportWarning> warnings)
@@ -2990,6 +3098,18 @@ public partial class MainWindow : Window
         string Note,
         bool IsUnscheduled,
         string Reason);
+
+    private sealed record ParticipantRosterRow(
+        string Order,
+        string PrimaryName,
+        string PrimaryStudentId,
+        string TeamName,
+        string PartnerName,
+        string PartnerStudentId,
+        string PartnerTeamName,
+        string SeedFlag,
+        string SeedRank,
+        string Note);
 
     private sealed record ScheduleDayRow(
         DateOnly DateValue,

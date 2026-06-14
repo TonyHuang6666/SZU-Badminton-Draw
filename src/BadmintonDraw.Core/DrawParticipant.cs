@@ -8,7 +8,9 @@ public sealed record DrawParticipant(
     string? PartnerName = null,
     string? TeamName = null,
     string? Note = null,
-    string? PartnerTeamName = null)
+    string? PartnerTeamName = null,
+    string? PrimaryStudentId = null,
+    string? PartnerStudentId = null)
 {
     public string NormalizedDisplayName => DisplayName.Trim();
 }
