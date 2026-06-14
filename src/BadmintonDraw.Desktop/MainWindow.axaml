@@ -443,6 +443,16 @@
                                         </StackPanel>
                                     </Grid>
 
+                                    <TextBlock Classes="field-label" Text="高级约束提醒" />
+                                    <ComboBox x:Name="ScheduleConstraintProfileBox" SelectedIndex="0">
+                                        <ComboBoxItem Content="校园赛：20分钟休息，关键场次30分钟" Tag="Campus" />
+                                        <ComboBoxItem Content="正式赛：30分钟休息，关键场次60分钟" Tag="Formal" />
+                                    </ComboBox>
+                                    <TextBlock Text="该设置先用于生成提醒，不会自动改变赛程；裁判长可根据提醒打开窗口拖动调整。"
+                                               Foreground="#64748B"
+                                               TextWrapping="Wrap"
+                                               Margin="0,6,0,0" />
+
                                     <Button Classes="primary" Content="生成赛程预览" Margin="0,14,0,0" Click="GenerateSchedule_Click" />
                                     <Button Classes="secondary" Content="导出首日材料包" Margin="0,8,0,0" Click="ExportFirstDayPackage_Click" />
                                     <Button Classes="secondary" Content="导入记录表并导出下一日材料包" Margin="0,8,0,0" Click="ImportMatchRecordAndExportNext_Click" />
@@ -712,6 +722,18 @@
                                                        VerticalAlignment="Center" />
                                         </Grid>
                                      </Border>
+                                    <Border x:Name="ScheduleConstraintPanel"
+                                            IsVisible="False"
+                                            Background="#FFF8E6"
+                                            BorderBrush="#F2D889"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Padding="12">
+                                        <TextBlock x:Name="ScheduleConstraintText"
+                                                   Foreground="#7B5600"
+                                                   TextWrapping="Wrap"
+                                                   LineHeight="21" />
+                                    </Border>
                                     <StackPanel MinWidth="1120">
                                         <Border Background="#EDE1FC"
                                                 BorderBrush="#D8C7F4"

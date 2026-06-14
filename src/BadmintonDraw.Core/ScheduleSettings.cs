@@ -10,6 +10,8 @@ public sealed record ScheduleSettings(
     int? KnockoutTimingBoundaryEntrants = null,
     ScheduleTimingSettings? BeforeBoundaryTiming = null)
 {
+    public ScheduleConstraintProfile ConstraintProfile { get; init; } = ScheduleConstraintProfile.Campus;
+
     public bool HasKnockoutTimingSplit => KnockoutTimingBoundaryEntrants is > 0 && BeforeBoundaryTiming is not null;
 
     public int MinimumMatchMinutes => HasKnockoutTimingSplit
@@ -29,7 +31,8 @@ public sealed record ScheduleSettings(
         DateOnly? StartDate = null,
         int MaxMatchesPerEntrantPerDay = 2,
         int? KnockoutTimingBoundaryEntrants = null,
-        ScheduleTimingSettings? BeforeBoundaryTiming = null)
+        ScheduleTimingSettings? BeforeBoundaryTiming = null,
+        ScheduleConstraintProfile constraintProfile = ScheduleConstraintProfile.Campus)
         : this(
             [new ScheduleDaySettings(StartDate ?? DateOnly.FromDateTime(DateTime.Today), DayStart, DayEnd, Courts)],
             MatchMinutes,
@@ -37,6 +40,7 @@ public sealed record ScheduleSettings(
             KnockoutTimingBoundaryEntrants,
             BeforeBoundaryTiming)
     {
+        ConstraintProfile = constraintProfile;
     }
 
     public IReadOnlyList<string> Courts => Days.FirstOrDefault()?.Courts ?? [];

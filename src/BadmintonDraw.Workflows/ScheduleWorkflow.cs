@@ -256,7 +256,8 @@ public sealed class ScheduleWorkflow
             request.MaxMatchesPerEntrantPerDay,
             request.KnockoutTimingBoundaryEntrants,
             request.BeforeBoundaryMatchMinutes,
-            request.BeforeBoundaryMaxMatchesPerEntrantPerDay);
+            request.BeforeBoundaryMaxMatchesPerEntrantPerDay,
+            request.ConstraintProfile);
     }
 
     public static ScheduleSettings BuildSettings(
@@ -265,7 +266,8 @@ public sealed class ScheduleWorkflow
         int maxMatchesPerEntrantPerDay,
         int? knockoutTimingBoundaryEntrants = null,
         int? beforeBoundaryMatchMinutes = null,
-        int? beforeBoundaryMaxMatchesPerEntrantPerDay = null)
+        int? beforeBoundaryMaxMatchesPerEntrantPerDay = null,
+        ScheduleConstraintProfile constraintProfile = ScheduleConstraintProfile.Campus)
     {
         if (days.Count == 0)
         {
@@ -308,7 +310,10 @@ public sealed class ScheduleWorkflow
             matchMinutes,
             maxMatchesPerEntrantPerDay,
             knockoutTimingBoundaryEntrants,
-            beforeBoundaryTiming);
+            beforeBoundaryTiming)
+        {
+            ConstraintProfile = constraintProfile
+        };
     }
 
     public static IReadOnlyList<string> ParseCourts(string value)
@@ -656,7 +661,8 @@ public sealed record ScheduleWorkflowRequest(
     int MaxMatchesPerEntrantPerDay,
     int? KnockoutTimingBoundaryEntrants = null,
     int? BeforeBoundaryMatchMinutes = null,
-    int? BeforeBoundaryMaxMatchesPerEntrantPerDay = null);
+    int? BeforeBoundaryMaxMatchesPerEntrantPerDay = null,
+    ScheduleConstraintProfile ConstraintProfile = ScheduleConstraintProfile.Campus);
 
 public sealed record ScheduleDayWorkflowRequest(
     DateOnly Date,

@@ -49,6 +49,7 @@ public partial class MainWindow : Window
 
     private readonly DrawWorkflow _drawWorkflow = new();
     private readonly ScheduleWorkflow _scheduleWorkflow = new();
+    private readonly ScheduleConstraintAnalyzer _scheduleConstraintAnalyzer = new();
     private readonly TournamentProgressWorkflow _progressWorkflow = new();
     private readonly CrossEventConflictWorkflow _crossEventConflictWorkflow = new();
     private const double CrossEventBoardMinZoom = 0.65;
@@ -77,6 +78,7 @@ public partial class MainWindow : Window
     private DrawWorkflowResult? _latestWorkflowResult;
     private DrawResult? _latestResult;
     private SchedulePlan? _latestSchedule;
+    private ScheduleConstraintReport? _latestScheduleConstraintReport;
     private string? _loadedInputPath;
     private string? _progressFilePath;
     private TournamentProgressState? _progressState;
@@ -1391,9 +1393,12 @@ public partial class MainWindow : Window
             }
 
             ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
-            ScheduleSummaryText.Text = $"已调整 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。";
+            UpdateScheduleConstraintReport(_latestSchedule);
+            ScheduleSummaryText.Text = $"已调整 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日；{BuildScheduleConstraintInlineSummary(_latestScheduleConstraintReport)}";
             RefreshScheduleBoardWindow(target.DayLabel);
-            SetStatus("赛程安排已调整；后续导出会使用调整后的时间和场地。");
+            SetStatus(
+                "赛程安排已调整；后续导出会使用调整后的时间和场地。",
+                isWarning: _latestScheduleConstraintReport is { SevereCount: > 0 } or { WarningCount: > 0 });
         }
         catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
         {
@@ -1786,16 +1791,19 @@ public partial class MainWindow : Window
 
             var settings = BuildScheduleSettings();
             _latestSchedule = _scheduleWorkflow.Generate(_latestResult, settings);
+            UpdateScheduleConstraintReport(_latestSchedule);
             ClearProgressReference();
+            var constraintSummary = BuildScheduleConstraintInlineSummary(_latestScheduleConstraintReport);
             ScheduleSummaryText.Text = _latestSchedule.IsComplete
-                ? $"已生成 {_latestSchedule.Matches.Count} 场，预计 {_latestSchedule.DayCount} 个比赛日。{ScheduleWorkflow.BuildScheduleCapacityText(settings)}"
-                : $"已安排 {_latestSchedule.Matches.Count} 场，未安排 {_latestSchedule.UnscheduledMatches.Count} 场，共 {_latestSchedule.TotalMatchCount} 场。{ScheduleWorkflow.BuildScheduleCapacityText(settings)}";
+                ? $"已生成 {_latestSchedule.Matches.Count} 场，预计 {_latestSchedule.DayCount} 个比赛日。{ScheduleWorkflow.BuildScheduleCapacityText(settings)}；{constraintSummary}"
+                : $"已安排 {_latestSchedule.Matches.Count} 场，未安排 {_latestSchedule.UnscheduledMatches.Count} 场，共 {_latestSchedule.TotalMatchCount} 场。{ScheduleWorkflow.BuildScheduleCapacityText(settings)}；{constraintSummary}";
             ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
             RefreshScheduleBoardWindow();
+            var hasConstraintWarnings = _latestScheduleConstraintReport is { SevereCount: > 0 } or { WarningCount: > 0 };
             SetStatus(_latestSchedule.IsComplete
                 ? "赛程预览已生成，可导出赛程 Excel。"
                 : "赛程资源不足：预览已保留，未安排场次会在列表底部显示。",
-                isWarning: !_latestSchedule.IsComplete);
+                isWarning: !_latestSchedule.IsComplete || hasConstraintWarnings);
             return true;
         }
         catch (Exception ex) when (ex is DrawValidationException or InvalidOperationException or IOException)
@@ -1816,7 +1824,8 @@ public partial class MainWindow : Window
             ParsePositiveInt(GetSelectedComboBoxText(ScheduleMaxMatchesBox), boundary > 0 ? "分界线后每日最多场" : "每日最多场"),
             boundary > 0 ? boundary : null,
             boundary > 0 ? ParsePositiveInt(BeforeBoundaryMatchMinutesBox.Text, "分界线前每场分钟") : null,
-            boundary > 0 ? ParsePositiveInt(GetSelectedComboBoxText(BeforeBoundaryMaxMatchesBox), "分界线前每日最多场") : null);
+            boundary > 0 ? ParsePositiveInt(GetSelectedComboBoxText(BeforeBoundaryMaxMatchesBox), "分界线前每日最多场") : null,
+            GetScheduleConstraintProfile());
     }
 
     private void AddCurrentScheduleDay(bool showStatus = true)
@@ -2247,9 +2256,10 @@ public partial class MainWindow : Window
         RoundOneList.ItemsSource = FormatGroups(state.Snapshot.DrawResult.RoundOneGroups);
         ByeList.ItemsSource = FormatGroups(state.Snapshot.DrawResult.ByeGroups);
         ScheduleList.ItemsSource = FormatScheduleRows(state.Snapshot.Schedule);
+        UpdateScheduleConstraintReport(state.Snapshot.Schedule);
         RefreshScheduleBoardWindow();
         ScheduleSummaryText.Text =
-            $"已恢复 {state.Snapshot.Schedule.Matches.Count} 场赛程，累计完成 {state.Results.Count} 场";
+            $"已恢复 {state.Snapshot.Schedule.Matches.Count} 场赛程，累计完成 {state.Results.Count} 场；{BuildScheduleConstraintInlineSummary(_latestScheduleConstraintReport)}";
         UpdateEventKindForMode();
         UpdateKnockoutGoalVisibility();
         UpdateDrawPdfOptionsVisibility();
@@ -2286,6 +2296,8 @@ public partial class MainWindow : Window
         {
             SelectComboBoxTag(ScheduleTimingBoundaryBox, "0");
         }
+
+        SelectComboBoxTag(ScheduleConstraintProfileBox, settings.ConstraintProfile.ToString());
     }
 
     private static void SelectComboBoxText(ComboBox comboBox, string value)
@@ -2810,6 +2822,58 @@ public partial class MainWindow : Window
             : rows;
     }
 
+    private void UpdateScheduleConstraintReport(SchedulePlan? schedule)
+    {
+        _latestScheduleConstraintReport = schedule is null ? null : _scheduleConstraintAnalyzer.Analyze(schedule);
+        if (_latestScheduleConstraintReport is null || !_latestScheduleConstraintReport.HasIssues)
+        {
+            ScheduleConstraintPanel.IsVisible = false;
+            ScheduleConstraintText.Text = "";
+            return;
+        }
+
+        ScheduleConstraintPanel.IsVisible = true;
+        ScheduleConstraintText.Text = BuildScheduleConstraintText(_latestScheduleConstraintReport);
+    }
+
+    private static string BuildScheduleConstraintInlineSummary(ScheduleConstraintReport? report)
+    {
+        if (report is null)
+        {
+            return "约束提醒：尚未分析";
+        }
+
+        return report.HasIssues
+            ? $"约束提醒：严重 {report.SevereCount}，警告 {report.WarningCount}，提醒 {report.NoticeCount}"
+            : $"约束提醒：{report.Rules.ProfileName}暂无问题";
+    }
+
+    private static string BuildScheduleConstraintText(ScheduleConstraintReport report)
+    {
+        var lines = new List<string>
+        {
+            $"高级约束提醒（{report.Rules.ProfileName}）：严重 {report.SevereCount}，警告 {report.WarningCount}，提醒 {report.NoticeCount}。"
+        };
+        lines.AddRange(report.Issues.Take(6).Select((issue, index) =>
+            $"{index + 1}. {FormatScheduleConstraintSeverity(issue.Severity)}：{issue.Message}"));
+        if (report.Issues.Count > 6)
+        {
+            lines.Add($"另有 {report.Issues.Count - 6} 条提醒未显示，可后续导出审计表。");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string FormatScheduleConstraintSeverity(ScheduleConstraintSeverity severity)
+    {
+        return severity switch
+        {
+            ScheduleConstraintSeverity.Severe => "严重",
+            ScheduleConstraintSeverity.Warning => "警告",
+            _ => "提醒"
+        };
+    }
+
     private void SetWarnings(IReadOnlyList<string> warnings)
     {
         var message = FormatWarnings(warnings);
@@ -2827,10 +2891,24 @@ public partial class MainWindow : Window
     private void ClearSchedulePreview()
     {
         _latestSchedule = null;
+        _latestScheduleConstraintReport = null;
         ScheduleSummaryText.Text = "尚未生成赛程";
+        ScheduleConstraintPanel.IsVisible = false;
+        ScheduleConstraintText.Text = "";
         ScheduleList.ItemsSource = Array.Empty<SchedulePreviewRow>();
         RefreshScheduleBoardWindow();
         UpdateScheduleTimingSplitVisibility();
+    }
+
+    private ScheduleConstraintProfile GetScheduleConstraintProfile()
+    {
+        if (ScheduleConstraintProfileBox.SelectedItem is ComboBoxItem item
+            && Enum.TryParse<ScheduleConstraintProfile>(item.Tag?.ToString(), out var profile))
+        {
+            return profile;
+        }
+
+        return ScheduleConstraintProfile.Campus;
     }
 
     private static int ParsePositiveInt(string? value, string fieldName)

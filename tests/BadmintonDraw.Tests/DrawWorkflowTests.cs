@@ -1173,6 +1173,54 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void ScheduleConstraintAnalyzerUsesFormalRestProfileForKeyMatches()
+    {
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1", 1, "A组", "半决赛", "半决赛1", "张三", "李四"),
+                new ScheduledMatch(2, "2026-06-13", new TimeOnly(15, 10), new TimeOnly(15, 40), "B1", 1, "A组", "决赛", "决赛1", "张三", "王五")
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1"])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 3)
+            {
+                ConstraintProfile = ScheduleConstraintProfile.Formal
+            });
+
+        var report = new ScheduleConstraintAnalyzer().Analyze(schedule);
+
+        Assert.Equal(ScheduleConstraintProfile.Formal, report.Profile);
+        Assert.Contains(report.Issues, issue =>
+            issue.Type == ScheduleConstraintIssueType.ShortRest
+            && issue.Severity == ScheduleConstraintSeverity.Warning
+            && issue.PlayerName == "张三"
+            && issue.Message.Contains("60 分钟", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ScheduleConstraintAnalyzerFlagsManualOverlapAsSevere()
+    {
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1", 1, "A组", "首轮赛", "第1场", "[张三 李四]", "[王五 赵六]"),
+                new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 20), new TimeOnly(14, 50), "B2", 1, "A组", "首轮赛", "第2场", "张三", "钱七")
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2"])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 3));
+
+        var report = new ScheduleConstraintAnalyzer().Analyze(schedule);
+
+        Assert.Equal(1, report.SevereCount);
+        Assert.Contains(report.Issues, issue =>
+            issue.Type == ScheduleConstraintIssueType.ShortRest
+            && issue.Severity == ScheduleConstraintSeverity.Severe
+            && issue.PlayerName == "张三");
+    }
+
+    [Fact]
     public void CrossEventConflictDetectorClassifiesSeverity()
     {
         var firstSource = CreateCrossEventSource(
