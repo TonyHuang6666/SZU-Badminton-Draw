@@ -708,13 +708,20 @@
                                             BorderThickness="1"
                                             CornerRadius="8"
                                             Padding="12">
-                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                        <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="12">
                                             <Button Classes="secondary"
                                                     Width="88"
                                                     Content="打开窗口"
                                                     Click="OpenScheduleBoardWindow_Click" />
+                                            <Button x:Name="ScheduleConstraintButton"
+                                                    Grid.Column="1"
+                                                    Classes="secondary"
+                                                    Width="88"
+                                                    Content="查看提醒"
+                                                    IsEnabled="False"
+                                                    Click="ShowScheduleConstraintDetails_Click" />
                                             <TextBlock x:Name="ScheduleSummaryText"
-                                                       Grid.Column="1"
+                                                       Grid.Column="2"
                                                        Text="尚未生成赛程"
                                                        Foreground="#35445D"
                                                        FontWeight="SemiBold"
@@ -722,18 +729,6 @@
                                                        VerticalAlignment="Center" />
                                         </Grid>
                                      </Border>
-                                    <Border x:Name="ScheduleConstraintPanel"
-                                            IsVisible="False"
-                                            Background="#FFF8E6"
-                                            BorderBrush="#F2D889"
-                                            BorderThickness="1"
-                                            CornerRadius="8"
-                                            Padding="12">
-                                        <TextBlock x:Name="ScheduleConstraintText"
-                                                   Foreground="#7B5600"
-                                                   TextWrapping="Wrap"
-                                                   LineHeight="21" />
-                                    </Border>
                                     <StackPanel MinWidth="1120">
                                         <Border Background="#EDE1FC"
                                                 BorderBrush="#D8C7F4"

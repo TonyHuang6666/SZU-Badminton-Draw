@@ -1085,6 +1085,124 @@ public partial class MainWindow : Window
         _scheduleBoardWindow.Show(this);
     }
 
+    private async void ShowScheduleConstraintDetails_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_latestSchedule is null)
+        {
+            SetStatus("请先生成或打开赛程。", isError: true);
+            return;
+        }
+
+        _latestScheduleConstraintReport ??= _scheduleConstraintAnalyzer.Analyze(_latestSchedule);
+        UpdateScheduleConstraintButton();
+
+        var dialog = new Window
+        {
+            Title = "高级约束提醒",
+            Width = 860,
+            Height = 640,
+            MinWidth = 680,
+            MinHeight = 460,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = BuildScheduleConstraintDialogContent(_latestScheduleConstraintReport)
+        };
+        await dialog.ShowDialog(this);
+    }
+
+    private static Control BuildScheduleConstraintDialogContent(ScheduleConstraintReport report)
+    {
+        var stack = new StackPanel
+        {
+            Spacing = 10,
+            Margin = new Avalonia.Thickness(16)
+        };
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"高级约束提醒（{report.Rules.ProfileName}）",
+            FontSize = 18,
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78))
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"严重 {report.SevereCount}，警告 {report.WarningCount}，提醒 {report.NoticeCount}。这些提醒不会自动改变赛程；裁判长可回到赛程窗口拖动调整。",
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        if (!report.HasIssues)
+        {
+            stack.Children.Add(new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(240, 248, 241)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(212, 234, 216)),
+                BorderThickness = new Avalonia.Thickness(1),
+                CornerRadius = new Avalonia.CornerRadius(8),
+                Padding = new Avalonia.Thickness(12),
+                Child = new TextBlock
+                {
+                    Text = "当前赛程暂无高级约束提醒。",
+                    Foreground = new SolidColorBrush(Color.FromRgb(37, 101, 74)),
+                    TextWrapping = TextWrapping.Wrap
+                }
+            });
+        }
+        else
+        {
+            foreach (var issue in report.Issues)
+            {
+                stack.Children.Add(CreateScheduleConstraintIssueCard(issue));
+            }
+        }
+
+        return new ScrollViewer
+        {
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            Content = stack
+        };
+    }
+
+    private static Border CreateScheduleConstraintIssueCard(ScheduleConstraintIssue issue)
+    {
+        var isBlocking = issue.Severity == ScheduleConstraintSeverity.Severe;
+        var isWarning = issue.Severity == ScheduleConstraintSeverity.Warning;
+        var borderColor = isBlocking
+            ? Color.FromRgb(220, 38, 38)
+            : isWarning ? Color.FromRgb(217, 119, 6) : Color.FromRgb(242, 216, 137);
+        var backgroundColor = isBlocking
+            ? Color.FromRgb(254, 242, 242)
+            : isWarning ? Color.FromRgb(255, 250, 235) : Color.FromRgb(255, 248, 230);
+        var stack = new StackPanel { Spacing = 4 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{FormatScheduleConstraintSeverity(issue.Severity)} · {issue.DayLabel} {FormatOptionalTime(issue.StartTime)} · {issue.Court ?? "-"} · {issue.Phase} {issue.MatchName}",
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+            TextWrapping = TextWrapping.Wrap
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = issue.Message,
+            Foreground = new SolidColorBrush(isBlocking ? Color.FromRgb(185, 28, 28) : Color.FromRgb(120, 83, 0)),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        return new Border
+        {
+            Background = new SolidColorBrush(backgroundColor),
+            BorderBrush = new SolidColorBrush(borderColor),
+            BorderThickness = new Avalonia.Thickness(isBlocking ? 2 : 1),
+            CornerRadius = new Avalonia.CornerRadius(8),
+            Padding = new Avalonia.Thickness(12),
+            Child = stack
+        };
+    }
+
+    private static string FormatOptionalTime(TimeOnly? time)
+    {
+        return time.HasValue ? time.Value.ToString("HH:mm") : "--:--";
+    }
+
     private Control BuildScheduleBoardWindowContent()
     {
         var root = new Grid
@@ -1394,7 +1512,7 @@ public partial class MainWindow : Window
 
             ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
             UpdateScheduleConstraintReport(_latestSchedule);
-            ScheduleSummaryText.Text = $"已调整 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日；{BuildScheduleConstraintInlineSummary(_latestScheduleConstraintReport)}";
+            ScheduleSummaryText.Text = $"已调整 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。";
             RefreshScheduleBoardWindow(target.DayLabel);
             SetStatus(
                 "赛程安排已调整；后续导出会使用调整后的时间和场地。",
@@ -1793,10 +1911,9 @@ public partial class MainWindow : Window
             _latestSchedule = _scheduleWorkflow.Generate(_latestResult, settings);
             UpdateScheduleConstraintReport(_latestSchedule);
             ClearProgressReference();
-            var constraintSummary = BuildScheduleConstraintInlineSummary(_latestScheduleConstraintReport);
             ScheduleSummaryText.Text = _latestSchedule.IsComplete
-                ? $"已生成 {_latestSchedule.Matches.Count} 场，预计 {_latestSchedule.DayCount} 个比赛日。{ScheduleWorkflow.BuildScheduleCapacityText(settings)}；{constraintSummary}"
-                : $"已安排 {_latestSchedule.Matches.Count} 场，未安排 {_latestSchedule.UnscheduledMatches.Count} 场，共 {_latestSchedule.TotalMatchCount} 场。{ScheduleWorkflow.BuildScheduleCapacityText(settings)}；{constraintSummary}";
+                ? $"已生成 {_latestSchedule.Matches.Count} 场，预计 {_latestSchedule.DayCount} 个比赛日。{ScheduleWorkflow.BuildScheduleCapacityText(settings)}"
+                : $"已安排 {_latestSchedule.Matches.Count} 场，未安排 {_latestSchedule.UnscheduledMatches.Count} 场，共 {_latestSchedule.TotalMatchCount} 场。{ScheduleWorkflow.BuildScheduleCapacityText(settings)}";
             ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
             RefreshScheduleBoardWindow();
             var hasConstraintWarnings = _latestScheduleConstraintReport is { SevereCount: > 0 } or { WarningCount: > 0 };
@@ -2259,7 +2376,7 @@ public partial class MainWindow : Window
         UpdateScheduleConstraintReport(state.Snapshot.Schedule);
         RefreshScheduleBoardWindow();
         ScheduleSummaryText.Text =
-            $"已恢复 {state.Snapshot.Schedule.Matches.Count} 场赛程，累计完成 {state.Results.Count} 场；{BuildScheduleConstraintInlineSummary(_latestScheduleConstraintReport)}";
+            $"已恢复 {state.Snapshot.Schedule.Matches.Count} 场赛程，累计完成 {state.Results.Count} 场。";
         UpdateEventKindForMode();
         UpdateKnockoutGoalVisibility();
         UpdateDrawPdfOptionsVisibility();
@@ -2825,43 +2942,22 @@ public partial class MainWindow : Window
     private void UpdateScheduleConstraintReport(SchedulePlan? schedule)
     {
         _latestScheduleConstraintReport = schedule is null ? null : _scheduleConstraintAnalyzer.Analyze(schedule);
-        if (_latestScheduleConstraintReport is null || !_latestScheduleConstraintReport.HasIssues)
+        UpdateScheduleConstraintButton();
+    }
+
+    private void UpdateScheduleConstraintButton()
+    {
+        if (_latestScheduleConstraintReport is null)
         {
-            ScheduleConstraintPanel.IsVisible = false;
-            ScheduleConstraintText.Text = "";
+            ScheduleConstraintButton.Content = "查看提醒";
+            ScheduleConstraintButton.IsEnabled = false;
             return;
         }
 
-        ScheduleConstraintPanel.IsVisible = true;
-        ScheduleConstraintText.Text = BuildScheduleConstraintText(_latestScheduleConstraintReport);
-    }
-
-    private static string BuildScheduleConstraintInlineSummary(ScheduleConstraintReport? report)
-    {
-        if (report is null)
-        {
-            return "约束提醒：尚未分析";
-        }
-
-        return report.HasIssues
-            ? $"约束提醒：严重 {report.SevereCount}，警告 {report.WarningCount}，提醒 {report.NoticeCount}"
-            : $"约束提醒：{report.Rules.ProfileName}暂无问题";
-    }
-
-    private static string BuildScheduleConstraintText(ScheduleConstraintReport report)
-    {
-        var lines = new List<string>
-        {
-            $"高级约束提醒（{report.Rules.ProfileName}）：严重 {report.SevereCount}，警告 {report.WarningCount}，提醒 {report.NoticeCount}。"
-        };
-        lines.AddRange(report.Issues.Take(6).Select((issue, index) =>
-            $"{index + 1}. {FormatScheduleConstraintSeverity(issue.Severity)}：{issue.Message}"));
-        if (report.Issues.Count > 6)
-        {
-            lines.Add($"另有 {report.Issues.Count - 6} 条提醒未显示，可后续导出审计表。");
-        }
-
-        return string.Join(Environment.NewLine, lines);
+        ScheduleConstraintButton.IsEnabled = true;
+        ScheduleConstraintButton.Content = _latestScheduleConstraintReport.HasIssues
+            ? $"提醒 {_latestScheduleConstraintReport.Issues.Count}"
+            : "查看提醒";
     }
 
     private static string FormatScheduleConstraintSeverity(ScheduleConstraintSeverity severity)
@@ -2893,8 +2989,7 @@ public partial class MainWindow : Window
         _latestSchedule = null;
         _latestScheduleConstraintReport = null;
         ScheduleSummaryText.Text = "尚未生成赛程";
-        ScheduleConstraintPanel.IsVisible = false;
-        ScheduleConstraintText.Text = "";
+        UpdateScheduleConstraintButton();
         ScheduleList.ItemsSource = Array.Empty<SchedulePreviewRow>();
         RefreshScheduleBoardWindow();
         UpdateScheduleTimingSplitVisibility();
