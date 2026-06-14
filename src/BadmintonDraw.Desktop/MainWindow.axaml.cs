@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -87,6 +88,9 @@ public partial class MainWindow : Window
     private ComboBox? _scheduleBoardWindowDayBox;
     private TextBlock? _scheduleBoardWindowSummaryText;
     private Grid? _scheduleBoardWindowGrid;
+    private readonly Dictionary<string, Border> _scheduleBoardWindowMatchCards = new(StringComparer.Ordinal);
+    private int _scheduleBoardHighlightVersion;
+    private Window? _scheduleConstraintWindow;
     private CrossEventScheduleBoard? _crossEventScheduleBoard;
     private double _crossEventBoardZoom = 1.0;
     private double _crossEventBoardWindowZoom = 1.0;
@@ -1037,16 +1041,22 @@ public partial class MainWindow : Window
 
     private void OpenScheduleBoardWindow_Click(object? sender, RoutedEventArgs e)
     {
+        EnsureScheduleBoardWindowOpen();
+    }
+
+    private bool EnsureScheduleBoardWindowOpen(string? preferredDayLabel = null)
+    {
         if (_latestSchedule is null)
         {
             SetStatus("请先生成或打开赛程。", isError: true);
-            return;
+            return false;
         }
 
         if (_scheduleBoardWindow is { IsVisible: true })
         {
+            RefreshScheduleBoardWindow(preferredDayLabel);
             _scheduleBoardWindow.Activate();
-            return;
+            return true;
         }
 
         _scheduleBoardWindowZoom = 1.0;
@@ -1080,12 +1090,14 @@ public partial class MainWindow : Window
             _scheduleBoardWindowDayBox = null;
             _scheduleBoardWindowSummaryText = null;
             _scheduleBoardWindowGrid = null;
+            _scheduleBoardWindowMatchCards.Clear();
         };
-        RefreshScheduleBoardWindow();
+        RefreshScheduleBoardWindow(preferredDayLabel);
         _scheduleBoardWindow.Show(this);
+        return true;
     }
 
-    private async void ShowScheduleConstraintDetails_Click(object? sender, RoutedEventArgs e)
+    private void ShowScheduleConstraintDetails_Click(object? sender, RoutedEventArgs e)
     {
         if (_latestSchedule is null)
         {
@@ -1095,6 +1107,10 @@ public partial class MainWindow : Window
 
         _latestScheduleConstraintReport ??= _scheduleConstraintAnalyzer.Analyze(_latestSchedule);
         UpdateScheduleConstraintButton();
+        if (_scheduleConstraintWindow is { IsVisible: true })
+        {
+            _scheduleConstraintWindow.Close();
+        }
 
         var dialog = new Window
         {
@@ -1106,63 +1122,131 @@ public partial class MainWindow : Window
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Content = BuildScheduleConstraintDialogContent(_latestScheduleConstraintReport)
         };
-        await dialog.ShowDialog(this);
+        _scheduleConstraintWindow = dialog;
+        dialog.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_scheduleConstraintWindow, dialog))
+            {
+                _scheduleConstraintWindow = null;
+            }
+        };
+        dialog.Show(this);
     }
 
-    private static Control BuildScheduleConstraintDialogContent(ScheduleConstraintReport report)
+    private Control BuildScheduleConstraintDialogContent(ScheduleConstraintReport report)
     {
-        var stack = new StackPanel
+        var root = new Grid
         {
-            Spacing = 10,
+            RowDefinitions = new RowDefinitions("Auto,*"),
             Margin = new Avalonia.Thickness(16)
         };
-        stack.Children.Add(new TextBlock
+        var headerStack = new StackPanel
+        {
+            Spacing = 10,
+        };
+        headerStack.Children.Add(new TextBlock
         {
             Text = $"高级约束提醒（{report.Rules.ProfileName}）",
             FontSize = 18,
             FontWeight = FontWeight.Bold,
             Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78))
         });
-        stack.Children.Add(new TextBlock
+        headerStack.Children.Add(new TextBlock
         {
-            Text = $"严重 {report.SevereCount}，警告 {report.WarningCount}，提醒 {report.NoticeCount}。这些提醒不会自动改变赛程；裁判长可回到赛程窗口拖动调整。",
+            Text = $"严重 {report.SevereCount}，警告 {report.WarningCount}，提醒 {report.NoticeCount}。这些提醒不会自动改变赛程；点击卡片可定位到赛程安排窗口。",
             Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
             TextWrapping = TextWrapping.Wrap
         });
 
-        if (!report.HasIssues)
+        var filterStack = new StackPanel
         {
-            stack.Children.Add(new Border
-            {
-                Background = new SolidColorBrush(Color.FromRgb(240, 248, 241)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(212, 234, 216)),
-                BorderThickness = new Avalonia.Thickness(1),
-                CornerRadius = new Avalonia.CornerRadius(8),
-                Padding = new Avalonia.Thickness(12),
-                Child = new TextBlock
-                {
-                    Text = "当前赛程暂无高级约束提醒。",
-                    Foreground = new SolidColorBrush(Color.FromRgb(37, 101, 74)),
-                    TextWrapping = TextWrapping.Wrap
-                }
-            });
-        }
-        else
+            Orientation = Orientation.Horizontal,
+            Spacing = 8
+        };
+        headerStack.Children.Add(filterStack);
+        root.Children.Add(headerStack);
+
+        var issueStack = new StackPanel { Spacing = 10 };
+        var issueScroll = new ScrollViewer
         {
-            foreach (var issue in report.Issues)
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            Margin = new Avalonia.Thickness(0, 12, 0, 0),
+            Content = issueStack
+        };
+        Grid.SetRow(issueScroll, 1);
+        root.Children.Add(issueScroll);
+
+        var filterButtons = new List<Button>();
+        void RenderIssues(ScheduleConstraintSeverity? severity)
+        {
+            foreach (var button in filterButtons)
             {
-                stack.Children.Add(CreateScheduleConstraintIssueCard(issue));
+                var isSelected = Equals(button.Tag, severity);
+                button.Background = new SolidColorBrush(isSelected ? Color.FromRgb(239, 246, 255) : Color.FromRgb(255, 255, 255));
+                button.BorderBrush = new SolidColorBrush(isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(203, 213, 225));
+                button.Foreground = new SolidColorBrush(isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(43, 20, 95));
+            }
+
+            issueStack.Children.Clear();
+            var issues = severity.HasValue
+                ? report.Issues.Where(issue => issue.Severity == severity.Value).ToList()
+                : report.Issues.ToList();
+            if (issues.Count == 0)
+            {
+                issueStack.Children.Add(CreateScheduleConstraintEmptyCard(severity.HasValue
+                    ? $"当前没有{FormatScheduleConstraintSeverity(severity.Value)}级别的提醒。"
+                    : "当前赛程暂无高级约束提醒。"));
+                return;
+            }
+
+            foreach (var issue in issues)
+            {
+                issueStack.Children.Add(CreateScheduleConstraintIssueCard(issue));
             }
         }
 
-        return new ScrollViewer
+        Button AddFilterButton(string text, ScheduleConstraintSeverity? severity)
         {
-            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
-            Content = stack
+            var button = new Button
+            {
+                Content = text,
+                Tag = severity,
+                Padding = new Avalonia.Thickness(12, 6),
+                HorizontalContentAlignment = HorizontalAlignment.Center
+            };
+            button.Click += (_, _) => RenderIssues(severity);
+            filterButtons.Add(button);
+            filterStack.Children.Add(button);
+            return button;
+        }
+
+        AddFilterButton($"全部 {report.Issues.Count}", null);
+        AddFilterButton($"严重 {report.SevereCount}", ScheduleConstraintSeverity.Severe);
+        AddFilterButton($"警告 {report.WarningCount}", ScheduleConstraintSeverity.Warning);
+        AddFilterButton($"提醒 {report.NoticeCount}", ScheduleConstraintSeverity.Notice);
+        RenderIssues(null);
+        return root;
+    }
+
+    private static Border CreateScheduleConstraintEmptyCard(string text)
+    {
+        return new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(240, 248, 241)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(212, 234, 216)),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(8),
+            Padding = new Avalonia.Thickness(12),
+            Child = new TextBlock
+            {
+                Text = text,
+                Foreground = new SolidColorBrush(Color.FromRgb(37, 101, 74)),
+                TextWrapping = TextWrapping.Wrap
+            }
         };
     }
 
-    private static Border CreateScheduleConstraintIssueCard(ScheduleConstraintIssue issue)
+    private Border CreateScheduleConstraintIssueCard(ScheduleConstraintIssue issue)
     {
         var isBlocking = issue.Severity == ScheduleConstraintSeverity.Severe;
         var isWarning = issue.Severity == ScheduleConstraintSeverity.Warning;
@@ -1187,20 +1271,112 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap
         });
 
-        return new Border
+        var card = new Border
         {
             Background = new SolidColorBrush(backgroundColor),
             BorderBrush = new SolidColorBrush(borderColor),
             BorderThickness = new Avalonia.Thickness(isBlocking ? 2 : 1),
             CornerRadius = new Avalonia.CornerRadius(8),
             Padding = new Avalonia.Thickness(12),
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Tag = issue,
             Child = stack
         };
+        card.PointerPressed += (_, e) =>
+        {
+            e.Handled = true;
+            _ = FocusScheduleConstraintIssueAsync(issue);
+        };
+        return card;
     }
 
     private static string FormatOptionalTime(TimeOnly? time)
     {
         return time.HasValue ? time.Value.ToString("HH:mm") : "--:--";
+    }
+
+    private async Task FocusScheduleConstraintIssueAsync(ScheduleConstraintIssue issue)
+    {
+        if (_latestSchedule is null)
+        {
+            SetStatus("请先生成或打开赛程。", isError: true);
+            return;
+        }
+
+        var match = _latestSchedule.Matches.FirstOrDefault(item => string.Equals(item.MatchName, issue.MatchName, StringComparison.Ordinal));
+        if (match is null)
+        {
+            SetStatus($"未找到提醒对应的赛程：{issue.MatchName}", isError: true);
+            return;
+        }
+
+        if (!EnsureScheduleBoardWindowOpen(match.DayLabel))
+        {
+            return;
+        }
+
+        await Task.Delay(60);
+        if (!_scheduleBoardWindowMatchCards.TryGetValue(match.MatchName, out var card))
+        {
+            RefreshScheduleBoardWindow(match.DayLabel);
+            await Task.Delay(60);
+            _scheduleBoardWindowMatchCards.TryGetValue(match.MatchName, out card);
+        }
+
+        if (card is null)
+        {
+            SetStatus($"已打开赛程安排窗口，但未定位到卡片：{match.MatchName}", isError: true);
+            return;
+        }
+
+        _scheduleBoardWindow?.Activate();
+        card.BringIntoView();
+        await FlashScheduleMatchCardAsync(card);
+        SetStatus($"已定位到赛程：{match.DayLabel} {match.TimeRange} {match.Court} {match.MatchName}");
+    }
+
+    private async Task FlashScheduleMatchCardAsync(Border card)
+    {
+        var version = ++_scheduleBoardHighlightVersion;
+        var originalBackground = card.Background;
+        var originalBorderBrush = card.BorderBrush;
+        var originalBorderThickness = card.BorderThickness;
+        var highlightBackground = new SolidColorBrush(Color.FromRgb(255, 247, 188));
+        var highlightBorder = new SolidColorBrush(Color.FromRgb(217, 119, 6));
+
+        try
+        {
+            for (var index = 0; index < 3; index++)
+            {
+                if (version != _scheduleBoardHighlightVersion)
+                {
+                    return;
+                }
+
+                card.Background = highlightBackground;
+                card.BorderBrush = highlightBorder;
+                card.BorderThickness = new Avalonia.Thickness(2);
+                await Task.Delay(100);
+                if (version != _scheduleBoardHighlightVersion)
+                {
+                    return;
+                }
+
+                card.Background = originalBackground;
+                card.BorderBrush = originalBorderBrush;
+                card.BorderThickness = originalBorderThickness;
+                await Task.Delay(index == 2 ? 0 : 100);
+            }
+        }
+        finally
+        {
+            if (version == _scheduleBoardHighlightVersion)
+            {
+                card.Background = originalBackground;
+                card.BorderBrush = originalBorderBrush;
+                card.BorderThickness = originalBorderThickness;
+            }
+        }
     }
 
     private Control BuildScheduleBoardWindowContent()
@@ -1329,6 +1505,7 @@ public partial class MainWindow : Window
         targetGrid.Children.Clear();
         targetGrid.RowDefinitions.Clear();
         targetGrid.ColumnDefinitions.Clear();
+        _scheduleBoardWindowMatchCards.Clear();
         if (_latestSchedule is null || string.IsNullOrWhiteSpace(dayLabel))
         {
             AddCrossEventEmptyText(targetGrid, "尚未选择比赛日。", zoom);
@@ -1394,7 +1571,9 @@ public partial class MainWindow : Window
         var stack = new StackPanel();
         foreach (var match in matches)
         {
-            stack.Children.Add(CreateScheduleMatchCard(match, zoom));
+            var card = CreateScheduleMatchCard(match, zoom);
+            _scheduleBoardWindowMatchCards[match.MatchName] = card;
+            stack.Children.Add(card);
         }
 
         var border = new Border

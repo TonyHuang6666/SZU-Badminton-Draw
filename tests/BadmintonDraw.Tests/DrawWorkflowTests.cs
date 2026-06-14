@@ -1221,6 +1221,59 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void ScheduleConstraintAnalyzerInfersRestFromWinnerPlaceholder()
+    {
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 20), "B1", 1, "A组", "128进64", "A组128进64第1场", "张三", "李四"),
+                new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 20), new TimeOnly(14, 40), "B2", 1, "A组", "64进32", "A组64进32第1场", "A组128进64第1场胜者", "王五")
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2"])],
+                MatchMinutes: 20,
+                MaxMatchesPerEntrantPerDay: 3));
+
+        var report = new ScheduleConstraintAnalyzer().Analyze(schedule);
+
+        Assert.Contains(report.Issues, issue =>
+            issue.Type == ScheduleConstraintIssueType.ShortRest
+            && issue.Severity == ScheduleConstraintSeverity.Warning
+            && issue.PlayerName == "张三"
+            && issue.MatchName == "A组64进32第1场"
+            && issue.Message.Contains("可能", StringComparison.Ordinal)
+            && issue.Message.Contains("胜者/负者占位", StringComparison.Ordinal));
+        Assert.Contains(report.Issues, issue =>
+            issue.Type == ScheduleConstraintIssueType.ShortRest
+            && issue.PlayerName == "李四"
+            && issue.MatchName == "A组64进32第1场");
+    }
+
+    [Fact]
+    public void ScheduleConstraintAnalyzerDoesNotTreatWinnerAndLoserBranchesAsCompatible()
+    {
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(1, "2026-06-13", new TimeOnly(13, 0), new TimeOnly(13, 20), "B1", 1, "A组", "半决赛", "A组半决赛第1场", "张三", "李四"),
+                new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 20), "B1", 1, "A组", "决赛", "A组决赛第1场", "A组半决赛第1场胜者", "王五"),
+                new ScheduledMatch(3, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 20), "B2", 1, "A组", "3/4名赛", "3/4名赛", "A组半决赛第1场负者", "赵六")
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(13, 0), new TimeOnly(18, 0), ["B1", "B2"])],
+                MatchMinutes: 20,
+                MaxMatchesPerEntrantPerDay: 3));
+
+        var report = new ScheduleConstraintAnalyzer().Analyze(schedule);
+
+        Assert.DoesNotContain(report.Issues, issue =>
+            issue.Type == ScheduleConstraintIssueType.ShortRest
+            && issue.Severity == ScheduleConstraintSeverity.Severe
+            && (issue.PlayerName == "张三" || issue.PlayerName == "李四"));
+        Assert.DoesNotContain(report.Issues, issue =>
+            issue.Type == ScheduleConstraintIssueType.DailyLoad
+            && (issue.PlayerName == "张三" || issue.PlayerName == "李四"));
+    }
+
+    [Fact]
     public void CrossEventConflictDetectorClassifiesSeverity()
     {
         var firstSource = CreateCrossEventSource(
