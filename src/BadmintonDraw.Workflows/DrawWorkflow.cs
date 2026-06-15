@@ -35,19 +35,22 @@ public sealed class DrawWorkflow
     {
         ValidateInputPath(request.InputPath);
         var importResult = _reader.ReadParticipantsWithWarnings(request.InputPath, request.EventKind);
-        var settings = new DrawSettings(
-            request.CompetitionMode,
-            request.EventKind,
-            request.GroupCount,
-            request.RandomSeed,
-            KnockoutGoal: request.KnockoutGoal,
-            PlacementPlayoff: request.PlacementPlayoff);
-        var result = _drawService.Generate(importResult.Participants, settings);
+        return GenerateFromParticipants(request, importResult.Participants, importResult.Warnings);
+    }
+
+    public DrawWorkflowResult GenerateFromParticipants(
+        DrawWorkflowRequest request,
+        IReadOnlyList<DrawParticipant> participants,
+        IReadOnlyList<ParticipantImportWarning>? importWarnings = null)
+    {
+        var warnings = importWarnings ?? [];
+        var settings = BuildSettings(request);
+        var result = _drawService.Generate(participants, settings);
         return new DrawWorkflowResult(
             result,
-            importResult.Participants,
-            FormatWarningMessages(importResult.Warnings),
-            importResult.Warnings);
+            participants,
+            FormatWarningMessages(warnings),
+            warnings);
     }
 
     public void ExportExcel(string outputPath, DrawWorkflowResult workflowResult)
@@ -184,6 +187,17 @@ public sealed class DrawWorkflow
         {
             throw new DrawValidationException("请先选择参赛名单 Excel。");
         }
+    }
+
+    private static DrawSettings BuildSettings(DrawWorkflowRequest request)
+    {
+        return new DrawSettings(
+            request.CompetitionMode,
+            request.EventKind,
+            request.GroupCount,
+            request.RandomSeed,
+            KnockoutGoal: request.KnockoutGoal,
+            PlacementPlayoff: request.PlacementPlayoff);
     }
 
     private static IReadOnlyList<string> FormatWarningMessages(IReadOnlyList<ParticipantImportWarning> warnings)

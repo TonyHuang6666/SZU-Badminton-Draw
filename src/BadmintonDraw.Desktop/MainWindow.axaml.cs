@@ -59,6 +59,9 @@ public partial class MainWindow : Window
     private const double CrossEventBoardWindowMinZoom = 0.25;
     private const double CrossEventBoardMaxZoom = 1.6;
     private const double CrossEventBoardZoomStep = 0.15;
+    private const double ParticipantRosterMinZoom = 0.5;
+    private const double ParticipantRosterMaxZoom = 1.8;
+    private const double ParticipantRosterZoomStep = 0.1;
     private const string ScheduleDragPrefix = "schedule:";
     private static readonly IBrush ReadyStatusBrush = new SolidColorBrush(Color.FromRgb(25, 169, 116));
     private static readonly IBrush WarningStatusBrush = new SolidColorBrush(Color.FromRgb(217, 119, 6));
@@ -77,6 +80,7 @@ public partial class MainWindow : Window
 
     private IReadOnlyList<DrawParticipant> _participants = [];
     private IReadOnlyList<string> _importWarnings = [];
+    private IReadOnlyList<ParticipantImportWarning> _participantImportWarnings = [];
     private readonly ObservableCollection<ScheduleDayWorkflowRequest> _scheduleDays = [];
     private DrawWorkflowResult? _latestWorkflowResult;
     private DrawResult? _latestResult;
@@ -246,6 +250,7 @@ public partial class MainWindow : Window
             ApplyDetectedEventKind(importResult.DetectedEventKind);
             _participants = importResult.Participants;
             _importWarnings = importResult.WarningMessages;
+            _participantImportWarnings = importResult.ImportWarnings;
             _loadedInputPath = inputPath;
             _latestWorkflowResult = null;
             _latestResult = null;
@@ -283,7 +288,9 @@ public partial class MainWindow : Window
                 throw new DrawValidationException("请先选择参赛名单 Excel。");
             }
 
-            if (_participants.Count == 0 || !string.Equals(_loadedInputPath, inputPath, StringComparison.OrdinalIgnoreCase))
+            if (_participants.Count == 0
+                || (!string.IsNullOrWhiteSpace(_loadedInputPath)
+                    && !string.Equals(_loadedInputPath, inputPath, StringComparison.OrdinalIgnoreCase)))
             {
                 if (!TryLoadParticipants())
                 {
@@ -304,10 +311,14 @@ public partial class MainWindow : Window
                 SeedBox.Text ?? "",
                 GetKnockoutGoal(),
                 GetPlacementPlayoff());
-            _latestWorkflowResult = _drawWorkflow.Generate(request);
+            _latestWorkflowResult = _drawWorkflow.GenerateFromParticipants(
+                request,
+                _participants,
+                _participantImportWarnings);
             ClearProgressReference();
             _participants = _latestWorkflowResult.Participants;
             _importWarnings = _latestWorkflowResult.WarningMessages;
+            _participantImportWarnings = _latestWorkflowResult.ImportWarnings;
             _latestResult = _latestWorkflowResult.Result;
             _latestSchedule = null;
 
@@ -2603,6 +2614,8 @@ public partial class MainWindow : Window
 
     private void ShowParticipantRosterWindow()
     {
+        var seedEditors = new List<ParticipantSeedEditor>();
+        var rosterZoom = 1.0;
         var window = new Window
         {
             Title = "参赛选手/队伍信息",
@@ -2622,18 +2635,100 @@ public partial class MainWindow : Window
             Foreground = new SolidColorBrush(Color.FromRgb(47, 22, 93)),
             Margin = new Avalonia.Thickness(0, 0, 0, 14)
         };
+        var hint = new TextBlock
+        {
+            Text = "可在此直接修改“是否种子”和“种子序号”；两项都留空即按非种子处理，修改后点击“应用修改”再预览抽签。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(90, 105, 130)),
+            Margin = new Avalonia.Thickness(0, 0, 0, 12),
+            [Grid.RowProperty] = 1
+        };
+        var rosterGrid = BuildParticipantRosterGrid(_participants, seedEditors);
+        var rosterScale = new LayoutTransformControl
+        {
+            Child = rosterGrid,
+            LayoutTransform = new ScaleTransform { ScaleX = rosterZoom, ScaleY = rosterZoom }
+        };
+        var zoomText = new TextBlock
+        {
+            Text = "100%",
+            MinWidth = 48,
+            TextAlignment = TextAlignment.Center,
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(47, 22, 93)),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        void SetRosterZoom(double value)
+        {
+            rosterZoom = Math.Clamp(value, ParticipantRosterMinZoom, ParticipantRosterMaxZoom);
+            rosterScale.LayoutTransform = new ScaleTransform { ScaleX = rosterZoom, ScaleY = rosterZoom };
+            zoomText.Text = $"{Math.Round(rosterZoom * 100)}%";
+        }
+
+        var zoomControls = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Avalonia.Thickness(0, 0, 0, 10),
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "缩放",
+                    Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+                    VerticalAlignment = VerticalAlignment.Center
+                },
+                CreateCrossEventWindowButton("缩小", (_, _) => SetRosterZoom(rosterZoom - ParticipantRosterZoomStep)),
+                zoomText,
+                CreateCrossEventWindowButton("100%", (_, _) => SetRosterZoom(1.0)),
+                CreateCrossEventWindowButton("放大", (_, _) => SetRosterZoom(rosterZoom + ParticipantRosterZoomStep))
+            },
+            [Grid.RowProperty] = 2
+        };
+        var applyButton = new Button
+        {
+            Content = "应用修改",
+            Classes = { "primary" },
+            MinWidth = 110
+        };
+        var closeButton = new Button
+        {
+            Content = "关闭",
+            Classes = { "secondary" },
+            MinWidth = 90,
+            Margin = new Avalonia.Thickness(10, 0, 0, 0)
+        };
+        applyButton.Click += (_, _) =>
+        {
+            try
+            {
+                ApplyParticipantSeedEdits(seedEditors);
+                window.Close();
+            }
+            catch (Exception ex) when (ex is DrawValidationException or InvalidOperationException)
+            {
+                SetStatus(ex.Message, isError: true);
+            }
+        };
+        closeButton.Click += (_, _) => window.Close();
 
         window.Content = new Grid
         {
             RowDefinitions =
             {
                 new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Star)
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Star),
+                new RowDefinition(GridLength.Auto)
             },
             Margin = new Avalonia.Thickness(20),
             Children =
             {
                 title,
+                hint,
+                zoomControls,
                 new Border
                 {
                     BorderBrush = new SolidColorBrush(Color.FromRgb(210, 224, 240)),
@@ -2644,9 +2739,17 @@ public partial class MainWindow : Window
                     {
                         HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
                         VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                        Content = BuildParticipantRosterGrid(_participants)
+                        Content = rosterScale
                     },
-                    [Grid.RowProperty] = 1
+                    [Grid.RowProperty] = 3
+                },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Margin = new Avalonia.Thickness(0, 14, 0, 0),
+                    Children = { applyButton, closeButton },
+                    [Grid.RowProperty] = 4
                 }
             }
         };
@@ -2654,7 +2757,9 @@ public partial class MainWindow : Window
         window.Show(this);
     }
 
-    private static Grid BuildParticipantRosterGrid(IReadOnlyList<DrawParticipant> participants)
+    private static Grid BuildParticipantRosterGrid(
+        IReadOnlyList<DrawParticipant> participants,
+        ICollection<ParticipantSeedEditor> seedEditors)
     {
         var headers = new[]
         {
@@ -2707,15 +2812,20 @@ public partial class MainWindow : Window
                 row.PartnerName,
                 row.PartnerStudentId,
                 row.PartnerTeamName,
-                row.SeedFlag,
-                row.SeedRank,
                 row.Note
             };
 
-            for (var column = 0; column < values.Length; column++)
+            for (var column = 0; column < 7; column++)
             {
                 AddRosterCell(table, gridRow, column, values[column], isHeader: false);
             }
+
+            var seedFlagBox = CreateSeedFlagBox(row.SeedFlag);
+            var seedRankBox = CreateSeedRankBox(row.SeedRank);
+            AddRosterControlCell(table, gridRow, 7, seedFlagBox);
+            AddRosterControlCell(table, gridRow, 8, seedRankBox);
+            AddRosterCell(table, gridRow, 9, row.Note, isHeader: false);
+            seedEditors.Add(new ParticipantSeedEditor(rowIndex, row.Order, row.PrimaryName, seedFlagBox, seedRankBox));
         }
 
         return table;
@@ -2744,6 +2854,176 @@ public partial class MainWindow : Window
         Grid.SetRow(border, row);
         Grid.SetColumn(border, column);
         table.Children.Add(border);
+    }
+
+    private static ComboBox CreateSeedFlagBox(string seedFlag)
+    {
+        return new ComboBox
+        {
+            ItemsSource = new[] { "", "是", "否" },
+            SelectedItem = string.IsNullOrWhiteSpace(seedFlag) ? "" : seedFlag,
+            MinWidth = 78,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+    }
+
+    private static TextBox CreateSeedRankBox(string seedRank)
+    {
+        return new TextBox
+        {
+            Text = seedRank,
+            PlaceholderText = "空",
+            MinWidth = 72,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+    }
+
+    private static void AddRosterControlCell(Grid table, int row, int column, Control control)
+    {
+        var border = new Border
+        {
+            Background = new SolidColorBrush(row % 2 == 0 ? Color.FromRgb(255, 255, 255) : Color.FromRgb(248, 250, 252)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(210, 224, 240)),
+            BorderThickness = new Avalonia.Thickness(0, 0, 1, 1),
+            Padding = new Avalonia.Thickness(8, 5),
+            Child = control
+        };
+        Grid.SetRow(border, row);
+        Grid.SetColumn(border, column);
+        table.Children.Add(border);
+    }
+
+    private void ApplyParticipantSeedEdits(IReadOnlyList<ParticipantSeedEditor> seedEditors)
+    {
+        var editedParticipants = _participants.ToArray();
+        foreach (var editor in seedEditors)
+        {
+            var seedFlag = ParseRosterSeedFlag(editor.SeedFlagBox.SelectedItem?.ToString() ?? "", editor.OrderText);
+            var seedRank = ParseRosterSeedRank(editor.SeedRankBox.Text ?? "", editor.OrderText);
+            if (seedFlag == false && seedRank.HasValue)
+            {
+                throw new DrawValidationException($"序号 {editor.OrderText} {editor.DisplayName} 填写了种子序号，但“是否种子”为否。");
+            }
+
+            var isSeed = seedFlag == true || seedRank.HasValue;
+            editedParticipants[editor.ParticipantIndex] = editedParticipants[editor.ParticipantIndex] with
+            {
+                IsSeed = isSeed,
+                SeedRank = seedRank
+            };
+        }
+
+        ValidateParticipantSeedEdits(editedParticipants);
+        _participants = editedParticipants;
+        _participantImportWarnings = _participantImportWarnings
+            .Where(warning => warning.Kind == ParticipantImportWarningKind.DuplicatePlayerName)
+            .Concat(BuildParticipantSeedEditWarnings(_participants))
+            .ToList();
+        _importWarnings = FormatParticipantWarnings(_participantImportWarnings);
+        _latestWorkflowResult = null;
+        _latestResult = null;
+        ClearProgressReference();
+        GroupCountStatText.Text = "-";
+        PreviewStateText.Text = "待预览";
+        SummaryText.Text = $"已更新 {_participants.Count} 个参赛单位的种子设置，请重新预览抽签。";
+        SetWarnings(_importWarnings);
+        GroupsList.ItemsSource = Array.Empty<PreviewGroupRow>();
+        RoundOneList.ItemsSource = Array.Empty<PreviewGroupRow>();
+        ByeList.ItemsSource = Array.Empty<PreviewGroupRow>();
+        ClearSchedulePreview();
+        SetStatus("参赛名单种子设置已更新；两项留空的参赛单位会按非种子处理。");
+    }
+
+    private static bool? ParseRosterSeedFlag(string value, string orderText)
+    {
+        var trimmed = value.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return null;
+        }
+
+        if (string.Equals(trimmed, "是", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "yes", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "y", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "true", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "1", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.Equals(trimmed, "否", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "no", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "n", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "false", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "0", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        throw new DrawValidationException($"序号 {orderText} 的“是否种子”只能选择“是”“否”或留空。");
+    }
+
+    private static int? ParseRosterSeedRank(string value, string orderText)
+    {
+        var trimmed = value.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return null;
+        }
+
+        if (!int.TryParse(trimmed, out var rank) || rank <= 0)
+        {
+            throw new DrawValidationException($"序号 {orderText} 的“种子序号”必须是大于 0 的整数，或留空。");
+        }
+
+        return rank;
+    }
+
+    private static void ValidateParticipantSeedEdits(IReadOnlyList<DrawParticipant> participants)
+    {
+        var seedCount = participants.Count(participant => participant.IsSeed);
+        var maxSeedCount = OfficialDrawRules.GetMaximumSeedCount(participants.Count);
+        if (seedCount > maxSeedCount)
+        {
+            throw new DrawValidationException($"当前参赛数量最多设置 {maxSeedCount} 个种子，当前设置了 {seedCount} 个。");
+        }
+
+        var overflowSeedRank = participants.FirstOrDefault(participant =>
+            participant.SeedRank.HasValue && participant.SeedRank.Value > maxSeedCount);
+        if (overflowSeedRank is not null)
+        {
+            throw new DrawValidationException(
+                $"种子序号不能大于当前参赛数量允许的种子数量 {maxSeedCount}：{overflowSeedRank.DisplayName} 的种子序号为 {overflowSeedRank.SeedRank}。");
+        }
+
+        var duplicateSeedRank = participants
+            .Where(participant => participant.SeedRank.HasValue)
+            .GroupBy(participant => participant.SeedRank!.Value)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateSeedRank is not null)
+        {
+            var duplicateNames = string.Join("、", duplicateSeedRank.Select(participant => participant.DisplayName));
+            throw new DrawValidationException($"参赛名单中存在重复种子序号 {duplicateSeedRank.Key}：{duplicateNames}");
+        }
+    }
+
+    private static IReadOnlyList<ParticipantImportWarning> BuildParticipantSeedEditWarnings(
+        IReadOnlyList<DrawParticipant> participants)
+    {
+        return participants
+            .Where(participant => participant.IsSeed && !participant.SeedRank.HasValue)
+            .Select(participant => new ParticipantImportWarning(
+                ParticipantImportWarningKind.UnrankedSeed,
+                "种子未编号",
+                $"“{participant.DisplayName}”标记为种子，但未填写种子序号。"))
+            .ToList();
+    }
+
+    private static IReadOnlyList<string> FormatParticipantWarnings(IReadOnlyList<ParticipantImportWarning> warnings)
+    {
+        return warnings
+            .Select(warning => $"{warning.Summary}：{warning.Detail}")
+            .ToList();
     }
 
     private static IReadOnlyList<ParticipantRosterRow> BuildParticipantRosterRows(IReadOnlyList<DrawParticipant> participants)
@@ -2779,6 +3059,7 @@ public partial class MainWindow : Window
     {
         _participants = [];
         _importWarnings = [];
+        _participantImportWarnings = [];
         _latestWorkflowResult = null;
         _latestResult = null;
         _latestSchedule = null;
@@ -2811,6 +3092,7 @@ public partial class MainWindow : Window
             _latestResult = state.Snapshot.DrawResult;
             _latestSchedule = state.Snapshot.Schedule;
             _participants = state.Snapshot.Participants;
+            _participantImportWarnings = state.Snapshot.ImportWarnings;
             _importWarnings = _latestWorkflowResult.WarningMessages;
 
             CompetitionModeBox.SelectedIndex = state.Snapshot.DrawResult.Settings.CompetitionMode switch
@@ -3555,6 +3837,13 @@ public partial class MainWindow : Window
         string SeedFlag,
         string SeedRank,
         string Note);
+
+    private sealed record ParticipantSeedEditor(
+        int ParticipantIndex,
+        string OrderText,
+        string DisplayName,
+        ComboBox SeedFlagBox,
+        TextBox SeedRankBox);
 
     private sealed record CrossEventPlayerSummaryRow(
         CrossEventPlayerMultiEntry Entry,

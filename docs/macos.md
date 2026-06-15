@@ -70,7 +70,7 @@ dotnet test tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj -c Debug
 发布一个未签名的 macOS arm64 `.app` 和 `.dmg`：
 
 ```bash
-VERSION=4.0.0 bash scripts/publish-macos.sh osx-arm64
+VERSION=4.1.0 bash scripts/publish-macos.sh osx-arm64
 ```
 
 生成文件位于：

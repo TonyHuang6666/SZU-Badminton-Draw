@@ -52,6 +52,26 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void DrawWorkflowGeneratesFromEditedParticipants()
+    {
+        var participants = CreateParticipants(16).ToList();
+        participants[0] = participants[0] with { IsSeed = true, SeedRank = 1 };
+        var request = new DrawWorkflowRequest(
+            "名单已在界面导入",
+            CompetitionMode.SinglesKnockout,
+            EventKind.Singles,
+            4,
+            "seed-edited-participants",
+            KnockoutGoal.OneQualifierPerGroup,
+            PlacementPlayoff.None);
+
+        var result = new DrawWorkflow().GenerateFromParticipants(request, participants);
+
+        Assert.Contains(result.Result.Groups[0].Participants, participant => participant.SeedRank == 1);
+        Assert.Equal(participants, result.Participants);
+    }
+
+    [Fact]
     public void MultipleSeedsInSameGroupUseProtectedBracketSlots()
     {
         var participants = CreateParticipants(16).ToList();
