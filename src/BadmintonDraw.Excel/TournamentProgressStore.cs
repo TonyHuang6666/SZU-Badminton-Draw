@@ -128,16 +128,20 @@ public sealed class TournamentProgressStore
                 throw new TournamentProgressException("赛事存档缺少核心快照。");
             }
 
+            var drawResult = Deserialize<DrawResult>(snapshotReader.GetString(1));
+            var schedule = ScheduleDependencyBackfill.EnrichFromDrawResult(
+                drawResult,
+                Deserialize<SchedulePlan>(snapshotReader.GetString(4)));
             var snapshot = new TournamentProgressSnapshot(
                 ReadMetadata(connection, "tournament_id"),
                 ReadMetadata(connection, "event_name"),
                 DateTimeOffset.Parse(ReadMetadata(connection, "created_at")),
                 DateTimeOffset.Parse(ReadMetadata(connection, "updated_at")),
                 snapshotReader.IsDBNull(0) ? null : snapshotReader.GetString(0),
-                Deserialize<DrawResult>(snapshotReader.GetString(1)),
+                drawResult,
                 Deserialize<List<DrawParticipant>>(snapshotReader.GetString(2)),
                 Deserialize<List<ParticipantImportWarning>>(snapshotReader.GetString(3)),
-                Deserialize<SchedulePlan>(snapshotReader.GetString(4)));
+                schedule);
             snapshotReader.Close();
 
             var results = ReadResults(connection);

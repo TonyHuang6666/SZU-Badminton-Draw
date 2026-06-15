@@ -1225,8 +1225,33 @@ public sealed class DrawWorkflowTests
     {
         var schedule = new SchedulePlan(
             [
-                new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 20), "B1", 1, "A组", "128进64", "A组128进64第1场", "张三", "李四"),
-                new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 20), new TimeOnly(14, 40), "B2", 1, "A组", "64进32", "A组64进32第1场", "A组128进64第1场胜者", "王五")
+                new ScheduledMatch(
+                    1,
+                    "2026-06-13",
+                    new TimeOnly(14, 0),
+                    new TimeOnly(14, 20),
+                    "B1",
+                    1,
+                    "A组",
+                    "128进64",
+                    "A组128进64第1场",
+                    "张三",
+                    "李四",
+                    MatchId: "m1"),
+                new ScheduledMatch(
+                    2,
+                    "2026-06-13",
+                    new TimeOnly(14, 20),
+                    new TimeOnly(14, 40),
+                    "B2",
+                    1,
+                    "A组",
+                    "64进32",
+                    "A组64进32第1场",
+                    "A组128进64第1场胜者",
+                    "王五",
+                    MatchId: "m2",
+                    Dependencies: [Dependency("m1", "A组128进64第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
             ],
             new ScheduleSettings(
                 [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2"])],
@@ -1253,8 +1278,33 @@ public sealed class DrawWorkflowTests
     {
         var schedule = new SchedulePlan(
             [
-                new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 20), new TimeOnly(14, 40), "B1", 1, "A组", "16进8", "A组16进8第1场", "张三", "李四"),
-                new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 20), new TimeOnly(14, 50), "B2", 1, "A组", "8进4", "A组8进4第1场", "A组16进8第1场胜者", "王五")
+                new ScheduledMatch(
+                    1,
+                    "2026-06-13",
+                    new TimeOnly(14, 20),
+                    new TimeOnly(14, 40),
+                    "B1",
+                    1,
+                    "A组",
+                    "16进8",
+                    "A组16进8第1场",
+                    "张三",
+                    "李四",
+                    MatchId: "m1"),
+                new ScheduledMatch(
+                    2,
+                    "2026-06-13",
+                    new TimeOnly(14, 20),
+                    new TimeOnly(14, 50),
+                    "B2",
+                    1,
+                    "A组",
+                    "8进4",
+                    "A组8进4第1场",
+                    "A组16进8第1场胜者",
+                    "王五",
+                    MatchId: "m2",
+                    Dependencies: [Dependency("m1", "A组16进8第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
             ],
             new ScheduleSettings(
                 [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2"])],
@@ -1280,10 +1330,49 @@ public sealed class DrawWorkflowTests
         {
             return new SchedulePlan(
                 [
-                    new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 20), "B1", 1, "A组", "128进64", "A组128进64第1场", "张三", "李四"),
-                    new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 40), new TimeOnly(15, 0), "B1", 1, "A组", "64进32", "A组64进32第1场", "A组128进64第1场胜者", "王五"),
-                    new ScheduledMatch(3, "2026-06-13", new TimeOnly(15, 0), new TimeOnly(15, 20), "B2", 1, "A组", "32进16", "A组32进16第1场", "A组64进32第1场胜者", "赵六"),
-                    new ScheduledMatch(4, "2026-06-13", new TimeOnly(15, 20), new TimeOnly(15, 40), "B3", 1, "A组", "16进8", "A组16进8第1场", "A组32进16第1场胜者", "孙七")
+                    new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 20), "B1", 1, "A组", "128进64", "A组128进64第1场", "张三", "李四", MatchId: "m1"),
+                    new ScheduledMatch(
+                        2,
+                        "2026-06-13",
+                        new TimeOnly(14, 40),
+                        new TimeOnly(15, 0),
+                        "B1",
+                        1,
+                        "A组",
+                        "64进32",
+                        "A组64进32第1场",
+                        "A组128进64第1场胜者",
+                        "王五",
+                        MatchId: "m2",
+                        Dependencies: [Dependency("m1", "A组128进64第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                    new ScheduledMatch(
+                        3,
+                        "2026-06-13",
+                        new TimeOnly(15, 0),
+                        new TimeOnly(15, 20),
+                        "B2",
+                        1,
+                        "A组",
+                        "32进16",
+                        "A组32进16第1场",
+                        "A组64进32第1场胜者",
+                        "赵六",
+                        MatchId: "m3",
+                        Dependencies: [Dependency("m2", "A组64进32第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                    new ScheduledMatch(
+                        4,
+                        "2026-06-13",
+                        new TimeOnly(15, 20),
+                        new TimeOnly(15, 40),
+                        "B3",
+                        1,
+                        "A组",
+                        "16进8",
+                        "A组16进8第1场",
+                        "A组32进16第1场胜者",
+                        "孙七",
+                        MatchId: "m4",
+                        Dependencies: [Dependency("m3", "A组32进16第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
                 ],
                 new ScheduleSettings(
                     [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2"])],
@@ -1318,9 +1407,35 @@ public sealed class DrawWorkflowTests
     {
         var schedule = new SchedulePlan(
             [
-                new ScheduledMatch(1, "2026-06-13", new TimeOnly(13, 0), new TimeOnly(13, 20), "B1", 1, "A组", "半决赛", "A组半决赛第1场", "张三", "李四"),
-                new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 20), "B1", 1, "A组", "决赛", "A组决赛第1场", "A组半决赛第1场胜者", "王五"),
-                new ScheduledMatch(3, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 20), "B2", 1, "A组", "3/4名赛", "3/4名赛", "A组半决赛第1场负者", "赵六")
+                new ScheduledMatch(1, "2026-06-13", new TimeOnly(13, 0), new TimeOnly(13, 20), "B1", 1, "A组", "半决赛", "A组半决赛第1场", "张三", "李四", MatchId: "m1"),
+                new ScheduledMatch(
+                    2,
+                    "2026-06-13",
+                    new TimeOnly(14, 0),
+                    new TimeOnly(14, 20),
+                    "B1",
+                    1,
+                    "A组",
+                    "决赛",
+                    "A组决赛第1场",
+                    "A组半决赛第1场胜者",
+                    "王五",
+                    MatchId: "m2",
+                    Dependencies: [Dependency("m1", "A组半决赛第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                new ScheduledMatch(
+                    3,
+                    "2026-06-13",
+                    new TimeOnly(14, 0),
+                    new TimeOnly(14, 20),
+                    "B2",
+                    1,
+                    "A组",
+                    "3/4名赛",
+                    "3/4名赛",
+                    "A组半决赛第1场负者",
+                    "赵六",
+                    MatchId: "m3",
+                    Dependencies: [Dependency("m1", "A组半决赛第1场", ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA)])
             ],
             new ScheduleSettings(
                 [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(13, 0), new TimeOnly(18, 0), ["B1", "B2"])],
@@ -1566,6 +1681,54 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void ScheduleWorkflowRejectsDependencyOrderViolationWhenMoving()
+    {
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(
+                    1,
+                    "2026-06-13",
+                    new TimeOnly(14, 0),
+                    new TimeOnly(14, 30),
+                    "B1",
+                    1,
+                    "A组",
+                    "16进8",
+                    "A组16进8第1场",
+                    "张三",
+                    "李四",
+                    MatchId: "m1"),
+                new ScheduledMatch(
+                    2,
+                    "2026-06-13",
+                    new TimeOnly(14, 30),
+                    new TimeOnly(15, 0),
+                    "B2",
+                    1,
+                    "A组",
+                    "8进4",
+                    "A组8进4第1场",
+                    "A组16进8第1场胜者",
+                    "王五",
+                    MatchId: "m2",
+                    Dependencies: [Dependency("m1", "A组16进8第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1", "B2"])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        var exception = Assert.Throws<DrawValidationException>(() => ScheduleWorkflow.MoveScheduledMatch(
+            schedule,
+            "A组8进4第1场",
+            "2026-06-13",
+            new TimeOnly(14, 0),
+            "B2"));
+        Assert.Contains("赛程顺序错误", exception.Message);
+        Assert.Contains("前序场次结束前开始", exception.Message);
+    }
+
+    [Fact]
     public void CrossEventWorkflowExportsMergedMaterialsWhenNoSevereConflict()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-merged-{Guid.NewGuid():N}");
@@ -1670,8 +1833,33 @@ public sealed class DrawWorkflowTests
             Directory.CreateDirectory(directory);
             var singlesSchedule = new SchedulePlan(
                 [
-                    new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1", 1, "A组", "首轮赛", "A组首轮赛1", "张三", "李四"),
-                    new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 30), new TimeOnly(15, 0), "B1", 1, "A组", "决赛", "A组决赛1", "A组首轮赛1胜者", "王五")
+                    new ScheduledMatch(
+                        1,
+                        "2026-06-13",
+                        new TimeOnly(14, 0),
+                        new TimeOnly(14, 30),
+                        "B1",
+                        1,
+                        "A组",
+                        "首轮赛",
+                        "A组首轮赛1",
+                        "张三",
+                        "李四",
+                        MatchId: "s1"),
+                    new ScheduledMatch(
+                        2,
+                        "2026-06-13",
+                        new TimeOnly(14, 30),
+                        new TimeOnly(15, 0),
+                        "B1",
+                        1,
+                        "A组",
+                        "决赛",
+                        "A组决赛1",
+                        "A组首轮赛1胜者",
+                        "王五",
+                        MatchId: "s2",
+                        Dependencies: [Dependency("s1", "A组首轮赛1", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
                 ],
                 new ScheduleSettings(
                     [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "C1"])],
@@ -1733,8 +1921,21 @@ public sealed class DrawWorkflowTests
             Directory.CreateDirectory(directory);
             var singlesSchedule = new SchedulePlan(
                 [
-                    new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1", 1, "A组", "首轮赛", "第1场", "张三", "李四"),
-                    new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 30), new TimeOnly(15, 0), "B1", 1, "A组", "决赛", "决赛1", "第1场胜者", "王五")
+                    new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1", 1, "A组", "首轮赛", "第1场", "张三", "李四", MatchId: "singles-1"),
+                    new ScheduledMatch(
+                        2,
+                        "2026-06-13",
+                        new TimeOnly(14, 30),
+                        new TimeOnly(15, 0),
+                        "B1",
+                        1,
+                        "A组",
+                        "决赛",
+                        "决赛1",
+                        "第1场胜者",
+                        "王五",
+                        MatchId: "singles-2",
+                        Dependencies: [Dependency("singles-1", "第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
                 ],
                 new ScheduleSettings(
                     [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "C1"])],
@@ -1742,8 +1943,21 @@ public sealed class DrawWorkflowTests
                     MaxMatchesPerEntrantPerDay: 2));
             var mixedSchedule = new SchedulePlan(
                 [
-                    new ScheduledMatch(1, "2026-06-13", new TimeOnly(15, 0), new TimeOnly(15, 30), "C1", 1, "A组", "首轮赛", "第1场", "[赵六 钱七]", "[孙八 周九]"),
-                    new ScheduledMatch(2, "2026-06-13", new TimeOnly(15, 30), new TimeOnly(16, 0), "C1", 1, "A组", "决赛", "决赛1", "第1场胜者", "[吴十 郑一]")
+                    new ScheduledMatch(1, "2026-06-13", new TimeOnly(15, 0), new TimeOnly(15, 30), "C1", 1, "A组", "首轮赛", "第1场", "[赵六 钱七]", "[孙八 周九]", MatchId: "mixed-1"),
+                    new ScheduledMatch(
+                        2,
+                        "2026-06-13",
+                        new TimeOnly(15, 30),
+                        new TimeOnly(16, 0),
+                        "C1",
+                        1,
+                        "A组",
+                        "决赛",
+                        "决赛1",
+                        "第1场胜者",
+                        "[吴十 郑一]",
+                        MatchId: "mixed-2",
+                        Dependencies: [Dependency("mixed-1", "第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
                 ],
                 new ScheduleSettings(
                     [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "C1"])],
@@ -2255,6 +2469,66 @@ public sealed class DrawWorkflowTests
             Assert.Equal(snapshot.Schedule.Matches, reopened.Snapshot.Schedule.Matches);
             Assert.Empty(reopened.Results);
             Assert.Empty(reopened.ImportLogs);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void TournamentProgressStoreBackfillsLegacyScheduleDependencies()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-progress-legacy-dependencies-{Guid.NewGuid():N}");
+        var progressPath = Path.Combine(directory, "旧版校长杯男单.szbd");
+
+        try
+        {
+            var participants = CreateParticipants(4);
+            var result = new DrawService().Generate(
+                participants,
+                CreateSettings(
+                    groupCount: 1,
+                    mode: CompetitionMode.SinglesKnockout,
+                    knockoutGoal: KnockoutGoal.Champion));
+            var schedule = new ScheduleService().Generate(
+                result,
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["A1", "A2", "A3"])],
+                    MatchMinutes: 30,
+                    MaxMatchesPerEntrantPerDay: 2));
+            var now = DateTimeOffset.UtcNow;
+            var snapshot = new TournamentProgressSnapshot(
+                "legacy-dependencies",
+                "旧版校长杯男单",
+                now,
+                now,
+                "/tmp/旧版校长杯男单参赛名单.xlsx",
+                result,
+                participants,
+                [],
+                StripScheduleDependencies(schedule));
+            var store = new TournamentProgressStore();
+
+            store.Create(progressPath, snapshot);
+            var reopened = store.Read(progressPath);
+            var restoredSchedule = reopened.Snapshot.Schedule;
+            var dependentMatch = restoredSchedule.Matches.Single(match => match.Dependencies.Count == 2);
+            var sourceMatch = restoredSchedule.Matches.Single(match =>
+                string.Equals(match.MatchId, dependentMatch.Dependencies[0].SourceMatchId, StringComparison.Ordinal));
+
+            Assert.All(restoredSchedule.Matches, match => Assert.False(string.IsNullOrWhiteSpace(match.MatchId)));
+            Assert.NotEqual(dependentMatch.MatchName, dependentMatch.MatchId);
+            Assert.NotEmpty(dependentMatch.Dependencies);
+
+            var exception = Assert.Throws<DrawValidationException>(() => ScheduleWorkflow.MoveScheduledMatch(
+                restoredSchedule,
+                dependentMatch.MatchName,
+                sourceMatch.DayLabel,
+                sourceMatch.StartTime,
+                "A3"));
+            Assert.Contains("赛程顺序错误", exception.Message);
+            Assert.Contains("前序场次结束前开始", exception.Message);
         }
         finally
         {
@@ -3572,6 +3846,29 @@ public sealed class DrawWorkflowTests
         {
             Directory.Delete(path, recursive: true);
         }
+    }
+
+    private static SchedulePlan StripScheduleDependencies(SchedulePlan schedule)
+    {
+        return schedule with
+        {
+            Matches = schedule.Matches
+                .Select(match => match with
+                {
+                    MatchId = "",
+                    Dependencies = []
+                })
+                .ToList()
+        };
+    }
+
+    private static ScheduleMatchDependency Dependency(
+        string sourceMatchId,
+        string sourceMatchName,
+        ScheduleMatchDependencyOutcome outcome,
+        ScheduleMatchSide side)
+    {
+        return new ScheduleMatchDependency(sourceMatchId, sourceMatchName, outcome, side);
     }
 
     private sealed record ParticipantWorkbookRow(

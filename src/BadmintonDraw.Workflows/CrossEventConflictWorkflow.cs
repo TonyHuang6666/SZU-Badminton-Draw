@@ -94,6 +94,11 @@ public sealed class CrossEventConflictWorkflow
         var sources = board.Sources
             .Select(source => MoveMatchInSource(source, itemKey, dayLabel, startTime, endTime, court))
             .ToList();
+        foreach (var source in sources)
+        {
+            ScheduleDependencyGraph.Build(BuildSchedulePlan(source)).EnsureDependencyOrder();
+        }
+
         return BuildScheduleBoard(sources, board.MinimumRestMinutes, hasUnsavedChanges: true);
     }
 
@@ -212,14 +217,23 @@ public sealed class CrossEventConflictWorkflow
             .ThenBy(item => item.Order)
             .Select(item => (Item: item, MergedMatchName: BuildMergedMatchName(item, nameCounts)))
             .ToList();
-        var mergedNameByItemKey = mergedItems.ToDictionary(
-            item => BuildItemKey(item.Item.SourceId, item.Item.MatchName),
+        var mergedIdBySourceMatchId = mergedItems.ToDictionary(
+            item => BuildSourceMatchIdKey(item.Item.SourceId, item.Item.MatchId),
+            item => BuildMergedMatchId(item.Item.SourceId, item.Item.MatchId),
+            StringComparer.Ordinal);
+        var mergedNameBySourceMatchId = mergedItems.ToDictionary(
+            item => BuildSourceMatchIdKey(item.Item.SourceId, item.Item.MatchId),
             item => item.MergedMatchName,
             StringComparer.Ordinal);
         var matches = mergedItems
             .Select((item, index) =>
             {
                 var boardItem = item.Item;
+                var mergedDependencies = RewriteMergedDependencies(
+                    boardItem.Dependencies,
+                    boardItem.SourceId,
+                    mergedIdBySourceMatchId,
+                    mergedNameBySourceMatchId);
                 var groupName = string.IsNullOrWhiteSpace(boardItem.GroupName)
                     ? boardItem.EventName
                     : $"{boardItem.EventName} {boardItem.GroupName}";
@@ -236,9 +250,12 @@ public sealed class CrossEventConflictWorkflow
                     groupName,
                     boardItem.Phase,
                     item.MergedMatchName,
-                    RewriteMergedOutcomeSide(boardItem.SideA, boardItem.SourceId, mergedNameByItemKey),
-                    RewriteMergedOutcomeSide(boardItem.SideB, boardItem.SourceId, mergedNameByItemKey),
-                    note);
+                    RewriteMergedSide(boardItem.SideA, mergedDependencies, ScheduleMatchSide.SideA),
+                    RewriteMergedSide(boardItem.SideB, mergedDependencies, ScheduleMatchSide.SideB),
+                    note,
+                    false,
+                    BuildMergedMatchId(boardItem.SourceId, boardItem.MatchId),
+                    mergedDependencies);
             })
             .ToList();
         return new SchedulePlan(matches, BuildMergedScheduleSettings(board, matches));
@@ -335,7 +352,9 @@ public sealed class CrossEventConflictWorkflow
                     match.GroupNumber,
                     match.Note,
                     match.SameUnit,
-                    state.Results.ContainsKey(match.MatchName));
+                    state.Results.ContainsKey(match.MatchName),
+                    match.MatchId,
+                    match.Dependencies);
             })
             .ToList();
 
@@ -382,7 +401,9 @@ public sealed class CrossEventConflictWorkflow
                     match.DurationMinutes,
                     match.IsCompleted,
                     hasConflict ? conflict!.Severity : null,
-                    hasConflict ? string.Join("；", conflict!.Messages.Distinct(StringComparer.Ordinal)) : "");
+                    hasConflict ? string.Join("；", conflict!.Messages.Distinct(StringComparer.Ordinal)) : "",
+                    match.MatchId,
+                    match.Dependencies);
             }))
             .OrderBy(item => item.DayLabel, StringComparer.Ordinal)
             .ThenBy(item => item.StartTime)
@@ -791,7 +812,9 @@ public sealed class CrossEventConflictWorkflow
                 match.SideA,
                 match.SideB,
                 match.Note,
-                match.SameUnit))
+                match.SameUnit,
+                match.MatchId,
+                match.Dependencies))
             .ToList();
         return new SchedulePlan(matches, BuildScheduleSettings(source.ScheduleSettings, matches));
     }
@@ -826,19 +849,38 @@ public sealed class CrossEventConflictWorkflow
         return count == 1 ? baseName : $"{baseName} #{count}";
     }
 
-    private static string RewriteMergedOutcomeSide(
+    private static string RewriteMergedSide(
         string side,
-        string sourceId,
-        IReadOnlyDictionary<string, string> mergedNameByItemKey)
+        IReadOnlyList<ScheduleMatchDependency> dependencies,
+        ScheduleMatchSide targetSide)
     {
-        if (!ScheduleMatchText.TryParseOutcomeReference(side, out var sourceMatchName, out var outcome))
-        {
-            return side;
-        }
+        var dependency = dependencies.FirstOrDefault(item => item.TargetSide == targetSide);
+        return dependency is null
+            ? side
+            : $"{dependency.SourceMatchName}{ScheduleDependencyGraph.FormatOutcome(dependency.Outcome)}";
+    }
 
-        return mergedNameByItemKey.TryGetValue(BuildItemKey(sourceId, sourceMatchName), out var mergedMatchName)
-            ? $"{mergedMatchName}{outcome}"
-            : side;
+    private static IReadOnlyList<ScheduleMatchDependency> RewriteMergedDependencies(
+        IReadOnlyList<ScheduleMatchDependency> dependencies,
+        string sourceId,
+        IReadOnlyDictionary<string, string> mergedIdBySourceMatchId,
+        IReadOnlyDictionary<string, string> mergedNameBySourceMatchId)
+    {
+        return dependencies
+            .Select(dependency =>
+            {
+                var sourceKey = BuildSourceMatchIdKey(sourceId, dependency.SourceMatchId);
+                return dependency with
+                {
+                    SourceMatchId = mergedIdBySourceMatchId.TryGetValue(sourceKey, out var mergedId)
+                        ? mergedId
+                        : BuildMergedMatchId(sourceId, dependency.SourceMatchId),
+                    SourceMatchName = mergedNameBySourceMatchId.TryGetValue(sourceKey, out var mergedName)
+                        ? mergedName
+                        : dependency.SourceMatchName
+                };
+            })
+            .ToList();
     }
 
     private static ScheduleSettings BuildScheduleSettings(
@@ -931,6 +973,16 @@ public sealed class CrossEventConflictWorkflow
     private static string BuildItemKey(string sourceId, string matchName)
     {
         return $"{sourceId}{ItemKeySeparator}{matchName}";
+    }
+
+    private static string BuildSourceMatchIdKey(string sourceId, string matchId)
+    {
+        return $"{sourceId}{ItemKeySeparator}{matchId}";
+    }
+
+    private static string BuildMergedMatchId(string sourceId, string matchId)
+    {
+        return BuildSourceMatchIdKey(sourceId, matchId);
     }
 
     private static int SeverityOrder(CrossEventConflictSeverity severity)

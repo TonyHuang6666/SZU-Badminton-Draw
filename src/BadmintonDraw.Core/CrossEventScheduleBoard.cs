@@ -45,8 +45,14 @@ public sealed record CrossEventScheduleBoardItem(
     int DurationMinutes,
     bool IsCompleted,
     CrossEventConflictSeverity? ConflictSeverity,
-    string ConflictSummary)
+    string ConflictSummary,
+    string MatchId = "",
+    IReadOnlyList<ScheduleMatchDependency>? Dependencies = null)
 {
+    public string MatchId { get; init; } = string.IsNullOrWhiteSpace(MatchId) ? MatchName : MatchId;
+
+    public IReadOnlyList<ScheduleMatchDependency> Dependencies { get; init; } = Dependencies ?? Array.Empty<ScheduleMatchDependency>();
+
     public string TimeRange => $"{StartTime:HH:mm}-{EndTime:HH:mm}";
 
     public bool IsBlockingConflict => ConflictSeverity is CrossEventConflictSeverity.Severe or CrossEventConflictSeverity.Warning;

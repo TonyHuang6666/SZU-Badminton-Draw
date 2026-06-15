@@ -10,7 +10,7 @@ public sealed class ScheduleConstraintAnalyzer
         var issues = new List<ScheduleConstraintIssue>();
         var appearances = BuildAppearances(schedule.Matches, rules.MaxProjectedDepth);
 
-        AddDependencyOrderIssues(issues, schedule.Matches, schedule.Settings, rules);
+        AddDependencyOrderIssues(issues, schedule, rules);
         AddRestIssues(issues, appearances, rules);
         AddDailyLoadIssues(issues, appearances, schedule.Settings, rules);
         AddKeyMatchTimeIssues(issues, schedule.Matches, rules);
@@ -155,7 +155,7 @@ public sealed class ScheduleConstraintAnalyzer
                 .OrderBy(name => name, StringComparer.Ordinal)
                 .ToList();
             var playerText = FormatProjectedPlayerSummary(players);
-            var outcome = DescribeOutcomeReference(current.Conditions, previous.Match.MatchName);
+            var outcome = DescribeOutcomeReference(current.Conditions, previous.Match.MatchId);
             var scopePrefix = first.Scope == ScheduleConstraintIssueScope.DirectDependency
                 ? "场次接续风险"
                 : "推演风险";
@@ -180,57 +180,51 @@ public sealed class ScheduleConstraintAnalyzer
 
     private static void AddDependencyOrderIssues(
         List<ScheduleConstraintIssue> issues,
-        IReadOnlyList<ScheduledMatch> matches,
-        ScheduleSettings settings,
+        SchedulePlan schedule,
         ScheduleConstraintRules rules)
     {
-        var scheduleByName = matches
-            .GroupBy(match => match.MatchName, StringComparer.Ordinal)
+        var graph = ScheduleDependencyGraph.Build(schedule);
+        var scheduleById = schedule.Matches
+            .GroupBy(match => match.MatchId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-        var dayNumbers = BuildDayNumberLookup(settings, matches);
 
-        foreach (var dependent in matches)
+        foreach (var edge in graph.Edges)
         {
-            foreach (var reference in GetOutcomeReferences(dependent))
+            var dependent = edge.Dependent;
+            var source = edge.Source;
+            var restMinutes = graph.GetRestMinutes(edge);
+            var requiredRest = IsKeyMatch(dependent)
+                ? rules.KeyMatchMinimumRestMinutes
+                : rules.MinimumRestMinutes;
+            if (restMinutes >= requiredRest)
             {
-                if (!scheduleByName.TryGetValue(reference.MatchName, out var source))
-                {
-                    continue;
-                }
-
-                var restMinutes = GetRestMinutes(source, dependent, dayNumbers);
-                var requiredRest = IsKeyMatch(dependent)
-                    ? rules.KeyMatchMinimumRestMinutes
-                    : rules.MinimumRestMinutes;
-                if (restMinutes >= requiredRest)
-                {
-                    continue;
-                }
-
-                var severity = restMinutes < 0
-                    ? ScheduleConstraintSeverity.Severe
-                    : ScheduleConstraintSeverity.Warning;
-                var playerText = FormatProjectedPlayerSummary(
-                    ResolveMatchCandidates(source, scheduleByName, [], rules.MaxProjectedDepth)
-                        .Select(candidate => candidate.PlayerName)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .OrderBy(name => name, StringComparer.Ordinal)
-                        .ToList());
-                var message = restMinutes < 0
-                    ? $"赛程顺序错误：{dependent.MatchName} 依赖 {source.MatchName} 的{reference.Outcome}，但后续场次在前序场次结束前开始（{source.DayLabel} {source.TimeRange} → {dependent.DayLabel} {dependent.TimeRange}）。请先安排前序场次。{playerText}"
-                    : $"场次接续风险：{source.MatchName} 的{reference.Outcome}进入 {dependent.MatchName}，两场间隔 {restMinutes} 分钟，低于{rules.ProfileName}要求的 {requiredRest} 分钟。{playerText}";
-                issues.Add(new ScheduleConstraintIssue(
-                    severity,
-                    ScheduleConstraintIssueType.DependencyOrder,
-                    ScheduleConstraintIssueScope.DirectDependency,
-                    dependent.DayLabel,
-                    dependent.StartTime,
-                    dependent.Court,
-                    dependent.Phase,
-                    dependent.MatchName,
-                    null,
-                    message));
+                continue;
             }
+
+            var severity = restMinutes < 0
+                ? ScheduleConstraintSeverity.Severe
+                : ScheduleConstraintSeverity.Warning;
+            var outcome = ScheduleDependencyGraph.FormatOutcome(edge.Dependency.Outcome);
+            var playerText = FormatProjectedPlayerSummary(
+                ResolveMatchCandidates(source, scheduleById, [], rules.MaxProjectedDepth)
+                    .Select(candidate => candidate.PlayerName)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToList());
+            var message = restMinutes < 0
+                ? $"赛程顺序错误：{dependent.MatchName} 依赖 {source.MatchName} 的{outcome}，但后续场次在前序场次结束前开始（{source.DayLabel} {source.TimeRange} → {dependent.DayLabel} {dependent.TimeRange}）。请先安排前序场次。{playerText}"
+                : $"场次接续风险：{source.MatchName} 的{outcome}进入 {dependent.MatchName}，两场间隔 {restMinutes} 分钟，低于{rules.ProfileName}要求的 {requiredRest} 分钟。{playerText}";
+            issues.Add(new ScheduleConstraintIssue(
+                severity,
+                ScheduleConstraintIssueType.DependencyOrder,
+                ScheduleConstraintIssueScope.DirectDependency,
+                dependent.DayLabel,
+                dependent.StartTime,
+                dependent.Court,
+                dependent.Phase,
+                dependent.MatchName,
+                null,
+                message));
         }
     }
 
@@ -262,11 +256,11 @@ public sealed class ScheduleConstraintAnalyzer
 
     private static IReadOnlyList<PlayerAppearance> BuildAppearances(IReadOnlyList<ScheduledMatch> matches, int maxProjectedDepth)
     {
-        var scheduleByName = matches
-            .GroupBy(match => match.MatchName, StringComparer.Ordinal)
+        var scheduleById = matches
+            .GroupBy(match => match.MatchId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         return matches
-            .SelectMany(match => ResolveMatchCandidates(match, scheduleByName, [], maxProjectedDepth)
+            .SelectMany(match => ResolveMatchCandidates(match, scheduleById, [], maxProjectedDepth)
                 .GroupBy(candidate => $"{candidate.NormalizedPlayerName}\u001F{BuildConditionsKey(candidate.Conditions)}", StringComparer.Ordinal)
                 .Select(group => group.First())
                 .Select(candidate => new PlayerAppearance(
@@ -275,7 +269,7 @@ public sealed class ScheduleConstraintAnalyzer
                     match,
                     candidate.Conditions,
                     candidate.IsProjected,
-                    candidate.DirectSourceMatchName,
+                    candidate.DirectSourceMatchId,
                     candidate.ProjectionDepth)))
             .ToList();
     }
@@ -294,7 +288,7 @@ public sealed class ScheduleConstraintAnalyzer
                 break;
             }
 
-            if (string.Equals(candidate.Match.MatchName, current.Match.MatchName, StringComparison.Ordinal)
+            if (string.Equals(candidate.Match.MatchId, current.Match.MatchId, StringComparison.Ordinal)
                 || !AreConditionsCompatible(candidate.Conditions, current.Conditions))
             {
                 continue;
@@ -311,51 +305,60 @@ public sealed class ScheduleConstraintAnalyzer
 
     private static IReadOnlyList<PlayerCandidate> ResolveMatchCandidates(
         ScheduledMatch match,
-        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName,
+        IReadOnlyDictionary<string, ScheduledMatch> scheduleById,
         HashSet<string> visiting,
         int maxProjectedDepth)
     {
-        if (!visiting.Add(match.MatchName))
+        if (!visiting.Add(match.MatchId))
         {
             return [];
         }
 
-        var candidates = ResolveSideCandidates(match.SideA, scheduleByName, visiting, maxProjectedDepth)
-            .Concat(ResolveSideCandidates(match.SideB, scheduleByName, visiting, maxProjectedDepth))
+        var candidates = ResolveSideCandidates(match, ScheduleMatchSide.SideA, scheduleById, visiting, maxProjectedDepth)
+            .Concat(ResolveSideCandidates(match, ScheduleMatchSide.SideB, scheduleById, visiting, maxProjectedDepth))
             .GroupBy(candidate => $"{candidate.NormalizedPlayerName}\u001F{BuildConditionsKey(candidate.Conditions)}", StringComparer.Ordinal)
             .Select(group => group.First())
             .ToList();
 
-        visiting.Remove(match.MatchName);
+        visiting.Remove(match.MatchId);
         return candidates;
     }
 
     private static IReadOnlyList<PlayerCandidate> ResolveSideCandidates(
-        string side,
-        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName,
+        ScheduledMatch match,
+        ScheduleMatchSide side,
+        IReadOnlyDictionary<string, ScheduledMatch> scheduleById,
         HashSet<string> visiting,
         int maxProjectedDepth)
     {
-        var text = side.Trim();
+        var sideDependencies = match.Dependencies
+            .Where(dependency => dependency.TargetSide == side)
+            .ToList();
+        if (sideDependencies.Count > 0)
+        {
+            return sideDependencies
+                .SelectMany(dependency =>
+                {
+                    if (!scheduleById.TryGetValue(dependency.SourceMatchId, out var sourceMatch))
+                    {
+                        return [];
+                    }
+
+                    return ResolveMatchCandidates(sourceMatch, scheduleById, visiting, maxProjectedDepth)
+                        .Select(candidate => TryAddOutcomeCondition(candidate, dependency.SourceMatchId, dependency.Outcome, maxProjectedDepth))
+                        .Where(candidate => candidate is not null)
+                        .Select(candidate => candidate!);
+                })
+                .ToList();
+        }
+
+        var sideText = side == ScheduleMatchSide.SideA ? match.SideA : match.SideB;
+        var text = sideText.Trim();
         if (string.IsNullOrWhiteSpace(text)
             || text.Contains("待定", StringComparison.Ordinal)
             || text.Contains("轮空", StringComparison.Ordinal))
         {
             return [];
-        }
-
-        if (TryParseOutcomeReference(text, out var sourceMatchName, out var outcome))
-        {
-            if (!scheduleByName.TryGetValue(sourceMatchName, out var sourceMatch))
-            {
-                return [];
-            }
-
-            return ResolveMatchCandidates(sourceMatch, scheduleByName, visiting, maxProjectedDepth)
-                .Select(candidate => TryAddOutcomeCondition(candidate, sourceMatchName, outcome, maxProjectedDepth))
-                .Where(candidate => candidate is not null)
-                .Select(candidate => candidate!)
-                .ToList();
         }
 
         if (text.Length >= 2 && text[0] == '[' && text[^1] == ']')
@@ -372,50 +375,10 @@ public sealed class ScheduleConstraintAnalyzer
         return [new PlayerCandidate(text, NormalizeName(text), [], IsProjected: false, null, ProjectionDepth: 0)];
     }
 
-    private static bool TryParseOutcomeReference(string side, out string sourceMatchName, out string outcome)
-    {
-        if (side.EndsWith("胜者", StringComparison.Ordinal))
-        {
-            sourceMatchName = side[..^"胜者".Length];
-            outcome = "胜者";
-            return true;
-        }
-
-        if (side.EndsWith("负者", StringComparison.Ordinal))
-        {
-            sourceMatchName = side[..^"负者".Length];
-            outcome = "负者";
-            return true;
-        }
-
-        sourceMatchName = "";
-        outcome = "";
-        return false;
-    }
-
-    private static IReadOnlyList<ScheduleOutcomeCondition> GetOutcomeReferences(ScheduledMatch match)
-    {
-        var references = new List<ScheduleOutcomeCondition>();
-        AddOutcomeReference(references, match.SideA);
-        AddOutcomeReference(references, match.SideB);
-        return references
-            .GroupBy(reference => $"{reference.MatchName}\u001F{reference.Outcome}", StringComparer.Ordinal)
-            .Select(group => group.First())
-            .ToList();
-    }
-
-    private static void AddOutcomeReference(List<ScheduleOutcomeCondition> references, string side)
-    {
-        if (TryParseOutcomeReference(side.Trim(), out var sourceMatchName, out var outcome))
-        {
-            references.Add(new ScheduleOutcomeCondition(sourceMatchName, outcome));
-        }
-    }
-
     private static PlayerCandidate? TryAddOutcomeCondition(
         PlayerCandidate candidate,
-        string matchName,
-        string outcome,
+        string matchId,
+        ScheduleMatchDependencyOutcome outcome,
         int maxProjectedDepth)
     {
         if (candidate.ProjectionDepth >= maxProjectedDepth)
@@ -423,8 +386,8 @@ public sealed class ScheduleConstraintAnalyzer
             return null;
         }
 
-        var existing = candidate.Conditions.FirstOrDefault(condition => string.Equals(condition.MatchName, matchName, StringComparison.Ordinal));
-        if (existing is not null && !string.Equals(existing.Outcome, outcome, StringComparison.Ordinal))
+        var existing = candidate.Conditions.FirstOrDefault(condition => string.Equals(condition.MatchId, matchId, StringComparison.Ordinal));
+        if (existing is not null && existing.Outcome != outcome)
         {
             return null;
         }
@@ -434,21 +397,21 @@ public sealed class ScheduleConstraintAnalyzer
             return candidate with
             {
                 IsProjected = true,
-                DirectSourceMatchName = matchName,
+                DirectSourceMatchId = matchId,
                 ProjectionDepth = candidate.ProjectionDepth + 1
             };
         }
 
         var conditions = candidate.Conditions
-            .Append(new ScheduleOutcomeCondition(matchName, outcome))
-            .OrderBy(condition => condition.MatchName, StringComparer.Ordinal)
-            .ThenBy(condition => condition.Outcome, StringComparer.Ordinal)
+            .Append(new ScheduleOutcomeCondition(matchId, outcome))
+            .OrderBy(condition => condition.MatchId, StringComparer.Ordinal)
+            .ThenBy(condition => condition.Outcome)
             .ToList();
         return candidate with
         {
             Conditions = conditions,
             IsProjected = true,
-            DirectSourceMatchName = matchName,
+            DirectSourceMatchId = matchId,
             ProjectionDepth = candidate.ProjectionDepth + 1
         };
     }
@@ -458,13 +421,13 @@ public sealed class ScheduleConstraintAnalyzer
         IReadOnlyList<ScheduleOutcomeCondition> second)
     {
         return !first.Any(left => second.Any(right =>
-            string.Equals(left.MatchName, right.MatchName, StringComparison.Ordinal)
-            && !string.Equals(left.Outcome, right.Outcome, StringComparison.Ordinal)));
+            string.Equals(left.MatchId, right.MatchId, StringComparison.Ordinal)
+            && left.Outcome != right.Outcome));
     }
 
     private static bool IsDirectDependency(PlayerAppearance previous, PlayerAppearance current)
     {
-        return string.Equals(current.DirectSourceMatchName, previous.Match.MatchName, StringComparison.Ordinal);
+        return string.Equals(current.DirectSourceMatchId, previous.Match.MatchId, StringComparison.Ordinal);
     }
 
     private static string BuildProjectedRestKey(ProjectedRestCandidate candidate)
@@ -481,13 +444,14 @@ public sealed class ScheduleConstraintAnalyzer
 
     private static string DescribeOutcomeReference(
         IReadOnlyList<ScheduleOutcomeCondition> conditions,
-        string sourceMatchName)
+        string sourceMatchId)
     {
         var outcomes = conditions
-            .Where(condition => string.Equals(condition.MatchName, sourceMatchName, StringComparison.Ordinal))
+            .Where(condition => string.Equals(condition.MatchId, sourceMatchId, StringComparison.Ordinal))
             .Select(condition => condition.Outcome)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(outcome => outcome, StringComparer.Ordinal)
+            .Distinct()
+            .OrderBy(outcome => outcome)
+            .Select(ScheduleDependencyGraph.FormatOutcome)
             .ToList();
         return outcomes.Count switch
         {
@@ -509,110 +473,57 @@ public sealed class ScheduleConstraintAnalyzer
         return $"涉及可能选手：{shown}{suffix}。";
     }
 
-    private static int GetRestMinutes(
-        ScheduledMatch source,
-        ScheduledMatch dependent,
-        IReadOnlyDictionary<string, int> dayNumbers)
-    {
-        return BuildComparableMinute(dependent.DayLabel, dependent.StartTime, dayNumbers)
-            - BuildComparableMinute(source.DayLabel, source.EndTime, dayNumbers);
-    }
-
-    private static int BuildComparableMinute(
-        string dayLabel,
-        TimeOnly time,
-        IReadOnlyDictionary<string, int> dayNumbers)
-    {
-        var dayNumber = dayNumbers.TryGetValue(dayLabel, out var value) ? value : 0;
-        return (dayNumber * 24 * 60) + (time.Hour * 60) + time.Minute;
-    }
-
-    private static IReadOnlyDictionary<string, int> BuildDayNumberLookup(
-        ScheduleSettings settings,
-        IReadOnlyList<ScheduledMatch> matches)
-    {
-        var result = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var day in settings.Days)
-        {
-            result[day.DayLabel] = day.Date.DayNumber;
-        }
-
-        foreach (var match in matches)
-        {
-            if (result.ContainsKey(match.DayLabel))
-            {
-                continue;
-            }
-
-            if (DateOnly.TryParseExact(match.DayLabel, "yyyy-MM-dd", out var date))
-            {
-                result[match.DayLabel] = date.DayNumber;
-            }
-        }
-
-        var fallbackStart = result.Count == 0 ? 1_000_000 : result.Values.Max() + 1;
-        foreach (var dayLabel in matches
-                     .Select(match => match.DayLabel)
-                     .Where(dayLabel => !result.ContainsKey(dayLabel))
-                     .Distinct(StringComparer.Ordinal))
-        {
-            result[dayLabel] = fallbackStart++;
-        }
-
-        return result;
-    }
-
     private static int CountMaximumCompatibleMatches(IReadOnlyList<PlayerAppearance> appearances)
     {
         return CountMaximumCompatibleMatches(
             appearances,
             startIndex: 0,
-            conditions: new Dictionary<string, string>(StringComparer.Ordinal),
-            selectedMatchNames: new HashSet<string>(StringComparer.Ordinal));
+            conditions: new Dictionary<string, ScheduleMatchDependencyOutcome>(StringComparer.Ordinal),
+            selectedMatchIds: new HashSet<string>(StringComparer.Ordinal));
     }
 
     private static int CountMaximumCompatibleMatches(
         IReadOnlyList<PlayerAppearance> appearances,
         int startIndex,
-        IReadOnlyDictionary<string, string> conditions,
-        IReadOnlySet<string> selectedMatchNames)
+        IReadOnlyDictionary<string, ScheduleMatchDependencyOutcome> conditions,
+        IReadOnlySet<string> selectedMatchIds)
     {
         if (startIndex >= appearances.Count)
         {
             return 0;
         }
 
-        var best = CountMaximumCompatibleMatches(appearances, startIndex + 1, conditions, selectedMatchNames);
+        var best = CountMaximumCompatibleMatches(appearances, startIndex + 1, conditions, selectedMatchIds);
         var current = appearances[startIndex];
-        if (selectedMatchNames.Contains(current.Match.MatchName)
+        if (selectedMatchIds.Contains(current.Match.MatchId)
             || !TryMergeConditions(conditions, current.Conditions, out var mergedConditions))
         {
             return best;
         }
 
-        var mergedMatchNames = selectedMatchNames.ToHashSet(StringComparer.Ordinal);
-        mergedMatchNames.Add(current.Match.MatchName);
+        var mergedMatchIds = selectedMatchIds.ToHashSet(StringComparer.Ordinal);
+        mergedMatchIds.Add(current.Match.MatchId);
         return Math.Max(
             best,
-            1 + CountMaximumCompatibleMatches(appearances, startIndex + 1, mergedConditions, mergedMatchNames));
+            1 + CountMaximumCompatibleMatches(appearances, startIndex + 1, mergedConditions, mergedMatchIds));
     }
 
     private static bool TryMergeConditions(
-        IReadOnlyDictionary<string, string> existingConditions,
+        IReadOnlyDictionary<string, ScheduleMatchDependencyOutcome> existingConditions,
         IReadOnlyList<ScheduleOutcomeCondition> candidateConditions,
-        out IReadOnlyDictionary<string, string> mergedConditions)
+        out IReadOnlyDictionary<string, ScheduleMatchDependencyOutcome> mergedConditions)
     {
-        var merged = new Dictionary<string, string>(existingConditions, StringComparer.Ordinal);
+        var merged = new Dictionary<string, ScheduleMatchDependencyOutcome>(existingConditions, StringComparer.Ordinal);
         foreach (var condition in candidateConditions)
         {
-            if (merged.TryGetValue(condition.MatchName, out var existingOutcome)
-                && !string.Equals(existingOutcome, condition.Outcome, StringComparison.Ordinal))
+            if (merged.TryGetValue(condition.MatchId, out var existingOutcome)
+                && existingOutcome != condition.Outcome)
             {
                 mergedConditions = existingConditions;
                 return false;
             }
 
-            merged[condition.MatchName] = condition.Outcome;
+            merged[condition.MatchId] = condition.Outcome;
         }
 
         mergedConditions = merged;
@@ -624,7 +535,7 @@ public sealed class ScheduleConstraintAnalyzer
         return string.Join(
             '\u001F',
             appearance.DayLabel,
-            appearance.Match.MatchName,
+            appearance.Match.MatchId,
             appearance.Match.StartTime.ToString("HH:mm"),
             appearance.Match.Court,
             BuildConditionsKey(appearance.Conditions));
@@ -632,7 +543,7 @@ public sealed class ScheduleConstraintAnalyzer
 
     private static string BuildConditionsKey(IReadOnlyList<ScheduleOutcomeCondition> conditions)
     {
-        return string.Join("|", conditions.Select(condition => $"{condition.MatchName}:{condition.Outcome}"));
+        return string.Join("|", conditions.Select(condition => $"{condition.MatchId}:{(int)condition.Outcome}"));
     }
 
     private static string NormalizeName(string value)
@@ -668,7 +579,7 @@ public sealed class ScheduleConstraintAnalyzer
         ScheduledMatch Match,
         IReadOnlyList<ScheduleOutcomeCondition> Conditions,
         bool IsProjected,
-        string? DirectSourceMatchName,
+        string? DirectSourceMatchId,
         int ProjectionDepth)
     {
         public string DayLabel => Match.DayLabel;
@@ -679,10 +590,10 @@ public sealed class ScheduleConstraintAnalyzer
         string NormalizedPlayerName,
         IReadOnlyList<ScheduleOutcomeCondition> Conditions,
         bool IsProjected,
-        string? DirectSourceMatchName,
+        string? DirectSourceMatchId,
         int ProjectionDepth);
 
-    private sealed record ScheduleOutcomeCondition(string MatchName, string Outcome);
+    private sealed record ScheduleOutcomeCondition(string MatchId, ScheduleMatchDependencyOutcome Outcome);
 
     private sealed record ProjectedRestCandidate(
         PlayerAppearance Previous,

@@ -239,7 +239,9 @@ public sealed class ScheduleWorkflow
                 }
                 : item)
             .ToList();
-        return schedule with { Matches = NormalizeScheduledMatchOrders(matches) };
+        var moved = schedule with { Matches = NormalizeScheduledMatchOrders(matches) };
+        ScheduleDependencyGraph.Build(moved).EnsureDependencyOrder();
+        return moved;
     }
 
     public static ScheduleSettings BuildSettings(ScheduleWorkflowRequest request)

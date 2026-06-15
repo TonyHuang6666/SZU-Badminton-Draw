@@ -100,6 +100,7 @@ public sealed class ScheduleService
                 "胜者进入正赛",
                 OfficialDrawRules.HaveSameUnit(first, second),
                 [],
+                [],
                 entrantPaths,
                 forceBeforeTimingBoundary: forceBeforeTimingBoundary || isChampionshipBracket);
             bracketEntries.Add(new ScheduleBracketEntry(
@@ -107,6 +108,8 @@ public sealed class ScheduleService
                 MinSeedRank(first, second),
                 null,
                 matchId,
+                matchName,
+                ScheduleMatchDependencyOutcome.Winner,
                 WithOutcome(entrantPaths, matchId, MatchOutcome.Winner)));
         }
 
@@ -116,8 +119,7 @@ public sealed class ScheduleService
                 participant.DisplayName,
                 participant.SeedRank,
                 participant,
-                null,
-                [CreateEntrantPath(participant)]));
+                EntrantPaths: [CreateEntrantPath(participant)]));
         }
 
         bracketEntries = ArrangeBracketEntriesBySeedProtection(bracketEntries);
@@ -180,6 +182,7 @@ public sealed class ScheduleService
                     .Select(id => id!.Value)
                     .Distinct()
                     .ToList();
+                var dependencies = BuildMatchDependencies(first, second);
                 var entrantPaths = MergeEntrantPaths(first.EntrantPaths, second.EntrantPaths);
                 var matchId = AddMatch(
                     matches,
@@ -194,6 +197,7 @@ public sealed class ScheduleService
                         && second.Participant is not null
                         && OfficialDrawRules.HaveSameUnit(first.Participant, second.Participant),
                     dependencyIds,
+                    dependencies,
                     entrantPaths,
                     knockoutEntrantCount: entrantCount,
                     forceBeforeTimingBoundary: forceBeforeTimingBoundary,
@@ -209,10 +213,10 @@ public sealed class ScheduleService
                     entrantPaths));
                 nextRound.Add(new ScheduleBracketEntry(
                     $"{matchName}胜者",
-                    null,
-                    null,
-                    matchId,
-                    WithOutcome(entrantPaths, matchId, MatchOutcome.Winner)));
+                    SourceMatchId: matchId,
+                    SourceMatchName: matchName,
+                    SourceOutcome: ScheduleMatchDependencyOutcome.Winner,
+                    EntrantPaths: WithOutcome(entrantPaths, matchId, MatchOutcome.Winner)));
             }
 
             currentRound = nextRound;
@@ -252,6 +256,11 @@ public sealed class ScheduleService
                 note: "胜者为第3名，负者为第4名",
                 sameUnit: false,
                 dependencyIds: semiFinals.Select(match => match.Id).ToList(),
+                dependencies:
+                [
+                    BuildDependency(semiFinals[0], ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA),
+                    BuildDependency(semiFinals[1], ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideB)
+                ],
                 entrantPaths: entrantPaths,
                 isPlacementPlayoff: true);
         }
@@ -291,6 +300,11 @@ public sealed class ScheduleService
                 note: "胜者进入5/6名赛，负者进入7/8名赛",
                 sameUnit: false,
                 dependencyIds: [first.Id, second.Id],
+                dependencies:
+                [
+                    BuildDependency(first, ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA),
+                    BuildDependency(second, ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideB)
+                ],
                 entrantPaths: entrantPaths,
                 isPlacementPlayoff: true);
 
@@ -313,6 +327,11 @@ public sealed class ScheduleService
             note: "胜者为第5名，负者为第6名",
             sameUnit: false,
             dependencyIds: finalDependencyIds,
+            dependencies:
+            [
+                BuildDependency(fifthToEighthSemiFinalIds[0], PlacementPlayoffLabels.FifthToEighthSemiMatchName(1), ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA),
+                BuildDependency(fifthToEighthSemiFinalIds[1], PlacementPlayoffLabels.FifthToEighthSemiMatchName(2), ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideB)
+            ],
             entrantPaths: fifthPlaceEntrantPaths,
             isPlacementPlayoff: true);
         var seventhPlaceEntrantPaths = MergeEntrantPaths(
@@ -329,6 +348,11 @@ public sealed class ScheduleService
             note: "胜者为第7名，负者为第8名",
             sameUnit: false,
             dependencyIds: finalDependencyIds,
+            dependencies:
+            [
+                BuildDependency(fifthToEighthSemiFinalIds[0], PlacementPlayoffLabels.FifthToEighthSemiMatchName(1), ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA),
+                BuildDependency(fifthToEighthSemiFinalIds[1], PlacementPlayoffLabels.FifthToEighthSemiMatchName(2), ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideB)
+            ],
             entrantPaths: seventhPlaceEntrantPaths,
             isPlacementPlayoff: true);
     }
@@ -353,6 +377,7 @@ public sealed class ScheduleService
         string note,
         bool sameUnit,
         IReadOnlyList<int> dependencyIds,
+        IReadOnlyList<ScheduleMatchDependency> dependencies,
         IReadOnlyList<EntrantPath> entrantPaths,
         int? knockoutEntrantCount = null,
         bool forceBeforeTimingBoundary = false,
@@ -361,8 +386,10 @@ public sealed class ScheduleService
         bool isPlacementPlayoff = false)
     {
         var id = matches.Count + 1;
+        var matchId = BuildMatchId(id);
         matches.Add(new UnscheduledMatch(
             id,
+            matchId,
             groupNumber,
             groupName,
             phase,
@@ -372,6 +399,7 @@ public sealed class ScheduleService
             note,
             sameUnit,
             dependencyIds,
+            dependencies,
             DistinctEntrantPaths(entrantPaths),
             knockoutEntrantCount,
             forceBeforeTimingBoundary,
@@ -379,6 +407,61 @@ public sealed class ScheduleService
             isChampionshipFinal,
             isPlacementPlayoff));
         return id;
+    }
+
+    private static IReadOnlyList<ScheduleMatchDependency> BuildMatchDependencies(
+        ScheduleBracketEntry first,
+        ScheduleBracketEntry second)
+    {
+        var dependencies = new List<ScheduleMatchDependency>();
+        AddEntryDependency(dependencies, first, ScheduleMatchSide.SideA);
+        AddEntryDependency(dependencies, second, ScheduleMatchSide.SideB);
+        return dependencies;
+    }
+
+    private static void AddEntryDependency(
+        ICollection<ScheduleMatchDependency> dependencies,
+        ScheduleBracketEntry entry,
+        ScheduleMatchSide side)
+    {
+        if (!entry.SourceMatchId.HasValue
+            || string.IsNullOrWhiteSpace(entry.SourceMatchName)
+            || !entry.SourceOutcome.HasValue)
+        {
+            return;
+        }
+
+        dependencies.Add(BuildDependency(
+            entry.SourceMatchId.Value,
+            entry.SourceMatchName,
+            entry.SourceOutcome.Value,
+            side));
+    }
+
+    private static ScheduleMatchDependency BuildDependency(
+        ScheduleBracketMatch source,
+        ScheduleMatchDependencyOutcome outcome,
+        ScheduleMatchSide side)
+    {
+        return BuildDependency(source.Id, source.MatchName, outcome, side);
+    }
+
+    private static ScheduleMatchDependency BuildDependency(
+        int sourceId,
+        string sourceMatchName,
+        ScheduleMatchDependencyOutcome outcome,
+        ScheduleMatchSide side)
+    {
+        return new ScheduleMatchDependency(
+            BuildMatchId(sourceId),
+            sourceMatchName,
+            outcome,
+            side);
+    }
+
+    private static string BuildMatchId(int id)
+    {
+        return id.ToString();
     }
 
     private static string BuildKnockoutPhase(int entrantCount, string phasePrefix)
@@ -450,6 +533,7 @@ public sealed class ScheduleService
                     second.DisplayName,
                     match.SameUnit ? "同单位优先" : "",
                     match.SameUnit,
+                    [],
                     [],
                     CreateEntrantPaths(first, second));
             }
@@ -582,11 +666,13 @@ public sealed class ScheduleService
                         candidate.Match.GroupNumber,
                         candidate.Match.GroupName,
                         candidate.Match.Phase,
-                        candidate.Match.MatchName,
-                        candidate.Match.SideA,
-                        candidate.Match.SideB,
-                        candidate.Match.Note,
-                        candidate.Match.SameUnit));
+                    candidate.Match.MatchName,
+                    candidate.Match.SideA,
+                    candidate.Match.SideB,
+                    candidate.Match.Note,
+                    candidate.Match.SameUnit,
+                    candidate.Match.MatchId,
+                    candidate.Match.Dependencies));
 
                     var assignment = new ScheduledAssignment(
                         candidate.Match.Id,
@@ -1084,6 +1170,8 @@ public sealed class ScheduleService
         int? ProtectedSeedRank = null,
         DrawParticipant? Participant = null,
         int? SourceMatchId = null,
+        string? SourceMatchName = null,
+        ScheduleMatchDependencyOutcome? SourceOutcome = null,
         IReadOnlyList<EntrantPath>? EntrantPaths = null)
     {
         public IReadOnlyList<EntrantPath> EntrantPaths { get; init; } = EntrantPaths ?? [];
@@ -1099,6 +1187,7 @@ public sealed class ScheduleService
 
     private sealed record UnscheduledMatch(
         int Id,
+        string MatchId,
         int GroupNumber,
         string GroupName,
         string Phase,
@@ -1108,6 +1197,7 @@ public sealed class ScheduleService
         string Note,
         bool SameUnit,
         IReadOnlyList<int> DependencyIds,
+        IReadOnlyList<ScheduleMatchDependency> Dependencies,
         IReadOnlyList<EntrantPath> EntrantPaths,
         int? KnockoutEntrantCount = null,
         bool ForceBeforeTimingBoundary = false,

@@ -32,8 +32,14 @@ public sealed record CrossEventScheduledMatch(
     int GroupNumber = 0,
     string Note = "",
     bool SameUnit = false,
-    bool IsCompleted = false)
+    bool IsCompleted = false,
+    string MatchId = "",
+    IReadOnlyList<ScheduleMatchDependency>? Dependencies = null)
 {
+    public string MatchId { get; init; } = string.IsNullOrWhiteSpace(MatchId) ? MatchName : MatchId;
+
+    public IReadOnlyList<ScheduleMatchDependency> Dependencies { get; init; } = Dependencies ?? Array.Empty<ScheduleMatchDependency>();
+
     public string TimeRange => $"{StartTime:HH:mm}-{EndTime:HH:mm}";
 
     public int DurationMinutes => Math.Max(1, (int)(EndTime - StartTime).TotalMinutes);
