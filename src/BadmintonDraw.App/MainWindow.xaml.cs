@@ -454,7 +454,7 @@ public partial class MainWindow : Window
             DefaultExt = ".xlsx",
             AddExtension = true,
             FileName = CrossEventConflictWorkflow.BuildDefaultReportFileName(),
-            Title = "保存跨项目冲突报告"
+            Title = "保存多项目排程检查报告"
         };
         if (saveDialog.ShowDialog(this) != true)
         {
@@ -469,7 +469,7 @@ public partial class MainWindow : Window
                 saveDialog.FileName,
                 minimumRestMinutes);
             SetStatus(
-                $"跨项目冲突报告已导出：{result.OutputPath}。"
+                $"多项目排程检查报告已导出：{result.OutputPath}。"
                 + $"严重 {result.Report.SevereCount} 条，间隔过短 {result.Report.WarningCount} 条，"
                 + $"同日提醒 {result.Report.NoticeCount} 条。");
         }
@@ -574,7 +574,7 @@ public partial class MainWindow : Window
             DefaultExt = ".xlsx",
             AddExtension = true,
             FileName = CrossEventConflictWorkflow.BuildDefaultReportFileName(),
-            Title = "保存跨项目冲突报告"
+            Title = "保存多项目排程检查报告"
         };
         if (saveDialog.ShowDialog(this) != true)
         {
@@ -585,7 +585,7 @@ public partial class MainWindow : Window
         {
             var result = _crossEventConflictWorkflow.ExportScheduleBoardReport(_crossEventScheduleBoard, saveDialog.FileName);
             SetStatus(
-                $"当前多项目冲突报告已导出：{result.OutputPath}。"
+                $"当前多项目排程检查报告已导出：{result.OutputPath}。"
                 + $"严重 {result.Report.SevereCount} 条，间隔过短 {result.Report.WarningCount} 条，"
                 + $"同日提醒 {result.Report.NoticeCount} 条。");
         }

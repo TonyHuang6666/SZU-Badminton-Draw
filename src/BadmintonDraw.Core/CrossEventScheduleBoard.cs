@@ -47,11 +47,19 @@ public sealed record CrossEventScheduleBoardItem(
     CrossEventConflictSeverity? ConflictSeverity,
     string ConflictSummary,
     string MatchId = "",
-    IReadOnlyList<ScheduleMatchDependency>? Dependencies = null)
+    IReadOnlyList<ScheduleMatchDependency>? Dependencies = null,
+    IReadOnlyList<CrossEventPlayerIdentity>? SideAPlayerIdentities = null,
+    IReadOnlyList<CrossEventPlayerIdentity>? SideBPlayerIdentities = null)
 {
     public string MatchId { get; init; } = string.IsNullOrWhiteSpace(MatchId) ? MatchName : MatchId;
 
     public IReadOnlyList<ScheduleMatchDependency> Dependencies { get; init; } = Dependencies ?? Array.Empty<ScheduleMatchDependency>();
+
+    public IReadOnlyList<CrossEventPlayerIdentity> SideAPlayerIdentities { get; init; } =
+        SideAPlayerIdentities ?? Array.Empty<CrossEventPlayerIdentity>();
+
+    public IReadOnlyList<CrossEventPlayerIdentity> SideBPlayerIdentities { get; init; } =
+        SideBPlayerIdentities ?? Array.Empty<CrossEventPlayerIdentity>();
 
     public string TimeRange => $"{StartTime:HH:mm}-{EndTime:HH:mm}";
 

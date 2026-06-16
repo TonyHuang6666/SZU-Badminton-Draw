@@ -1241,6 +1241,89 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void ScheduleConstraintAnalyzerUsesStudentIdBeforeName()
+    {
+        static SchedulePlan CreateSchedule(CrossEventPlayerIdentity laterPlayer)
+        {
+            return new SchedulePlan(
+                [
+                    new ScheduledMatch(
+                        1,
+                        "2026-06-13",
+                        new TimeOnly(14, 0),
+                        new TimeOnly(14, 30),
+                        "B1",
+                        1,
+                        "A组",
+                        "首轮赛",
+                        "第1场",
+                        "张三",
+                        "李四",
+                        SideAPlayerIdentities: [new CrossEventPlayerIdentity("张三", "20260001")],
+                        SideBPlayerIdentities: [new CrossEventPlayerIdentity("李四", "20260002")]),
+                    new ScheduledMatch(
+                        2,
+                        "2026-06-13",
+                        new TimeOnly(14, 10),
+                        new TimeOnly(14, 40),
+                        "B2",
+                        1,
+                        "A组",
+                        "首轮赛",
+                        "第2场",
+                        "张三",
+                        "王五",
+                        SideAPlayerIdentities: [laterPlayer],
+                        SideBPlayerIdentities: [new CrossEventPlayerIdentity("王五", "20260003")])
+                ],
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2"])],
+                    MatchMinutes: 30,
+                    MaxMatchesPerEntrantPerDay: 3));
+        }
+
+        var differentStudentReport = new ScheduleConstraintAnalyzer().Analyze(
+            CreateSchedule(new CrossEventPlayerIdentity("张三", "20269999")));
+        var sameStudentReport = new ScheduleConstraintAnalyzer().Analyze(
+            CreateSchedule(new CrossEventPlayerIdentity("张三", "20260001")));
+
+        Assert.Equal(0, differentStudentReport.SevereCount);
+        Assert.DoesNotContain(differentStudentReport.Issues, issue => issue.PlayerName?.StartsWith("张三", StringComparison.Ordinal) == true);
+        Assert.Equal(1, sameStudentReport.SevereCount);
+        Assert.Contains(sameStudentReport.Issues, issue =>
+            issue.Type == ScheduleConstraintIssueType.ShortRest
+            && issue.Severity == ScheduleConstraintSeverity.Severe
+            && issue.PlayerName == "张三（20260001）");
+    }
+
+    [Fact]
+    public void ScheduleServiceCarriesStudentIdsIntoScheduledMatches()
+    {
+        var participants = new[]
+        {
+            new DrawParticipant("张三", PrimaryName: "张三", PrimaryStudentId: "20260001"),
+            new DrawParticipant("李四", PrimaryName: "李四", PrimaryStudentId: "20260002")
+        };
+        var result = new DrawService().Generate(
+            participants,
+            CreateSettings(
+                groupCount: 1,
+                mode: CompetitionMode.SinglesKnockout,
+                knockoutGoal: KnockoutGoal.Champion));
+
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(15, 0), ["B1"])],
+                MatchMinutes: 20,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        var match = Assert.Single(schedule.Matches);
+        Assert.Equal("student:20260001", Assert.Single(match.SideAPlayerIdentities).IdentityKey);
+        Assert.Equal("student:20260002", Assert.Single(match.SideBPlayerIdentities).IdentityKey);
+    }
+
+    [Fact]
     public void ScheduleConstraintAnalyzerGroupsWinnerPlaceholderRestByDependency()
     {
         var schedule = new SchedulePlan(
@@ -1507,12 +1590,69 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void CrossEventConflictDetectorUsesStudentIdBeforeName()
+    {
+        var firstSource = CreateCrossEventSource(
+            "男单",
+            CreateCrossEventMatch(
+                1,
+                "男单1",
+                "张三",
+                "李四",
+                new TimeOnly(14, 0),
+                new TimeOnly(14, 30),
+                "B1",
+                ["张三"],
+                ["李四"],
+                [new CrossEventPlayerIdentity("张三", "20260001")],
+                [new CrossEventPlayerIdentity("李四", "20260002")]));
+        var differentStudentSource = CreateCrossEventSource(
+            "混双",
+            CreateCrossEventMatch(
+                1,
+                "混双1",
+                "[张三 郑九]",
+                "[钱十 吴一]",
+                new TimeOnly(14, 10),
+                new TimeOnly(14, 40),
+                "C1",
+                ["张三", "郑九"],
+                ["钱十", "吴一"],
+                [new CrossEventPlayerIdentity("张三", "20260099"), new CrossEventPlayerIdentity("郑九", "20260003")],
+                [new CrossEventPlayerIdentity("钱十", "20260004"), new CrossEventPlayerIdentity("吴一", "20260005")]));
+        var sameStudentSource = CreateCrossEventSource(
+            "男双",
+            CreateCrossEventMatch(
+                1,
+                "男双1",
+                "[张三 王五]",
+                "[赵六 孙七]",
+                new TimeOnly(14, 10),
+                new TimeOnly(14, 40),
+                "D1",
+                ["张三", "王五"],
+                ["赵六", "孙七"],
+                [new CrossEventPlayerIdentity("张三", "20260001"), new CrossEventPlayerIdentity("王五", "20260006")],
+                [new CrossEventPlayerIdentity("赵六", "20260007"), new CrossEventPlayerIdentity("孙七", "20260008")]));
+
+        var differentStudentReport = new CrossEventConflictDetector().Analyze([firstSource, differentStudentSource], minimumRestMinutes: 20);
+        var sameStudentReport = new CrossEventConflictDetector().Analyze([firstSource, sameStudentSource], minimumRestMinutes: 20);
+
+        Assert.Equal(0, differentStudentReport.SevereCount);
+        Assert.DoesNotContain(differentStudentReport.Issues, issue => issue.PlayerName.StartsWith("张三", StringComparison.Ordinal));
+        Assert.Equal(1, sameStudentReport.SevereCount);
+        Assert.Contains(sameStudentReport.Issues, issue =>
+            issue.Severity == CrossEventConflictSeverity.Severe
+            && issue.PlayerName == "张三（20260001）");
+    }
+
+    [Fact]
     public void CrossEventConflictWorkflowExportsProgressReportWorkbook()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-{Guid.NewGuid():N}");
         var firstProgressPath = Path.Combine(directory, "男单.szbd");
         var secondProgressPath = Path.Combine(directory, "混双.szbd");
-        var reportPath = Path.Combine(directory, "跨项目选手冲突报告.xlsx");
+        var reportPath = Path.Combine(directory, "多项目排程检查报告.xlsx");
 
         try
         {
@@ -1542,11 +1682,71 @@ public sealed class DrawWorkflowTests
             Assert.Equal(1, result.Report.SevereCount);
             AssertFileHeader(reportPath, [0x50, 0x4B, 0x03, 0x04]);
             using var workbook = new XLWorkbook(reportPath);
-            Assert.Contains("冲突汇总", workbook.Worksheets.Select(sheet => sheet.Name));
+            Assert.Contains("检查总览", workbook.Worksheets.Select(sheet => sheet.Name));
+            Assert.Contains("当前赛程卡片", workbook.Worksheets.Select(sheet => sheet.Name));
             Assert.Contains("严重冲突", workbook.Worksheets.Select(sheet => sheet.Name));
             Assert.Contains("输入赛事", workbook.Worksheets.Select(sheet => sheet.Name));
+            Assert.Equal("多项目排程检查报告", workbook.Worksheet("检查总览").Cell(1, 1).GetString());
             Assert.Equal("严重冲突", workbook.Worksheet("严重冲突").Cell(2, 1).GetString());
             Assert.Equal("张三", workbook.Worksheet("严重冲突").Cell(2, 2).GetString());
+            Assert.Equal("需调整", workbook.Worksheet("当前赛程卡片").Cell(2, 1).GetString());
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void CrossEventConflictWorkflowReadsStudentIdsFromProgressParticipants()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-ids-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var differentStudentProgressPath = Path.Combine(directory, "混双-不同张三.szbd");
+        var sameStudentProgressPath = Path.Combine(directory, "男双-同一张三.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [
+                        new DrawParticipant("张三", PrimaryName: "张三", PrimaryStudentId: "20260001"),
+                        new DrawParticipant("李四", PrimaryName: "李四", PrimaryStudentId: "20260002")
+                    ],
+                    CreateSingleMatchSchedule("男单1", "张三", "李四", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1")));
+            store.Create(
+                differentStudentProgressPath,
+                CreateManualProgressSnapshot(
+                    "混双",
+                    [
+                        new DrawParticipant("[张三 郑九]", PrimaryName: "张三", PartnerName: "郑九", PrimaryStudentId: "20260099", PartnerStudentId: "20260003"),
+                        new DrawParticipant("[钱十 吴一]", PrimaryName: "钱十", PartnerName: "吴一", PrimaryStudentId: "20260004", PartnerStudentId: "20260005")
+                    ],
+                    CreateSingleMatchSchedule("混双1", "[张三 郑九]", "[钱十 吴一]", new TimeOnly(14, 10), new TimeOnly(14, 40), "C1")));
+            store.Create(
+                sameStudentProgressPath,
+                CreateManualProgressSnapshot(
+                    "男双",
+                    [
+                        new DrawParticipant("[张三 王五]", PrimaryName: "张三", PartnerName: "王五", PrimaryStudentId: "20260001", PartnerStudentId: "20260006"),
+                        new DrawParticipant("[赵六 孙七]", PrimaryName: "赵六", PartnerName: "孙七", PrimaryStudentId: "20260007", PartnerStudentId: "20260008")
+                    ],
+                    CreateSingleMatchSchedule("男双1", "[张三 王五]", "[赵六 孙七]", new TimeOnly(14, 10), new TimeOnly(14, 40), "D1")));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var differentStudentReport = workflow.AnalyzeProgressFiles([firstProgressPath, differentStudentProgressPath], minimumRestMinutes: 20);
+            var sameStudentReport = workflow.AnalyzeProgressFiles([firstProgressPath, sameStudentProgressPath], minimumRestMinutes: 20);
+
+            Assert.Equal(0, differentStudentReport.SevereCount);
+            Assert.DoesNotContain(differentStudentReport.Issues, issue => issue.PlayerName.StartsWith("张三", StringComparison.Ordinal));
+            Assert.Equal(1, sameStudentReport.SevereCount);
+            Assert.Contains(sameStudentReport.Issues, issue =>
+                issue.Severity == CrossEventConflictSeverity.Severe
+                && issue.PlayerName == "张三（20260001）");
         }
         finally
         {
@@ -3776,7 +3976,9 @@ public sealed class DrawWorkflowTests
         TimeOnly end,
         string court,
         IReadOnlyList<string> sideAPlayers,
-        IReadOnlyList<string> sideBPlayers)
+        IReadOnlyList<string> sideBPlayers,
+        IReadOnlyList<CrossEventPlayerIdentity>? sideAPlayerIdentities = null,
+        IReadOnlyList<CrossEventPlayerIdentity>? sideBPlayerIdentities = null)
     {
         return new CrossEventScheduledMatch(
             order,
@@ -3790,7 +3992,9 @@ public sealed class DrawWorkflowTests
             sideA,
             sideB,
             sideAPlayers,
-            sideBPlayers);
+            sideBPlayers,
+            SideAPlayerIdentities: sideAPlayerIdentities,
+            SideBPlayerIdentities: sideBPlayerIdentities);
     }
 
     private static TournamentProgressSnapshot CreateManualProgressSnapshot(

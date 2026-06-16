@@ -15,11 +15,17 @@ public sealed record ScheduledMatch(
     string Note = "",
     bool SameUnit = false,
     string MatchId = "",
-    IReadOnlyList<ScheduleMatchDependency>? Dependencies = null)
+    IReadOnlyList<ScheduleMatchDependency>? Dependencies = null,
+    IReadOnlyList<CrossEventPlayerIdentity>? SideAPlayerIdentities = null,
+    IReadOnlyList<CrossEventPlayerIdentity>? SideBPlayerIdentities = null)
 {
     public string MatchId { get; init; } = string.IsNullOrWhiteSpace(MatchId) ? MatchName : MatchId;
 
     public IReadOnlyList<ScheduleMatchDependency> Dependencies { get; init; } = Dependencies ?? Array.Empty<ScheduleMatchDependency>();
+
+    public IReadOnlyList<CrossEventPlayerIdentity> SideAPlayerIdentities { get; init; } = NormalizeIdentities(SideAPlayerIdentities);
+
+    public IReadOnlyList<CrossEventPlayerIdentity> SideBPlayerIdentities { get; init; } = NormalizeIdentities(SideBPlayerIdentities);
 
     public string TimeRange => $"{StartTime:HH:mm}-{EndTime:HH:mm}";
 
@@ -51,7 +57,9 @@ public sealed record ScheduledMatch(
                && Note == other.Note
                && SameUnit == other.SameUnit
                && MatchId == other.MatchId
-               && Dependencies.SequenceEqual(other.Dependencies);
+               && Dependencies.SequenceEqual(other.Dependencies)
+               && SideAPlayerIdentities.SequenceEqual(other.SideAPlayerIdentities)
+               && SideBPlayerIdentities.SequenceEqual(other.SideBPlayerIdentities);
     }
 
     public override int GetHashCode()
@@ -76,6 +84,26 @@ public sealed record ScheduledMatch(
             hash.Add(dependency);
         }
 
+        foreach (var identity in SideAPlayerIdentities)
+        {
+            hash.Add(identity);
+        }
+
+        foreach (var identity in SideBPlayerIdentities)
+        {
+            hash.Add(identity);
+        }
+
         return hash.ToHashCode();
+    }
+
+    private static IReadOnlyList<CrossEventPlayerIdentity> NormalizeIdentities(
+        IReadOnlyList<CrossEventPlayerIdentity>? identities)
+    {
+        return (identities ?? Array.Empty<CrossEventPlayerIdentity>())
+            .Where(identity => !string.IsNullOrWhiteSpace(identity.Name))
+            .GroupBy(identity => identity.IdentityKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
     }
 }

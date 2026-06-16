@@ -352,6 +352,22 @@ public sealed class ScheduleConstraintAnalyzer
                 .ToList();
         }
 
+        var sideIdentities = side == ScheduleMatchSide.SideA
+            ? match.SideAPlayerIdentities
+            : match.SideBPlayerIdentities;
+        if (sideIdentities.Count > 0)
+        {
+            return sideIdentities
+                .Select(identity => new PlayerCandidate(
+                    identity.DisplayName,
+                    identity.IdentityKey,
+                    [],
+                    IsProjected: false,
+                    null,
+                    ProjectionDepth: 0))
+                .ToList();
+        }
+
         var sideText = side == ScheduleMatchSide.SideA ? match.SideA : match.SideB;
         var text = sideText.Trim();
         if (string.IsNullOrWhiteSpace(text)

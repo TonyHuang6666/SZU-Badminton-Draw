@@ -529,7 +529,7 @@
                                                     Content="导出合并材料包"
                                                     Click="ExportCrossEventMergedMaterials_Click" />
                                             <Button Classes="primary"
-                                                    Content="导出跨项目冲突报告"
+                                                    Content="导出排程检查报告"
                                                     Click="ExportCrossEventConflictReport_Click" />
                                         </StackPanel>
                                     </Border>
@@ -551,7 +551,7 @@
                                             CornerRadius="8"
                                             Padding="12"
                                             Margin="0,8,0,0">
-                                        <TextBlock Text="拖拽方式：先在右侧选择目标比赛日，再把比赛卡片拖到目标时间和场地格子。导出报告会优先使用当前看板状态。"
+                                        <TextBlock Text="拖拽方式：先在右侧选择目标比赛日，再把比赛卡片拖到目标时间和场地格子。排程检查报告会优先使用当前看板状态。"
                                                    Foreground="#5F5577"
                                                    TextWrapping="Wrap" />
                                     </Border>

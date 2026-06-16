@@ -88,7 +88,9 @@ public sealed class ScheduleService
             var second = roundOneParticipants[index + 1];
             var matchNumber = index / 2 + 1;
             var matchName = $"第{group.Number}组首轮赛{matchNumber}";
-            var entrantPaths = CreateEntrantPaths(first, second);
+            var firstEntrantPaths = CreateEntrantPaths(first);
+            var secondEntrantPaths = CreateEntrantPaths(second);
+            var entrantPaths = MergeEntrantPaths(firstEntrantPaths, secondEntrantPaths);
             var matchId = AddMatch(
                 matches,
                 group.Number,
@@ -102,6 +104,8 @@ public sealed class ScheduleService
                 [],
                 [],
                 entrantPaths,
+                firstEntrantPaths,
+                secondEntrantPaths,
                 forceBeforeTimingBoundary: forceBeforeTimingBoundary || isChampionshipBracket);
             bracketEntries.Add(new ScheduleBracketEntry(
                 $"{matchName}胜者",
@@ -119,7 +123,7 @@ public sealed class ScheduleService
                 participant.DisplayName,
                 participant.SeedRank,
                 participant,
-                EntrantPaths: [CreateEntrantPath(participant)]));
+                EntrantPaths: CreateEntrantPaths(participant)));
         }
 
         bracketEntries = ArrangeBracketEntriesBySeedProtection(bracketEntries);
@@ -199,6 +203,8 @@ public sealed class ScheduleService
                     dependencyIds,
                     dependencies,
                     entrantPaths,
+                    first.EntrantPaths,
+                    second.EntrantPaths,
                     knockoutEntrantCount: entrantCount,
                     forceBeforeTimingBoundary: forceBeforeTimingBoundary,
                     isChampionshipBracket: isChampionshipBracket,
@@ -242,9 +248,9 @@ public sealed class ScheduleService
             .ToList();
         if (semiFinals.Count >= 2)
         {
-            var entrantPaths = MergeEntrantPaths(
-                WithOutcome(semiFinals[0].EntrantPaths, semiFinals[0].Id, MatchOutcome.Loser),
-                WithOutcome(semiFinals[1].EntrantPaths, semiFinals[1].Id, MatchOutcome.Loser));
+            var firstEntrantPaths = WithOutcome(semiFinals[0].EntrantPaths, semiFinals[0].Id, MatchOutcome.Loser);
+            var secondEntrantPaths = WithOutcome(semiFinals[1].EntrantPaths, semiFinals[1].Id, MatchOutcome.Loser);
+            var entrantPaths = MergeEntrantPaths(firstEntrantPaths, secondEntrantPaths);
             AddMatch(
                 matches,
                 groupNumber: 0,
@@ -262,6 +268,8 @@ public sealed class ScheduleService
                     BuildDependency(semiFinals[1], ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideB)
                 ],
                 entrantPaths: entrantPaths,
+                sideAEntrantPaths: firstEntrantPaths,
+                sideBEntrantPaths: secondEntrantPaths,
                 isPlacementPlayoff: true);
         }
 
@@ -285,9 +293,9 @@ public sealed class ScheduleService
         {
             var first = quarterFinals[index * 2];
             var second = quarterFinals[index * 2 + 1];
-            var entrantPaths = MergeEntrantPaths(
-                WithOutcome(first.EntrantPaths, first.Id, MatchOutcome.Loser),
-                WithOutcome(second.EntrantPaths, second.Id, MatchOutcome.Loser));
+            var firstEntrantPaths = WithOutcome(first.EntrantPaths, first.Id, MatchOutcome.Loser);
+            var secondEntrantPaths = WithOutcome(second.EntrantPaths, second.Id, MatchOutcome.Loser);
+            var entrantPaths = MergeEntrantPaths(firstEntrantPaths, secondEntrantPaths);
             var matchName = PlacementPlayoffLabels.FifthToEighthSemiMatchName(index + 1);
             var matchId = AddMatch(
                 matches,
@@ -306,6 +314,8 @@ public sealed class ScheduleService
                     BuildDependency(second, ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideB)
                 ],
                 entrantPaths: entrantPaths,
+                sideAEntrantPaths: firstEntrantPaths,
+                sideBEntrantPaths: secondEntrantPaths,
                 isPlacementPlayoff: true);
 
             fifthToEighthSemiFinalIds.Add(matchId);
@@ -313,9 +323,9 @@ public sealed class ScheduleService
         }
 
         var finalDependencyIds = fifthToEighthSemiFinalIds.ToList();
-        var fifthPlaceEntrantPaths = MergeEntrantPaths(
-            WithOutcome(fifthToEighthSemiFinalPaths[0], fifthToEighthSemiFinalIds[0], MatchOutcome.Winner),
-            WithOutcome(fifthToEighthSemiFinalPaths[1], fifthToEighthSemiFinalIds[1], MatchOutcome.Winner));
+        var fifthPlaceFirstEntrantPaths = WithOutcome(fifthToEighthSemiFinalPaths[0], fifthToEighthSemiFinalIds[0], MatchOutcome.Winner);
+        var fifthPlaceSecondEntrantPaths = WithOutcome(fifthToEighthSemiFinalPaths[1], fifthToEighthSemiFinalIds[1], MatchOutcome.Winner);
+        var fifthPlaceEntrantPaths = MergeEntrantPaths(fifthPlaceFirstEntrantPaths, fifthPlaceSecondEntrantPaths);
         AddMatch(
             matches,
             groupNumber: 0,
@@ -333,10 +343,12 @@ public sealed class ScheduleService
                 BuildDependency(fifthToEighthSemiFinalIds[1], PlacementPlayoffLabels.FifthToEighthSemiMatchName(2), ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideB)
             ],
             entrantPaths: fifthPlaceEntrantPaths,
+            sideAEntrantPaths: fifthPlaceFirstEntrantPaths,
+            sideBEntrantPaths: fifthPlaceSecondEntrantPaths,
             isPlacementPlayoff: true);
-        var seventhPlaceEntrantPaths = MergeEntrantPaths(
-            WithOutcome(fifthToEighthSemiFinalPaths[0], fifthToEighthSemiFinalIds[0], MatchOutcome.Loser),
-            WithOutcome(fifthToEighthSemiFinalPaths[1], fifthToEighthSemiFinalIds[1], MatchOutcome.Loser));
+        var seventhPlaceFirstEntrantPaths = WithOutcome(fifthToEighthSemiFinalPaths[0], fifthToEighthSemiFinalIds[0], MatchOutcome.Loser);
+        var seventhPlaceSecondEntrantPaths = WithOutcome(fifthToEighthSemiFinalPaths[1], fifthToEighthSemiFinalIds[1], MatchOutcome.Loser);
+        var seventhPlaceEntrantPaths = MergeEntrantPaths(seventhPlaceFirstEntrantPaths, seventhPlaceSecondEntrantPaths);
         AddMatch(
             matches,
             groupNumber: 0,
@@ -354,6 +366,8 @@ public sealed class ScheduleService
                 BuildDependency(fifthToEighthSemiFinalIds[1], PlacementPlayoffLabels.FifthToEighthSemiMatchName(2), ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideB)
             ],
             entrantPaths: seventhPlaceEntrantPaths,
+            sideAEntrantPaths: seventhPlaceFirstEntrantPaths,
+            sideBEntrantPaths: seventhPlaceSecondEntrantPaths,
             isPlacementPlayoff: true);
     }
 
@@ -379,6 +393,8 @@ public sealed class ScheduleService
         IReadOnlyList<int> dependencyIds,
         IReadOnlyList<ScheduleMatchDependency> dependencies,
         IReadOnlyList<EntrantPath> entrantPaths,
+        IReadOnlyList<EntrantPath>? sideAEntrantPaths = null,
+        IReadOnlyList<EntrantPath>? sideBEntrantPaths = null,
         int? knockoutEntrantCount = null,
         bool forceBeforeTimingBoundary = false,
         bool isChampionshipBracket = false,
@@ -401,6 +417,8 @@ public sealed class ScheduleService
             dependencyIds,
             dependencies,
             DistinctEntrantPaths(entrantPaths),
+            DistinctEntrantPaths(sideAEntrantPaths ?? entrantPaths),
+            DistinctEntrantPaths(sideBEntrantPaths ?? entrantPaths),
             knockoutEntrantCount,
             forceBeforeTimingBoundary,
             isChampionshipBracket,
@@ -523,6 +541,8 @@ public sealed class ScheduleService
             {
                 var first = group.Participants[match.FirstIndex];
                 var second = group.Participants[match.SecondIndex];
+                var firstEntrantPaths = CreateEntrantPaths(first);
+                var secondEntrantPaths = CreateEntrantPaths(second);
                 AddMatch(
                     matches,
                     group.Number,
@@ -535,7 +555,9 @@ public sealed class ScheduleService
                     match.SameUnit,
                     [],
                     [],
-                    CreateEntrantPaths(first, second));
+                    MergeEntrantPaths(firstEntrantPaths, secondEntrantPaths),
+                    firstEntrantPaths,
+                    secondEntrantPaths);
             }
         }
 
@@ -666,13 +688,15 @@ public sealed class ScheduleService
                         candidate.Match.GroupNumber,
                         candidate.Match.GroupName,
                         candidate.Match.Phase,
-                    candidate.Match.MatchName,
-                    candidate.Match.SideA,
-                    candidate.Match.SideB,
-                    candidate.Match.Note,
-                    candidate.Match.SameUnit,
-                    candidate.Match.MatchId,
-                    candidate.Match.Dependencies));
+                        candidate.Match.MatchName,
+                        candidate.Match.SideA,
+                        candidate.Match.SideB,
+                        candidate.Match.Note,
+                        candidate.Match.SameUnit,
+                        candidate.Match.MatchId,
+                        candidate.Match.Dependencies,
+                        ToPlayerIdentities(candidate.Match.SideAEntrantPaths),
+                        ToPlayerIdentities(candidate.Match.SideBEntrantPaths)));
 
                     var assignment = new ScheduledAssignment(
                         candidate.Match.Id,
@@ -1021,14 +1045,57 @@ public sealed class ScheduleService
             left.MatchId == right.MatchId && left.Outcome != right.Outcome));
     }
 
-    private static EntrantPath CreateEntrantPath(DrawParticipant participant)
+    private static IReadOnlyList<EntrantPath> CreateEntrantPaths(DrawParticipant participant)
     {
-        return new EntrantPath(participant.NormalizedDisplayName, []);
+        return CreatePlayerIdentities(participant)
+            .Select(identity => new EntrantPath(identity.IdentityKey, identity, []))
+            .ToList();
     }
 
     private static IReadOnlyList<EntrantPath> CreateEntrantPaths(params DrawParticipant[] participants)
     {
-        return participants.Select(CreateEntrantPath).ToList();
+        return participants.SelectMany(CreateEntrantPaths).ToList();
+    }
+
+    private static IReadOnlyList<CrossEventPlayerIdentity> CreatePlayerIdentities(DrawParticipant participant)
+    {
+        if (!string.IsNullOrWhiteSpace(participant.TeamName)
+            && string.IsNullOrWhiteSpace(participant.PrimaryName)
+            && string.IsNullOrWhiteSpace(participant.PartnerName)
+            && string.Equals(participant.DisplayName.Trim(), participant.TeamName!.Trim(), StringComparison.Ordinal))
+        {
+            return [new CrossEventPlayerIdentity(participant.TeamName!, "", IsTeam: true)];
+        }
+
+        var identities = new List<CrossEventPlayerIdentity>();
+        if (!string.IsNullOrWhiteSpace(participant.PrimaryName))
+        {
+            identities.Add(new CrossEventPlayerIdentity(participant.PrimaryName!, participant.PrimaryStudentId ?? ""));
+        }
+
+        if (!string.IsNullOrWhiteSpace(participant.PartnerName))
+        {
+            identities.Add(new CrossEventPlayerIdentity(participant.PartnerName!, participant.PartnerStudentId ?? ""));
+        }
+
+        if (identities.Count == 0)
+        {
+            identities.Add(CrossEventPlayerIdentity.FromName(participant.DisplayName));
+        }
+
+        return identities
+            .GroupBy(identity => identity.IdentityKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+    }
+
+    private static IReadOnlyList<CrossEventPlayerIdentity> ToPlayerIdentities(IEnumerable<EntrantPath> paths)
+    {
+        return paths
+            .Select(path => path.Identity)
+            .GroupBy(identity => identity.IdentityKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
     }
 
     private static IReadOnlyList<EntrantPath> MergeEntrantPaths(
@@ -1199,6 +1266,8 @@ public sealed class ScheduleService
         IReadOnlyList<int> DependencyIds,
         IReadOnlyList<ScheduleMatchDependency> Dependencies,
         IReadOnlyList<EntrantPath> EntrantPaths,
+        IReadOnlyList<EntrantPath> SideAEntrantPaths,
+        IReadOnlyList<EntrantPath> SideBEntrantPaths,
         int? KnockoutEntrantCount = null,
         bool ForceBeforeTimingBoundary = false,
         bool IsChampionshipBracket = false,
@@ -1230,6 +1299,7 @@ public sealed class ScheduleService
 
     private sealed record EntrantPath(
         string EntrantKey,
+        CrossEventPlayerIdentity Identity,
         IReadOnlyList<OutcomeCondition> Conditions);
 
     private readonly record struct OutcomeCondition(int MatchId, MatchOutcome Outcome);

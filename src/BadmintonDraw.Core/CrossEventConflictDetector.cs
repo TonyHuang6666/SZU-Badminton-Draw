@@ -18,7 +18,7 @@ public sealed class CrossEventConflictDetector
                 source.SourcePath,
                 source.EventKind,
                 source.Matches.Count,
-                source.Matches.Sum(match => match.SideAPlayers.Count + match.SideBPlayers.Count),
+                source.Matches.Sum(match => match.SideAPlayerIdentities.Count + match.SideBPlayerIdentities.Count),
                 source.UnresolvedSideCount))
             .ToList();
 
@@ -83,30 +83,30 @@ public sealed class CrossEventConflictDetector
     {
         foreach (var match in source.Matches)
         {
-            foreach (var player in match.SideAPlayers)
+            foreach (var player in match.SideAPlayerIdentities)
             {
-                var normalized = NormalizePlayerName(player);
+                var normalized = player.IdentityKey;
                 if (string.IsNullOrWhiteSpace(normalized))
                 {
                     continue;
                 }
 
                 yield return (
-                    player.Trim(),
+                    player.DisplayName,
                     normalized,
                     BuildAppearance(source, match, "A", match.SideA, match.SideB));
             }
 
-            foreach (var player in match.SideBPlayers)
+            foreach (var player in match.SideBPlayerIdentities)
             {
-                var normalized = NormalizePlayerName(player);
+                var normalized = player.IdentityKey;
                 if (string.IsNullOrWhiteSpace(normalized))
                 {
                     continue;
                 }
 
                 yield return (
-                    player.Trim(),
+                    player.DisplayName,
                     normalized,
                     BuildAppearance(source, match, "B", match.SideB, match.SideA));
             }
@@ -188,11 +188,6 @@ public sealed class CrossEventConflictDetector
             first,
             second,
             $"同一选手同日参加多个项目，间隔 {restMinutes} 分钟，建议人工确认体能安排。");
-    }
-
-    private static string NormalizePlayerName(string name)
-    {
-        return string.Concat(name.Trim().Where(character => !char.IsWhiteSpace(character)));
     }
 
     private static int SeverityOrder(CrossEventConflictSeverity severity)

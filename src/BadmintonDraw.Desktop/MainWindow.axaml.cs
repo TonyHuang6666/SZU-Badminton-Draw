@@ -685,7 +685,7 @@ public partial class MainWindow : Window
         }
 
         var outputPath = await PickSavePath(
-            "保存跨项目冲突报告",
+            "保存多项目排程检查报告",
             CrossEventConflictWorkflow.BuildDefaultReportFileName(),
             WorkflowExportFormat.Excel);
         if (string.IsNullOrWhiteSpace(outputPath))
@@ -701,7 +701,7 @@ public partial class MainWindow : Window
                 outputPath,
                 minimumRestMinutes);
             SetStatus(
-                $"跨项目冲突报告已导出：{result.OutputPath}。"
+                $"多项目排程检查报告已导出：{result.OutputPath}。"
                 + $"严重 {result.Report.SevereCount} 条，间隔过短 {result.Report.WarningCount} 条，"
                 + $"同日提醒 {result.Report.NoticeCount} 条。");
         }
@@ -804,7 +804,7 @@ public partial class MainWindow : Window
         }
 
         var outputPath = await PickSavePath(
-            "保存跨项目冲突报告",
+            "保存多项目排程检查报告",
             CrossEventConflictWorkflow.BuildDefaultReportFileName(),
             WorkflowExportFormat.Excel);
         if (string.IsNullOrWhiteSpace(outputPath))
@@ -816,7 +816,7 @@ public partial class MainWindow : Window
         {
             var result = _crossEventConflictWorkflow.ExportScheduleBoardReport(_crossEventScheduleBoard, outputPath);
             SetStatus(
-                $"当前多项目冲突报告已导出：{result.OutputPath}。"
+                $"当前多项目排程检查报告已导出：{result.OutputPath}。"
                 + $"严重 {result.Report.SevereCount} 条，间隔过短 {result.Report.WarningCount} 条，"
                 + $"同日提醒 {result.Report.NoticeCount} 条。");
         }

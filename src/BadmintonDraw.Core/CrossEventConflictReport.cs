@@ -16,6 +16,46 @@ public sealed record CrossEventScheduleSource(
     int UnresolvedSideCount = 0,
     ScheduleSettings? ScheduleSettings = null);
 
+public sealed record CrossEventPlayerIdentity(
+    string Name,
+    string StudentId = "",
+    bool IsTeam = false)
+{
+    public string DisplayName => string.IsNullOrWhiteSpace(StudentId)
+        ? Name.Trim()
+        : $"{Name.Trim()}（{StudentId.Trim()}）";
+
+    public string IdentityKey
+    {
+        get
+        {
+            var studentId = NormalizeStudentId(StudentId);
+            if (!IsTeam && !string.IsNullOrWhiteSpace(studentId))
+            {
+                return $"student:{studentId}";
+            }
+
+            var normalizedName = NormalizeName(Name);
+            return $"{(IsTeam ? "team" : "name")}:{normalizedName}";
+        }
+    }
+
+    public static CrossEventPlayerIdentity FromName(string name, bool isTeam = false)
+    {
+        return new CrossEventPlayerIdentity(name, "", isTeam);
+    }
+
+    private static string NormalizeName(string value)
+    {
+        return string.Concat(value.Trim().Where(character => !char.IsWhiteSpace(character)));
+    }
+
+    private static string NormalizeStudentId(string value)
+    {
+        return string.Concat(value.Trim().Where(character => !char.IsWhiteSpace(character)));
+    }
+}
+
 public sealed record CrossEventScheduledMatch(
     int Order,
     string DayLabel,
@@ -34,15 +74,38 @@ public sealed record CrossEventScheduledMatch(
     bool SameUnit = false,
     bool IsCompleted = false,
     string MatchId = "",
-    IReadOnlyList<ScheduleMatchDependency>? Dependencies = null)
+    IReadOnlyList<ScheduleMatchDependency>? Dependencies = null,
+    IReadOnlyList<CrossEventPlayerIdentity>? SideAPlayerIdentities = null,
+    IReadOnlyList<CrossEventPlayerIdentity>? SideBPlayerIdentities = null)
 {
     public string MatchId { get; init; } = string.IsNullOrWhiteSpace(MatchId) ? MatchName : MatchId;
 
     public IReadOnlyList<ScheduleMatchDependency> Dependencies { get; init; } = Dependencies ?? Array.Empty<ScheduleMatchDependency>();
 
+    public IReadOnlyList<CrossEventPlayerIdentity> SideAPlayerIdentities { get; init; } = NormalizeIdentities(SideAPlayerIdentities, SideAPlayers);
+
+    public IReadOnlyList<CrossEventPlayerIdentity> SideBPlayerIdentities { get; init; } = NormalizeIdentities(SideBPlayerIdentities, SideBPlayers);
+
     public string TimeRange => $"{StartTime:HH:mm}-{EndTime:HH:mm}";
 
     public int DurationMinutes => Math.Max(1, (int)(EndTime - StartTime).TotalMinutes);
+
+    private static IReadOnlyList<CrossEventPlayerIdentity> NormalizeIdentities(
+        IReadOnlyList<CrossEventPlayerIdentity>? identities,
+        IReadOnlyList<string> fallbackNames)
+    {
+        var source = identities is { Count: > 0 }
+            ? identities
+            : fallbackNames
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => CrossEventPlayerIdentity.FromName(name))
+                .ToList();
+        return source
+            .Where(identity => !string.IsNullOrWhiteSpace(identity.Name))
+            .GroupBy(identity => identity.IdentityKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+    }
 }
 
 public sealed record CrossEventPlayerAppearance(

@@ -29,12 +29,12 @@ public sealed class CrossEventConflictWorkflow
     {
         if (string.IsNullOrWhiteSpace(outputPath))
         {
-            throw new DrawValidationException("请选择跨项目冲突报告保存位置。");
+            throw new DrawValidationException("请选择多项目排程检查报告保存位置。");
         }
 
-        var report = AnalyzeProgressFiles(progressFilePaths, minimumRestMinutes);
-        _writer.Write(outputPath, report);
-        return new CrossEventConflictExportResult(outputPath, report);
+        var board = LoadScheduleBoard(progressFilePaths, minimumRestMinutes);
+        _writer.WriteScheduleAudit(outputPath, board);
+        return new CrossEventConflictExportResult(outputPath, board.Report);
     }
 
     public CrossEventConflictExportResult ExportScheduleBoardReport(
@@ -43,10 +43,10 @@ public sealed class CrossEventConflictWorkflow
     {
         if (string.IsNullOrWhiteSpace(outputPath))
         {
-            throw new DrawValidationException("请选择跨项目冲突报告保存位置。");
+            throw new DrawValidationException("请选择多项目排程检查报告保存位置。");
         }
 
-        _writer.Write(outputPath, board.Report);
+        _writer.WriteScheduleAudit(outputPath, board);
         return new CrossEventConflictExportResult(outputPath, board.Report);
     }
 
@@ -271,7 +271,9 @@ public sealed class CrossEventConflictWorkflow
                     note,
                     false,
                     BuildMergedMatchId(boardItem.SourceId, boardItem.MatchId),
-                    mergedDependencies);
+                    mergedDependencies,
+                    boardItem.SideAPlayerIdentities,
+                    boardItem.SideBPlayerIdentities);
             })
             .ToList();
         return new SchedulePlan(matches, BuildMergedScheduleSettings(board, matches));
@@ -279,7 +281,7 @@ public sealed class CrossEventConflictWorkflow
 
     public static string BuildDefaultReportFileName()
     {
-        return $"跨项目选手冲突报告_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
+        return $"多项目排程检查报告_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
     }
 
     private static string BuildDefaultMergedMatchRecordFileName(string dayLabel)
@@ -339,15 +341,17 @@ public sealed class CrossEventConflictWorkflow
             {
                 var sideA = ResolveSide(match.SideA, state.Results, out var sideAResolved);
                 var sideB = ResolveSide(match.SideB, state.Results, out var sideBResolved);
-                var sideAPlayers = ResolvePlayers(sideA, eventKind, playerLookup);
-                var sideBPlayers = ResolvePlayers(sideB, eventKind, playerLookup);
+                var sideAPlayerIdentities = ResolvePlayerIdentities(sideA, eventKind, playerLookup);
+                var sideBPlayerIdentities = ResolvePlayerIdentities(sideB, eventKind, playerLookup);
+                var sideAPlayers = sideAPlayerIdentities.Select(identity => identity.Name).ToList();
+                var sideBPlayers = sideBPlayerIdentities.Select(identity => identity.Name).ToList();
 
-                if (!sideAResolved && sideAPlayers.Count == 0)
+                if (!sideAResolved && sideAPlayerIdentities.Count == 0)
                 {
                     unresolvedSideCount++;
                 }
 
-                if (!sideBResolved && sideBPlayers.Count == 0)
+                if (!sideBResolved && sideBPlayerIdentities.Count == 0)
                 {
                     unresolvedSideCount++;
                 }
@@ -370,7 +374,9 @@ public sealed class CrossEventConflictWorkflow
                     match.SameUnit,
                     state.Results.ContainsKey(match.MatchName),
                     match.MatchId,
-                    match.Dependencies);
+                    match.Dependencies,
+                    sideAPlayerIdentities,
+                    sideBPlayerIdentities);
             })
             .ToList();
 
@@ -419,7 +425,9 @@ public sealed class CrossEventConflictWorkflow
                     hasConflict ? conflict!.Severity : null,
                     hasConflict ? string.Join("；", conflict!.Messages.Distinct(StringComparer.Ordinal)) : "",
                     match.MatchId,
-                    match.Dependencies);
+                    match.Dependencies,
+                    match.SideAPlayerIdentities,
+                    match.SideBPlayerIdentities);
             }))
             .OrderBy(item => item.DayLabel, StringComparer.Ordinal)
             .ThenBy(item => item.StartTime)
@@ -504,7 +512,7 @@ public sealed class CrossEventConflictWorkflow
         {
             foreach (var match in source.Matches)
             {
-                foreach (var player in match.SideAPlayers)
+                foreach (var player in match.SideAPlayerIdentities)
                 {
                     foreach (var appearance in BuildPlayerScheduleAppearance(
                                  source,
@@ -521,7 +529,7 @@ public sealed class CrossEventConflictWorkflow
                     }
                 }
 
-                foreach (var player in match.SideBPlayers)
+                foreach (var player in match.SideBPlayerIdentities)
                 {
                     foreach (var appearance in BuildPlayerScheduleAppearance(
                                  source,
@@ -544,7 +552,7 @@ public sealed class CrossEventConflictWorkflow
     private static IEnumerable<PlayerAppearanceBuilder> BuildPlayerScheduleAppearance(
         CrossEventScheduleSource source,
         CrossEventScheduledMatch match,
-        string playerName,
+        CrossEventPlayerIdentity player,
         string side,
         string sideText,
         string opponentText,
@@ -552,7 +560,7 @@ public sealed class CrossEventConflictWorkflow
         IReadOnlyDictionary<string, BoardConflictAccumulator> issueLookup,
         ISet<string> seen)
     {
-        var normalized = NormalizePlayerName(playerName);
+        var normalized = player.IdentityKey;
         if (string.IsNullOrWhiteSpace(normalized))
         {
             yield break;
@@ -567,7 +575,7 @@ public sealed class CrossEventConflictWorkflow
 
         issueLookup.TryGetValue(BuildPlayerIssueKey(normalized, itemKey), out var issue);
         yield return new PlayerAppearanceBuilder(
-            playerName.Trim(),
+            player.DisplayName,
             normalized,
             new CrossEventPlayerScheduleAppearance(
                 itemKey,
@@ -721,7 +729,7 @@ public sealed class CrossEventConflictWorkflow
                 source,
                 match,
                 BuildItemKey(source.SourceId, match.MatchName),
-                NormalizePlayerKeys(match.SideAPlayers.Concat(match.SideBPlayers)))))
+                NormalizePlayerKeys(match.SideAPlayerIdentities.Concat(match.SideBPlayerIdentities)))))
             .ToList();
         var matchIdLookup = entries
             .GroupBy(entry => BuildSourceMatchIdKey(entry.Source.SourceId, entry.Match.MatchId), StringComparer.Ordinal)
@@ -1018,10 +1026,10 @@ public sealed class CrossEventConflictWorkflow
             && first.PlayerKeys.Intersect(second.PlayerKeys, StringComparer.OrdinalIgnoreCase).Any();
     }
 
-    private static IReadOnlyList<string> NormalizePlayerKeys(IEnumerable<string> players)
+    private static IReadOnlyList<string> NormalizePlayerKeys(IEnumerable<CrossEventPlayerIdentity> players)
     {
         return players
-            .Select(NormalizePlayerName)
+            .Select(player => player.IdentityKey)
             .Where(player => !string.IsNullOrWhiteSpace(player))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -1109,7 +1117,9 @@ public sealed class CrossEventConflictWorkflow
                 match.Note,
                 match.SameUnit,
                 match.MatchId,
-                match.Dependencies))
+                match.Dependencies,
+                match.SideAPlayerIdentities,
+                match.SideBPlayerIdentities))
             .ToList();
         return new SchedulePlan(matches, BuildScheduleSettings(source.ScheduleSettings, matches));
     }
@@ -1290,14 +1300,14 @@ public sealed class CrossEventConflictWorkflow
         };
     }
 
-    private static Dictionary<string, IReadOnlyList<string>> BuildPlayerLookup(
+    private static Dictionary<string, IReadOnlyList<CrossEventPlayerIdentity>> BuildPlayerLookup(
         IEnumerable<DrawParticipant> participants,
         EventKind eventKind)
     {
-        var lookup = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        var lookup = new Dictionary<string, IReadOnlyList<CrossEventPlayerIdentity>>(StringComparer.OrdinalIgnoreCase);
         foreach (var participant in participants)
         {
-            var players = GetParticipantPlayers(participant, eventKind);
+            var players = GetParticipantPlayerIdentities(participant, eventKind);
             AddLookup(lookup, participant.DisplayName, players);
             AddLookup(lookup, CleanCompetitorText(participant.DisplayName), players);
         }
@@ -1305,30 +1315,45 @@ public sealed class CrossEventConflictWorkflow
         return lookup;
     }
 
-    private static IReadOnlyList<string> GetParticipantPlayers(DrawParticipant participant, EventKind eventKind)
+    private static IReadOnlyList<CrossEventPlayerIdentity> GetParticipantPlayerIdentities(
+        DrawParticipant participant,
+        EventKind eventKind)
     {
         if (eventKind == EventKind.Doubles)
         {
-            var players = new[] { participant.PrimaryName, participant.PartnerName }
-                .Where(name => !string.IsNullOrWhiteSpace(name))
-                .Select(name => name!.Trim())
-                .Distinct(StringComparer.Ordinal)
+            var players = new[]
+                {
+                    BuildPlayerIdentity(participant.PrimaryName, participant.PrimaryStudentId),
+                    BuildPlayerIdentity(participant.PartnerName, participant.PartnerStudentId)
+                }
+                .Where(identity => identity is not null)
+                .Select(identity => identity!)
+                .GroupBy(identity => identity.IdentityKey, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
                 .ToList();
             return players.Count > 0
                 ? players
-                : SplitCompetitorText(participant.DisplayName, eventKind);
+                : SplitCompetitorIdentities(participant.DisplayName, eventKind);
         }
 
-        var name = eventKind == EventKind.Singles && !string.IsNullOrWhiteSpace(participant.PrimaryName)
-            ? participant.PrimaryName!
+        if (eventKind == EventKind.Singles)
+        {
+            var name = !string.IsNullOrWhiteSpace(participant.PrimaryName)
+                ? participant.PrimaryName!
+                : participant.DisplayName;
+            return [new CrossEventPlayerIdentity(name.Trim(), participant.PrimaryStudentId ?? "")];
+        }
+
+        var teamName = !string.IsNullOrWhiteSpace(participant.TeamName)
+            ? participant.TeamName!
             : participant.DisplayName;
-        return [name.Trim()];
+        return [new CrossEventPlayerIdentity(teamName.Trim(), "", IsTeam: true)];
     }
 
     private static void AddLookup(
-        IDictionary<string, IReadOnlyList<string>> lookup,
+        IDictionary<string, IReadOnlyList<CrossEventPlayerIdentity>> lookup,
         string value,
-        IReadOnlyList<string> players)
+        IReadOnlyList<CrossEventPlayerIdentity> players)
     {
         var key = NormalizeCompetitorKey(value);
         if (!string.IsNullOrWhiteSpace(key) && !lookup.ContainsKey(key))
@@ -1337,10 +1362,10 @@ public sealed class CrossEventConflictWorkflow
         }
     }
 
-    private static IReadOnlyList<string> ResolvePlayers(
+    private static IReadOnlyList<CrossEventPlayerIdentity> ResolvePlayerIdentities(
         string? side,
         EventKind eventKind,
-        IReadOnlyDictionary<string, IReadOnlyList<string>> playerLookup)
+        IReadOnlyDictionary<string, IReadOnlyList<CrossEventPlayerIdentity>> playerLookup)
     {
         if (string.IsNullOrWhiteSpace(side))
         {
@@ -1353,7 +1378,7 @@ public sealed class CrossEventConflictWorkflow
             return players;
         }
 
-        return SplitCompetitorText(side, eventKind);
+        return SplitCompetitorIdentities(side, eventKind);
     }
 
     private static string? ResolveSide(
@@ -1391,7 +1416,17 @@ public sealed class CrossEventConflictWorkflow
         return side;
     }
 
-    private static IReadOnlyList<string> SplitCompetitorText(string value, EventKind eventKind)
+    private static CrossEventPlayerIdentity? BuildPlayerIdentity(string? name, string? studentId)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        return new CrossEventPlayerIdentity(name.Trim(), studentId ?? "");
+    }
+
+    private static IReadOnlyList<CrossEventPlayerIdentity> SplitCompetitorIdentities(string value, EventKind eventKind)
     {
         var cleaned = CleanCompetitorText(value);
         if (string.IsNullOrWhiteSpace(cleaned))
@@ -1399,9 +1434,14 @@ public sealed class CrossEventConflictWorkflow
             return [];
         }
 
+        if (eventKind == EventKind.Team)
+        {
+            return [CrossEventPlayerIdentity.FromName(cleaned, isTeam: true)];
+        }
+
         if (eventKind != EventKind.Doubles)
         {
-            return [cleaned];
+            return [CrossEventPlayerIdentity.FromName(cleaned)];
         }
 
         var parts = Regex.Split(cleaned, @"[\s,，、/／&]+")
@@ -1409,7 +1449,9 @@ public sealed class CrossEventConflictWorkflow
             .Select(part => part.Trim())
             .Distinct(StringComparer.Ordinal)
             .ToList();
-        return parts.Count > 0 ? parts : [cleaned];
+        return parts.Count > 0
+            ? parts.Select(part => CrossEventPlayerIdentity.FromName(part)).ToList()
+            : [CrossEventPlayerIdentity.FromName(cleaned)];
     }
 
     private static string NormalizeCompetitorKey(string value)

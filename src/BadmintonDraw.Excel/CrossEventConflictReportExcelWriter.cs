@@ -7,6 +7,19 @@ public sealed class CrossEventConflictReportExcelWriter
 {
     public void Write(string outputPath, CrossEventConflictReport report)
     {
+        WriteReport(outputPath, report, board: null);
+    }
+
+    public void WriteScheduleAudit(string outputPath, CrossEventScheduleBoard board)
+    {
+        WriteReport(outputPath, board.Report, board);
+    }
+
+    private static void WriteReport(
+        string outputPath,
+        CrossEventConflictReport report,
+        CrossEventScheduleBoard? board)
+    {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrWhiteSpace(directory))
         {
@@ -14,43 +27,76 @@ public sealed class CrossEventConflictReportExcelWriter
         }
 
         using var workbook = new XLWorkbook();
-        WriteSummarySheet(workbook, report);
+        WriteSummarySheet(workbook, report, board);
+        if (board is not null)
+        {
+            WriteBoardItemsSheet(workbook, board);
+        }
+
         WriteIssuesSheet(workbook, "严重冲突", report.Issues.Where(issue => issue.Severity == CrossEventConflictSeverity.Severe));
         WriteIssuesSheet(workbook, "间隔过短", report.Issues.Where(issue => issue.Severity == CrossEventConflictSeverity.Warning));
         WriteIssuesSheet(workbook, "同日提醒", report.Issues.Where(issue => issue.Severity == CrossEventConflictSeverity.Notice));
-        WriteIssuesSheet(workbook, "全部冲突明细", report.Issues);
+        WriteIssuesSheet(workbook, "全部检查明细", report.Issues);
         WriteSourcesSheet(workbook, report);
         workbook.SaveAs(outputPath);
     }
 
-    private static void WriteSummarySheet(XLWorkbook workbook, CrossEventConflictReport report)
+    private static void WriteSummarySheet(
+        XLWorkbook workbook,
+        CrossEventConflictReport report,
+        CrossEventScheduleBoard? board)
     {
-        var sheet = workbook.Worksheets.Add("冲突汇总");
-        sheet.Cell(1, 1).Value = "跨项目选手冲突报告";
+        var sheet = workbook.Worksheets.Add("检查总览");
+        sheet.Cell(1, 1).Value = "多项目排程检查报告";
         sheet.Range(1, 1, 1, 4).Merge();
         sheet.Cell(1, 1).Style.Font.Bold = true;
         sheet.Cell(1, 1).Style.Font.FontSize = 18;
         sheet.Cell(1, 1).Style.Font.FontColor = XLColor.FromHtml("#2B145F");
 
-        var rows = new[]
+        var totalMatches = board?.Items.Count ?? report.Sources.Sum(source => source.MatchCount);
+        var completedMatches = board?.Items.Count(item => item.IsCompleted) ?? 0;
+        var pendingMatches = board?.Items.Count(item => !item.IsCompleted) ?? Math.Max(0, totalMatches - completedMatches);
+        var dayCount = board?.Days.Count ?? 0;
+        var courtCount = board?.Days.SelectMany(day => day.Courts).Distinct(StringComparer.Ordinal).Count() ?? 0;
+        var blockingCards = board?.BlockingConflictItemCount ?? 0;
+        var multiEventPlayers = board?.MultiEventPlayerCount ?? 0;
+        var exportReadiness = report.SevereCount == 0
+            ? "严重冲突为 0，可作为合并材料包导出前的留档依据。"
+            : "仍有严重冲突，建议先在多项目工作台调整后再导出合并材料包。";
+
+        var rows = new List<(string Label, string Value)>
         {
             ("生成时间", DateTime.Now.ToString("yyyy-MM-dd HH:mm")),
+            ("报告定位", "赛前确认、现场交接和赛后复盘留档；不替代裁判长现场判断。"),
             ("最小休息间隔", $"{report.MinimumRestMinutes} 分钟"),
             ("导入赛事数", report.Sources.Count.ToString()),
+            ("总场次数", totalMatches.ToString()),
+            ("已完成场次", completedMatches.ToString()),
+            ("未完成场次", pendingMatches.ToString()),
+            ("比赛日数", dayCount == 0 ? "未加载工作台" : dayCount.ToString()),
+            ("场地数", courtCount == 0 ? "未加载工作台" : courtCount.ToString()),
+            ("兼项选手", board is null ? "未加载工作台" : multiEventPlayers.ToString()),
+            ("冲突卡片", board is null ? "未加载工作台" : blockingCards.ToString()),
             ("严重冲突", report.SevereCount.ToString()),
             ("间隔过短", report.WarningCount.ToString()),
-            ("同日提醒", report.NoticeCount.ToString())
+            ("同日提醒", report.NoticeCount.ToString()),
+            ("导出判断", exportReadiness),
+            ("调整状态", board is null
+                ? "由赛事存档直接检查。"
+                : board.HasUnsavedChanges
+                    ? "当前工作台有未保存调整，建议确认后保存到各项目赛事存档。"
+                    : "当前工作台无未保存调整。")
         };
 
-        for (var index = 0; index < rows.Length; index++)
+        for (var index = 0; index < rows.Count; index++)
         {
             var row = index + 3;
-            sheet.Cell(row, 1).Value = rows[index].Item1;
-            sheet.Cell(row, 2).Value = rows[index].Item2;
+            sheet.Cell(row, 1).Value = rows[index].Label;
+            sheet.Cell(row, 2).Value = rows[index].Value;
             sheet.Cell(row, 1).Style.Font.Bold = true;
         }
 
-        var noteRow = rows.Length + 5;
+        var noteRow = rows.Count + 5;
         sheet.Cell(noteRow, 1).Value = report.HasIssues
             ? "说明：严重冲突表示同一选手同时间段跨项目参赛；间隔过短表示两场之间少于设定休息时间；同日提醒用于裁判长人工确认体能和现场调度。"
             : "未发现跨项目选手冲突。";
@@ -60,6 +106,60 @@ public sealed class CrossEventConflictReportExcelWriter
         sheet.Columns().AdjustToContents();
         sheet.Column(1).Width = Math.Max(sheet.Column(1).Width, 18);
         sheet.Column(2).Width = Math.Max(sheet.Column(2).Width, 24);
+    }
+
+    private static void WriteBoardItemsSheet(XLWorkbook workbook, CrossEventScheduleBoard board)
+    {
+        var sheet = workbook.Worksheets.Add("当前赛程卡片");
+        WriteHeaders(sheet, [
+            "状态",
+            "冲突级别",
+            "日期",
+            "时间",
+            "场地",
+            "项目",
+            "项目类型",
+            "组别",
+            "阶段/场次",
+            "选手/队伍A",
+            "选手/队伍B",
+            "冲突说明",
+            "来源文件"
+        ]);
+
+        if (board.Items.Count == 0)
+        {
+            sheet.Cell(2, 1).Value = "无";
+            ApplyTableStyle(sheet, 2, 13);
+            return;
+        }
+
+        var row = 2;
+        foreach (var item in board.Items
+                     .OrderBy(item => item.DayLabel, StringComparer.Ordinal)
+                     .ThenBy(item => item.StartTime)
+                     .ThenBy(item => item.Court, StringComparer.Ordinal)
+                     .ThenBy(item => item.EventName, StringComparer.Ordinal)
+                     .ThenBy(item => item.Order))
+        {
+            sheet.Cell(row, 1).Value = item.Status;
+            sheet.Cell(row, 2).Value = item.ConflictSeverity is null ? "" : FormatSeverity(item.ConflictSeverity.Value);
+            sheet.Cell(row, 3).Value = item.DayLabel;
+            sheet.Cell(row, 4).Value = item.TimeRange;
+            sheet.Cell(row, 5).Value = item.Court;
+            sheet.Cell(row, 6).Value = item.EventName;
+            sheet.Cell(row, 7).Value = FormatEventKind(item.EventKind);
+            sheet.Cell(row, 8).Value = item.GroupName;
+            sheet.Cell(row, 9).Value = $"{item.Phase} / {item.MatchName}";
+            sheet.Cell(row, 10).Value = item.SideA;
+            sheet.Cell(row, 11).Value = item.SideB;
+            sheet.Cell(row, 12).Value = item.ConflictSummary;
+            sheet.Cell(row, 13).Value = item.SourcePath;
+            row++;
+        }
+
+        ApplyTableStyle(sheet, row - 1, 13);
+        sheet.SheetView.FreezeRows(1);
     }
 
     private static void WriteSourcesSheet(XLWorkbook workbook, CrossEventConflictReport report)
