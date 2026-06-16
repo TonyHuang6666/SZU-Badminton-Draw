@@ -1668,6 +1668,116 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void CrossEventScheduleBoardAutoAdjustsGlobalPoolAndMovesDependentMatches()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-global-auto-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "男双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var firstSchedule = new SchedulePlan(
+                [
+                    new ScheduledMatch(
+                        1,
+                        "2026-06-13",
+                        new TimeOnly(14, 0),
+                        new TimeOnly(14, 30),
+                        "B1",
+                        1,
+                        "A组",
+                        "首轮赛",
+                        "A组首轮赛1",
+                        "张三",
+                        "李四",
+                        MatchId: "s1"),
+                    new ScheduledMatch(
+                        2,
+                        "2026-06-13",
+                        new TimeOnly(14, 30),
+                        new TimeOnly(15, 0),
+                        "B1",
+                        1,
+                        "A组",
+                        "决赛",
+                        "A组决赛1",
+                        "A组首轮赛1胜者",
+                        "王五",
+                        MatchId: "s2",
+                        Dependencies: [Dependency("s1", "A组首轮赛1", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
+                ],
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1"])],
+                    MatchMinutes: 30,
+                    MaxMatchesPerEntrantPerDay: 2));
+            var secondSchedule = new SchedulePlan(
+                [
+                    new ScheduledMatch(
+                        1,
+                        "2026-06-13",
+                        new TimeOnly(14, 0),
+                        new TimeOnly(14, 30),
+                        "B1",
+                        1,
+                        "A组",
+                        "首轮赛",
+                        "男双首轮赛1",
+                        "[赵六 钱七]",
+                        "[孙八 周九]",
+                        MatchId: "d1")
+                ],
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1"])],
+                    MatchMinutes: 30,
+                    MaxMatchesPerEntrantPerDay: 2));
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [
+                        new DrawParticipant("张三", PrimaryName: "张三"),
+                        new DrawParticipant("李四", PrimaryName: "李四"),
+                        new DrawParticipant("王五", PrimaryName: "王五")
+                    ],
+                    firstSchedule));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "男双",
+                    [
+                        new DrawParticipant("[赵六 钱七]", PrimaryName: "赵六", PartnerName: "钱七"),
+                        new DrawParticipant("[孙八 周九]", PrimaryName: "孙八", PartnerName: "周九")
+                    ],
+                    secondSchedule));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 20);
+            var adjusted = workflow.AutoAdjustScheduleBoard(board);
+            var singlesFinal = adjusted.Board.Sources
+                .Single(source => source.EventName == "男单")
+                .Matches
+                .Single(match => match.MatchName == "A组决赛1");
+            var doublesMatch = adjusted.Board.Sources
+                .Single(source => source.EventName == "男双")
+                .Matches
+                .Single(match => match.MatchName == "男双首轮赛1");
+
+            Assert.True(board.BlockingConflictItemCount > 0);
+            Assert.Equal(0, adjusted.RemainingBlockingConflictItemCount);
+            Assert.True(adjusted.MovedCount >= 2);
+            Assert.Equal(new TimeOnly(14, 30), doublesMatch.StartTime);
+            Assert.Equal(new TimeOnly(15, 0), singlesFinal.StartTime);
+            Assert.Empty(ScheduleDependencyGraph.Build(CrossEventConflictWorkflow.BuildMergedSchedulePlan(adjusted.Board)).FindOrderViolations());
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
     public void ScheduleWorkflowMovesScheduledMatchAndRejectsOccupiedSlot()
     {
         var schedule = new SchedulePlan(

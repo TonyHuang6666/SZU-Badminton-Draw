@@ -56,7 +56,7 @@ dotnet test tests\BadmintonDraw.Tests\BadmintonDraw.Tests.csproj -c Debug --no-r
 - 多比赛日赛程编排和带比赛时间/场地的对阵表。
 - 对阵记录表导入、逐条提醒、赛事存档和重复导入保护。
 - 单项目时间场地窗口拖拽调整。
-- 多项目冲突检测、兼项明细、自动调整、合并材料包导出。
+- 多项目冲突检测、兼项明细、全局自动编排未完成赛程、合并材料包导出。
 - 内置 Noto CJK 字体的中文图片/PDF 导出。
 
 ## 发布单文件程序

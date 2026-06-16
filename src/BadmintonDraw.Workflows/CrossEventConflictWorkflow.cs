@@ -104,36 +104,52 @@ public sealed class CrossEventConflictWorkflow
 
     public CrossEventScheduleAutoAdjustResult AutoAdjustScheduleBoard(CrossEventScheduleBoard board)
     {
-        var working = board;
-        var movedCount = 0;
+        var originalPlacements = board.Items.ToDictionary(item => item.Key, item => item, StringComparer.Ordinal);
+        var entries = BuildGlobalScheduleEntries(board);
+        var entryLookup = entries.ToDictionary(entry => entry.Key, StringComparer.Ordinal);
+        var dayNumbers = BuildBoardDayNumberLookup(board.Days);
+        var placements = entries
+            .Where(entry => entry.Match.IsCompleted)
+            .ToDictionary(
+                entry => entry.Key,
+                entry => new GlobalSchedulePlacement(
+                    entry.Match.DayLabel,
+                    entry.Match.StartTime,
+                    entry.Match.EndTime,
+                    entry.Match.Court),
+                StringComparer.Ordinal);
         var messages = new List<string>();
-        var skippedKeys = new HashSet<string>(StringComparer.Ordinal);
 
-        while (true)
+        foreach (var entry in BuildGlobalScheduleOrder(entries))
         {
-            var item = working.Items
-                .Where(item => item.IsBlockingConflict && !item.IsCompleted && !skippedKeys.Contains(item.Key))
-                .OrderBy(item => item.ConflictSeverity == CrossEventConflictSeverity.Severe ? 0 : 1)
-                .ThenBy(item => item.DayLabel, StringComparer.Ordinal)
-                .ThenBy(item => item.StartTime)
-                .ThenBy(item => item.EventName, StringComparer.Ordinal)
-                .FirstOrDefault();
-            if (item is null)
+            if (entry.Match.IsCompleted)
             {
-                break;
-            }
-
-            var adjusted = TryFindBetterPlacement(working, item, working.BlockingConflictItemCount);
-            if (adjusted is null)
-            {
-                skippedKeys.Add(item.Key);
-                messages.Add($"{item.EventName} {item.MatchName} 暂未找到可消除冲突的空位。");
                 continue;
             }
 
-            working = adjusted;
-            movedCount++;
+            var placement = FindBestGlobalPlacement(board, entry, placements, entryLookup, dayNumbers);
+            if (placement is null)
+            {
+                placements[entry.Key] = new GlobalSchedulePlacement(
+                    entry.Match.DayLabel,
+                    entry.Match.StartTime,
+                    entry.Match.EndTime,
+                    entry.Match.Court);
+                messages.Add($"{entry.Source.EventName} {entry.Match.MatchName} 未找到满足依赖、场地和休息约束的全局位置，已保留原位置。");
+                continue;
+            }
+
+            placements[entry.Key] = placement;
         }
+
+        var sources = ApplyGlobalPlacements(board.Sources, placements);
+        var working = BuildScheduleBoard(sources, board.MinimumRestMinutes, hasUnsavedChanges: true);
+        var movedCount = working.Items.Count(item =>
+            originalPlacements.TryGetValue(item.Key, out var original)
+            && !item.IsCompleted
+            && (!string.Equals(item.DayLabel, original.DayLabel, StringComparison.Ordinal)
+                || item.StartTime != original.StartTime
+                || !string.Equals(item.Court, original.Court, StringComparison.Ordinal)));
 
         return new CrossEventScheduleAutoAdjustResult(
             working,
@@ -698,6 +714,331 @@ public sealed class CrossEventConflictWorkflow
             .ToList();
     }
 
+    private static IReadOnlyList<GlobalScheduleEntry> BuildGlobalScheduleEntries(CrossEventScheduleBoard board)
+    {
+        var entries = board.Sources
+            .SelectMany(source => source.Matches.Select(match => new GlobalScheduleEntry(
+                source,
+                match,
+                BuildItemKey(source.SourceId, match.MatchName),
+                NormalizePlayerKeys(match.SideAPlayers.Concat(match.SideBPlayers)))))
+            .ToList();
+        var matchIdLookup = entries
+            .GroupBy(entry => BuildSourceMatchIdKey(entry.Source.SourceId, entry.Match.MatchId), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+
+        foreach (var entry in entries)
+        {
+            foreach (var dependency in entry.Match.Dependencies)
+            {
+                var dependencyKey = BuildSourceMatchIdKey(entry.Source.SourceId, dependency.SourceMatchId);
+                if (!matchIdLookup.TryGetValue(dependencyKey, out var sourceEntry))
+                {
+                    continue;
+                }
+
+                entry.DependencyKeys.Add(sourceEntry.Key);
+                sourceEntry.DependentKeys.Add(entry.Key);
+            }
+        }
+
+        foreach (var entry in entries)
+        {
+            entry.DependencyKeys.Sort(StringComparer.Ordinal);
+            entry.DependentKeys.Sort(StringComparer.Ordinal);
+        }
+
+        return entries;
+    }
+
+    private static IReadOnlyList<GlobalScheduleEntry> BuildGlobalScheduleOrder(IReadOnlyList<GlobalScheduleEntry> entries)
+    {
+        var pending = entries
+            .Where(entry => !entry.Match.IsCompleted)
+            .ToDictionary(entry => entry.Key, StringComparer.Ordinal);
+        var indegrees = pending.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value.DependencyKeys.Count(pending.ContainsKey),
+            StringComparer.Ordinal);
+        var result = new List<GlobalScheduleEntry>();
+
+        while (indegrees.Count > 0)
+        {
+            var next = indegrees
+                .Where(pair => pair.Value == 0)
+                .Select(pair => pending[pair.Key])
+                .OrderBy(entry => entry.Match.DayLabel, StringComparer.Ordinal)
+                .ThenBy(entry => entry.Match.StartTime)
+                .ThenBy(entry => IsImportantMatch(entry) ? 1 : 0)
+                .ThenBy(entry => entry.Source.EventName, StringComparer.Ordinal)
+                .ThenBy(entry => entry.Match.Order)
+                .FirstOrDefault();
+            if (next is null)
+            {
+                break;
+            }
+
+            result.Add(next);
+            pending.Remove(next.Key);
+            indegrees.Remove(next.Key);
+            foreach (var dependentKey in next.DependentKeys)
+            {
+                if (indegrees.TryGetValue(dependentKey, out var indegree))
+                {
+                    indegrees[dependentKey] = Math.Max(0, indegree - 1);
+                }
+            }
+        }
+
+        if (pending.Count > 0)
+        {
+            result.AddRange(pending.Values
+                .OrderBy(entry => entry.Match.DayLabel, StringComparer.Ordinal)
+                .ThenBy(entry => entry.Match.StartTime)
+                .ThenBy(entry => entry.Source.EventName, StringComparer.Ordinal)
+                .ThenBy(entry => entry.Match.Order));
+        }
+
+        return result;
+    }
+
+    private static GlobalSchedulePlacement? FindBestGlobalPlacement(
+        CrossEventScheduleBoard board,
+        GlobalScheduleEntry entry,
+        IReadOnlyDictionary<string, GlobalSchedulePlacement> placements,
+        IReadOnlyDictionary<string, GlobalScheduleEntry> entryLookup,
+        IReadOnlyDictionary<string, int> dayNumbers)
+    {
+        GlobalSchedulePlacement? bestPlacement = null;
+        long? bestScore = null;
+        foreach (var day in board.Days.OrderBy(day => day.DayLabel, StringComparer.Ordinal))
+        {
+            foreach (var slot in day.TimeSlots)
+            {
+                var endTime = slot.AddMinutes(entry.Match.DurationMinutes);
+                if (endTime > day.EndTime)
+                {
+                    continue;
+                }
+
+                foreach (var court in day.Courts)
+                {
+                    var placement = new GlobalSchedulePlacement(day.DayLabel, slot, endTime, court);
+                    if (!IsGlobalPlacementValid(board, entry, placement, placements, entryLookup, dayNumbers))
+                    {
+                        continue;
+                    }
+
+                    var score = ScoreGlobalPlacement(entry, placement, dayNumbers);
+                    if (!bestScore.HasValue || score < bestScore.Value)
+                    {
+                        bestScore = score;
+                        bestPlacement = placement;
+                    }
+                }
+            }
+        }
+
+        return bestPlacement;
+    }
+
+    private static bool IsGlobalPlacementValid(
+        CrossEventScheduleBoard board,
+        GlobalScheduleEntry entry,
+        GlobalSchedulePlacement placement,
+        IReadOnlyDictionary<string, GlobalSchedulePlacement> placements,
+        IReadOnlyDictionary<string, GlobalScheduleEntry> entryLookup,
+        IReadOnlyDictionary<string, int> dayNumbers)
+    {
+        var startMinute = BuildComparableMinute(placement.DayLabel, placement.StartTime, dayNumbers);
+        var endMinute = BuildComparableMinute(placement.DayLabel, placement.EndTime, dayNumbers);
+        foreach (var dependencyKey in entry.DependencyKeys)
+        {
+            if (placements.TryGetValue(dependencyKey, out var dependency)
+                && startMinute < BuildComparableMinute(dependency.DayLabel, dependency.EndTime, dayNumbers) + board.MinimumRestMinutes)
+            {
+                return false;
+            }
+        }
+
+        foreach (var dependentKey in entry.DependentKeys)
+        {
+            if (placements.TryGetValue(dependentKey, out var dependent)
+                && BuildComparableMinute(dependent.DayLabel, dependent.StartTime, dayNumbers) < endMinute + board.MinimumRestMinutes)
+            {
+                return false;
+            }
+        }
+
+        foreach (var existingPair in placements)
+        {
+            var existing = existingPair.Value;
+            if (string.Equals(existing.DayLabel, placement.DayLabel, StringComparison.Ordinal)
+                && string.Equals(existing.Court, placement.Court, StringComparison.OrdinalIgnoreCase)
+                && TimeRangesOverlap(placement.StartTime, placement.EndTime, existing.StartTime, existing.EndTime))
+            {
+                return false;
+            }
+
+            if (!entryLookup.TryGetValue(existingPair.Key, out var existingEntry)
+                || !SharesPlayer(entry, existingEntry))
+            {
+                continue;
+            }
+
+            var existingStart = BuildComparableMinute(existing.DayLabel, existing.StartTime, dayNumbers);
+            var existingEnd = BuildComparableMinute(existing.DayLabel, existing.EndTime, dayNumbers);
+            if (!HasMinimumRest(startMinute, endMinute, existingStart, existingEnd, board.MinimumRestMinutes))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static long ScoreGlobalPlacement(
+        GlobalScheduleEntry entry,
+        GlobalSchedulePlacement placement,
+        IReadOnlyDictionary<string, int> dayNumbers)
+    {
+        var originalStart = BuildComparableMinute(entry.Match.DayLabel, entry.Match.StartTime, dayNumbers);
+        var candidateStart = BuildComparableMinute(placement.DayLabel, placement.StartTime, dayNumbers);
+        var originalDay = dayNumbers.TryGetValue(entry.Match.DayLabel, out var sourceDay) ? sourceDay : 0;
+        var candidateDay = dayNumbers.TryGetValue(placement.DayLabel, out var targetDay) ? targetDay : originalDay;
+        var score = (long)Math.Abs(candidateStart - originalStart) * 10;
+        score += Math.Abs(candidateDay - originalDay) * 10_000L;
+        if (!string.Equals(entry.Match.Court, placement.Court, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 100;
+        }
+
+        if (IsImportantMatch(entry))
+        {
+            if (candidateStart < originalStart)
+            {
+                score += 1_000;
+            }
+            else
+            {
+                score -= Math.Min(500, (candidateStart - originalStart) / 2);
+            }
+        }
+
+        return score;
+    }
+
+    private static IReadOnlyList<CrossEventScheduleSource> ApplyGlobalPlacements(
+        IReadOnlyList<CrossEventScheduleSource> sources,
+        IReadOnlyDictionary<string, GlobalSchedulePlacement> placements)
+    {
+        return sources
+            .Select(source =>
+            {
+                var matches = source.Matches
+                    .Select(match =>
+                    {
+                        var key = BuildItemKey(source.SourceId, match.MatchName);
+                        if (!placements.TryGetValue(key, out var placement))
+                        {
+                            return match;
+                        }
+
+                        return match with
+                        {
+                            DayLabel = placement.DayLabel,
+                            StartTime = placement.StartTime,
+                            EndTime = placement.EndTime,
+                            Court = placement.Court
+                        };
+                    })
+                    .ToList();
+                return source with { Matches = NormalizeMatchOrders(matches) };
+            })
+            .ToList();
+    }
+
+    private static IReadOnlyDictionary<string, int> BuildBoardDayNumberLookup(IReadOnlyList<CrossEventScheduleBoardDay> days)
+    {
+        var result = new Dictionary<string, int>(StringComparer.Ordinal);
+        var fallback = 1_000_000;
+        foreach (var day in days.OrderBy(day => day.DayLabel, StringComparer.Ordinal))
+        {
+            if (DateOnly.TryParse(day.DayLabel, out var date))
+            {
+                result[day.DayLabel] = date.DayNumber;
+            }
+            else
+            {
+                result[day.DayLabel] = fallback++;
+            }
+        }
+
+        return result;
+    }
+
+    private static int BuildComparableMinute(
+        string dayLabel,
+        TimeOnly time,
+        IReadOnlyDictionary<string, int> dayNumbers)
+    {
+        var dayNumber = dayNumbers.TryGetValue(dayLabel, out var value) ? value : 0;
+        return (dayNumber * 24 * 60) + (time.Hour * 60) + time.Minute;
+    }
+
+    private static bool HasMinimumRest(
+        int firstStart,
+        int firstEnd,
+        int secondStart,
+        int secondEnd,
+        int minimumRestMinutes)
+    {
+        if (firstEnd <= secondStart)
+        {
+            return secondStart - firstEnd >= minimumRestMinutes;
+        }
+
+        if (secondEnd <= firstStart)
+        {
+            return firstStart - secondEnd >= minimumRestMinutes;
+        }
+
+        return false;
+    }
+
+    private static bool TimeRangesOverlap(TimeOnly firstStart, TimeOnly firstEnd, TimeOnly secondStart, TimeOnly secondEnd)
+    {
+        return firstStart < secondEnd && secondStart < firstEnd;
+    }
+
+    private static bool SharesPlayer(GlobalScheduleEntry first, GlobalScheduleEntry second)
+    {
+        return first.PlayerKeys.Count > 0
+            && second.PlayerKeys.Count > 0
+            && first.PlayerKeys.Intersect(second.PlayerKeys, StringComparer.OrdinalIgnoreCase).Any();
+    }
+
+    private static IReadOnlyList<string> NormalizePlayerKeys(IEnumerable<string> players)
+    {
+        return players
+            .Select(NormalizePlayerName)
+            .Where(player => !string.IsNullOrWhiteSpace(player))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool IsImportantMatch(GlobalScheduleEntry entry)
+    {
+        var text = $"{entry.Match.Phase} {entry.Match.MatchName}";
+        return text.Contains("决赛", StringComparison.Ordinal)
+            || text.Contains("半决赛", StringComparison.Ordinal)
+            || text.Contains("名次", StringComparison.Ordinal)
+            || text.Contains("3-8", StringComparison.Ordinal)
+            || text.Contains("5-8", StringComparison.Ordinal)
+            || text.Contains("8进4", StringComparison.Ordinal)
+            || text.Contains("4进2", StringComparison.Ordinal);
+    }
+
     private static BoardDayBuilder GetDayBuilder(IDictionary<string, BoardDayBuilder> builders, string dayLabel)
     {
         if (!builders.TryGetValue(dayLabel, out var builder))
@@ -707,52 +1048,6 @@ public sealed class CrossEventConflictWorkflow
         }
 
         return builder;
-    }
-
-    private CrossEventScheduleBoard? TryFindBetterPlacement(
-        CrossEventScheduleBoard board,
-        CrossEventScheduleBoardItem item,
-        int currentConflictCount)
-    {
-        foreach (var day in board.Days.OrderBy(day => day.DayLabel, StringComparer.Ordinal))
-        {
-            foreach (var slot in day.TimeSlots)
-            {
-                var endTime = slot.AddMinutes(item.DurationMinutes);
-                if (endTime > day.EndTime)
-                {
-                    continue;
-                }
-
-                foreach (var court in day.Courts)
-                {
-                    if (string.Equals(item.DayLabel, day.DayLabel, StringComparison.Ordinal)
-                        && item.StartTime == slot
-                        && string.Equals(item.Court, court, StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-
-                    CrossEventScheduleBoard candidate;
-                    try
-                    {
-                        candidate = MoveScheduleItem(board, item.Key, day.DayLabel, slot, court);
-                    }
-                    catch (DrawValidationException)
-                    {
-                        continue;
-                    }
-
-                    var candidateItem = candidate.Items.First(match => string.Equals(match.Key, item.Key, StringComparison.Ordinal));
-                    if (!candidateItem.IsBlockingConflict && candidate.BlockingConflictItemCount < currentConflictCount)
-                    {
-                        return candidate;
-                    }
-                }
-            }
-        }
-
-        return null;
     }
 
     private static CrossEventScheduleSource MoveMatchInSource(
@@ -1168,6 +1463,31 @@ public sealed class CrossEventConflictWorkflow
 
         public List<string> Messages { get; } = [];
     }
+
+    private sealed class GlobalScheduleEntry(
+        CrossEventScheduleSource source,
+        CrossEventScheduledMatch match,
+        string key,
+        IReadOnlyList<string> playerKeys)
+    {
+        public CrossEventScheduleSource Source { get; } = source;
+
+        public CrossEventScheduledMatch Match { get; } = match;
+
+        public string Key { get; } = key;
+
+        public IReadOnlyList<string> PlayerKeys { get; } = playerKeys;
+
+        public List<string> DependencyKeys { get; } = [];
+
+        public List<string> DependentKeys { get; } = [];
+    }
+
+    private sealed record GlobalSchedulePlacement(
+        string DayLabel,
+        TimeOnly StartTime,
+        TimeOnly EndTime,
+        string Court);
 
     private sealed record PlayerAppearanceBuilder(
         string PlayerName,
