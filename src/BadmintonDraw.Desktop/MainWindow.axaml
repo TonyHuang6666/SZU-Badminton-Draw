@@ -507,21 +507,62 @@
                                                            VerticalAlignment="Center" />
                                                 <TextBox x:Name="CrossEventRestMinutesBox"
                                                          Grid.Column="1"
-                                                         Text="20" />
+                                                         Text="20"
+                                                         LostFocus="CrossEventRestMinutesBox_LostFocus" />
                                                 <TextBlock Grid.Column="2"
                                                            Text="分钟"
                                                            Foreground="#64748B"
                                                            VerticalAlignment="Center" />
                                             </Grid>
+                                            <TextBlock Text="自动编排策略"
+                                                       Foreground="#64748B"
+                                                       FontWeight="SemiBold" />
+                                            <ComboBox x:Name="CrossEventSchedulingStrategyBox"
+                                                      SelectedIndex="1"
+                                                      SelectionChanged="CrossEventSchedulingStrategyBox_SelectionChanged">
+                                                <ComboBoxItem Content="紧凑完成" Tag="Compact" />
+                                                <ComboBoxItem Content="均衡宽松（推荐）" Tag="BalancedRelaxed" />
+                                                <ComboBoxItem Content="决赛日友好" Tag="FinalsDayFriendly" />
+                                                <ComboBoxItem Content="自定义" Tag="Custom" />
+                                            </ComboBox>
+                                            <Border x:Name="CrossEventCustomSchedulingPanel"
+                                                    Background="#FFFFFF"
+                                                    BorderBrush="#D8E0EC"
+                                                    BorderThickness="1"
+                                                    CornerRadius="8"
+                                                    Padding="10"
+                                                    IsVisible="False">
+                                                <StackPanel Spacing="10">
+                                                    <TextBlock Text="自定义编排参数"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="#28104E" />
+                                                    <TextBlock x:Name="CrossEventCustomHintText"
+                                                               Text="加载多项目赛程后，这里会显示系统推荐参数；每次调整都会以当前控件为锚点重新平衡其他参数。"
+                                                               Foreground="#64748B"
+                                                               TextWrapping="Wrap" />
+                                                    <TextBlock Text="每日目标场地负载率"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="#243B63" />
+                                                    <StackPanel x:Name="CrossEventCustomDayLoadPanel" Spacing="8" />
+                                                    <CheckBox x:Name="CrossEventStageWaveBox"
+                                                              Content="统一按阶段波次推进"
+                                                              IsChecked="True" />
+                                                    <StackPanel x:Name="CrossEventStageWavePanel" Spacing="8" />
+                                                    <TextBlock Text="跨项目统一收官日"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="#243B63" />
+                                                    <StackPanel x:Name="CrossEventFinalDayPanel" Spacing="6" />
+                                                    <Button Classes="secondary"
+                                                            Content="恢复推荐分布"
+                                                            Click="ResetCrossEventCustomDefaults_Click" />
+                                                </StackPanel>
+                                            </Border>
                                             <Button Classes="primary"
                                                     Content="加载多项目赛程"
                                                     Click="LoadCrossEventScheduleBoard_Click" />
                                             <Button Classes="secondary"
                                                     Content="兼项明细"
                                                     Click="ShowCrossEventPlayerDetails_Click" />
-                                            <Button Classes="secondary"
-                                                    Content="自动调整冲突"
-                                                    Click="AutoAdjustCrossEventSchedule_Click" />
                                             <Button Classes="secondary"
                                                     Content="保存调整到赛事存档"
                                                     Click="SaveCrossEventScheduleBoard_Click" />

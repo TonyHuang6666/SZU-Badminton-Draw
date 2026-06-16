@@ -106,18 +106,17 @@ artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
 1. 先跑 `dotnet test tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj --no-restore --verbosity minimal`。
 2. 再跑 `dotnet build BadmintonDraw.sln --no-restore --verbosity minimal`。
 3. macOS 包使用 `VERSION=x.y.z bash scripts/publish-macos.sh osx-arm64` 生成，并上传 `artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg`。
-4. Windows 版分别上传 Avalonia 单文件 `.exe` 和 WPF 单文件 `.exe`，WPF 版不用压缩包包装。
+4. Windows 版上传 Avalonia 单文件 `.exe`。4.2 起主线 release 优先发布 Avalonia 双平台包；WPF 版仅在需要 Windows 备用包时单独构建。
 5. Release 说明中列出规则化抽签、单项目/多项目赛程编排、多格式导出、赛事存档、记录表导入确认、合并材料包和跨平台桌面版等重要变化。
 
 GitHub CLI 示例：
 
 ```bash
-gh release create v4.1.0 \
-  artifacts/release/SZU-Badminton-Draw_Avalonia_macOS_osx-arm64_v4.1.0.dmg \
-  artifacts/release/SZU-Badminton-Draw_Avalonia_Windows_win-x64_v4.1.0.exe \
-  artifacts/release/SZU-Badminton-Draw_WPF_Windows_win-x64_v4.1.0.exe \
-  --title "Release 4.1.0" \
-  --notes-file /tmp/szu-badminton-release-4.1.0.md
+gh release create v4.2.0 \
+  artifacts/release/SZU-Badminton-Draw_Avalonia_macOS_osx-arm64_v4.2.0.dmg \
+  artifacts/release/SZU-Badminton-Draw_Avalonia_Windows_win-x64_v4.2.0.exe \
+  --title "Release 4.2.0" \
+  --notes-file /tmp/szu-badminton-release-4.2.0.md
 ```
 
 ## 示例名单

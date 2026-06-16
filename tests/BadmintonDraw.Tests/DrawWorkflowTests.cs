@@ -1868,6 +1868,134 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void CrossEventBalancedAutoAdjustKeepsFinalsOnLastDay()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-balanced-{Guid.NewGuid():N}");
+        var singlesPath = Path.Combine(directory, "男单.szbd");
+        var doublesPath = Path.Combine(directory, "男双.szbd");
+        var mixedPath = Path.Combine(directory, "混双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var store = new TournamentProgressStore();
+            store.Create(
+                singlesPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [new DrawParticipant("张三", PrimaryName: "张三"), new DrawParticipant("李四", PrimaryName: "李四")],
+                    CreateThreeDaySingleMatchSchedule("男单决赛", "张三", "李四", "决赛", "B1")));
+            store.Create(
+                doublesPath,
+                CreateManualProgressSnapshot(
+                    "男双",
+                    [
+                        new DrawParticipant("[王五 赵六]", PrimaryName: "王五", PartnerName: "赵六"),
+                        new DrawParticipant("[孙七 周八]", PrimaryName: "孙七", PartnerName: "周八")
+                    ],
+                    CreateThreeDaySingleMatchSchedule("男双决赛", "[王五 赵六]", "[孙七 周八]", "决赛", "B2")));
+            store.Create(
+                mixedPath,
+                CreateManualProgressSnapshot(
+                    "混双",
+                    [
+                        new DrawParticipant("[钱九 吴十]", PrimaryName: "钱九", PartnerName: "吴十"),
+                        new DrawParticipant("[郑一 冯二]", PrimaryName: "郑一", PartnerName: "冯二")
+                    ],
+                    CreateThreeDaySingleMatchSchedule("混双决赛", "[钱九 吴十]", "[郑一 冯二]", "决赛", "B3")));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([singlesPath, doublesPath, mixedPath], minimumRestMinutes: 20);
+            var options = workflow.CreateSchedulingOptions(board, CrossEventSchedulingStrategy.BalancedRelaxed);
+            var adjusted = workflow.AutoAdjustScheduleBoard(board, options);
+            var finalsFriendly = workflow.AutoAdjustScheduleBoard(
+                board,
+                workflow.CreateSchedulingOptions(board, CrossEventSchedulingStrategy.FinalsDayFriendly));
+
+            Assert.All(
+                adjusted.Board.Items.Where(item => item.MatchName.Contains("决赛", StringComparison.Ordinal)),
+                item => Assert.Equal("2026-06-15", item.DayLabel));
+            Assert.Equal(0, finalsFriendly.RemainingBlockingConflictItemCount);
+            Assert.Equal(CrossEventSchedulingStrategy.BalancedRelaxed, adjusted.Board.SchedulingOptions?.Strategy);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void CrossEventCustomDayLoadTargetsRebalanceFromSameBaseBoard()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-load-targets-{Guid.NewGuid():N}");
+        var firstPath = Path.Combine(directory, "男单.szbd");
+        var secondPath = Path.Combine(directory, "男双.szbd");
+        var thirdPath = Path.Combine(directory, "混双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    CreateLooseParticipants("男单", 12),
+                    CreateThreeDayLooseSchedule("男单", 6, "B1")));
+            store.Create(
+                secondPath,
+                CreateManualProgressSnapshot(
+                    "男双",
+                    CreateLooseParticipants("男双", 12),
+                    CreateThreeDayLooseSchedule("男双", 6, "B2")));
+            store.Create(
+                thirdPath,
+                CreateManualProgressSnapshot(
+                    "混双",
+                    CreateLooseParticipants("混双", 12),
+                    CreateThreeDayLooseSchedule("混双", 6, "B3")));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([firstPath, secondPath, thirdPath], minimumRestMinutes: 20);
+            var balanced = workflow.CreateSchedulingOptions(board, CrossEventSchedulingStrategy.BalancedRelaxed);
+            var lowFirstDay = balanced with
+            {
+                Strategy = CrossEventSchedulingStrategy.Custom,
+                DayLoadTargets =
+                [
+                    new CrossEventDayLoadTarget("2026-06-13", 0.20, 0.35),
+                    new CrossEventDayLoadTarget("2026-06-14", 0.90, 1.00),
+                    new CrossEventDayLoadTarget("2026-06-15", 0.90, 1.00)
+                ]
+            };
+            var highFirstDay = balanced with
+            {
+                Strategy = CrossEventSchedulingStrategy.Custom,
+                DayLoadTargets =
+                [
+                    new CrossEventDayLoadTarget("2026-06-13", 0.95, 1.00),
+                    new CrossEventDayLoadTarget("2026-06-14", 0.35, 0.50),
+                    new CrossEventDayLoadTarget("2026-06-15", 0.35, 0.50)
+                ]
+            };
+
+            var lowResult = workflow.AutoAdjustScheduleBoard(board, lowFirstDay);
+            var highResult = workflow.AutoAdjustScheduleBoard(board, highFirstDay);
+            var lowFirstDayCount = lowResult.Board.Items.Count(item => item.DayLabel == "2026-06-13");
+            var highFirstDayCount = highResult.Board.Items.Count(item => item.DayLabel == "2026-06-13");
+
+            Assert.Equal(0, lowResult.RemainingBlockingConflictItemCount);
+            Assert.Equal(0, highResult.RemainingBlockingConflictItemCount);
+            Assert.True(highFirstDayCount >= lowFirstDayCount);
+            Assert.Equal(CrossEventSchedulingStrategy.Custom, highResult.Board.SchedulingOptions?.Strategy);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
     public void CrossEventScheduleBoardAutoAdjustsGlobalPoolAndMovesDependentMatches()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-global-auto-{Guid.NewGuid():N}");
@@ -4138,6 +4266,73 @@ public sealed class DrawWorkflowTests
             ],
             new ScheduleSettings(
                 [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), [court])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+    }
+
+    private static IReadOnlyList<DrawParticipant> CreateLooseParticipants(string prefix, int count)
+    {
+        return Enumerable.Range(1, count)
+            .Select(index => new DrawParticipant($"{prefix}选手{index}", PrimaryName: $"{prefix}选手{index}"))
+            .ToList();
+    }
+
+    private static SchedulePlan CreateThreeDayLooseSchedule(string prefix, int matchCount, string preferredCourt)
+    {
+        var matches = Enumerable.Range(1, matchCount)
+            .Select(index => new ScheduledMatch(
+                index,
+                "2026-06-13",
+                new TimeOnly(14, 0).AddMinutes((index - 1) * 20),
+                new TimeOnly(14, 20).AddMinutes((index - 1) * 20),
+                preferredCourt,
+                1,
+                "A组",
+                "首轮赛",
+                $"{prefix}第{index}场",
+                $"{prefix}选手{index * 2 - 1}",
+                $"{prefix}选手{index * 2}"))
+            .ToList();
+        return new SchedulePlan(
+            matches,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2", "B3"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 14), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2", "B3"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 15), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2", "B3"])
+                ],
+                MatchMinutes: 20,
+                MaxMatchesPerEntrantPerDay: 3));
+    }
+
+    private static SchedulePlan CreateThreeDaySingleMatchSchedule(
+        string matchName,
+        string sideA,
+        string sideB,
+        string phase,
+        string court)
+    {
+        return new SchedulePlan(
+            [
+                new ScheduledMatch(
+                    1,
+                    "2026-06-13",
+                    new TimeOnly(14, 0),
+                    new TimeOnly(14, 30),
+                    court,
+                    1,
+                    "A组",
+                    phase,
+                    matchName,
+                    sideA,
+                    sideB)
+            ],
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1", "B2", "B3"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 14), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1", "B2", "B3"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 15), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1", "B2", "B3"])
+                ],
                 MatchMinutes: 30,
                 MaxMatchesPerEntrantPerDay: 2));
     }

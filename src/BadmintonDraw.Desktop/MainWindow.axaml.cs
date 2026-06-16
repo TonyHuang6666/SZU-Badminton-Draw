@@ -12,6 +12,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using BadmintonDraw.Core;
 using BadmintonDraw.Excel;
 using BadmintonDraw.Workflows;
@@ -93,6 +94,21 @@ public partial class MainWindow : Window
     private int _scheduleBoardHighlightVersion;
     private Window? _scheduleConstraintWindow;
     private CrossEventScheduleBoard? _crossEventScheduleBoard;
+    private CrossEventScheduleBoard? _crossEventBaseScheduleBoard;
+    private CrossEventScheduleBoard? _crossEventLastAcceptedBoard;
+    private CrossEventSchedulingOptions? _crossEventSchedulingOptions;
+    private CrossEventSchedulingOptions? _crossEventRecommendedCustomOptions;
+    private CrossEventSchedulingOptions? _crossEventLastAcceptedOptions;
+    private bool _updatingCrossEventCustomControls;
+    private bool _runningCrossEventScheduling;
+    private int _crossEventSchedulingVersion;
+    private CrossEventCustomAnchor _pendingCrossEventCustomAnchor = CrossEventCustomAnchor.None;
+    private readonly Dictionary<string, Slider> _crossEventDayLoadSliders = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TextBlock> _crossEventDayLoadLabels = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Slider> _crossEventStageWaveSliders = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TextBlock> _crossEventStageWaveLabels = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string EventName, CrossEventFinalDayMatchCategory Category), CheckBox> _crossEventFinalDayBoxes = [];
+    private DispatcherTimer? _crossEventCustomRecalculateTimer;
     private double _crossEventBoardZoom = 1.0;
     private double _crossEventBoardWindowZoom = 1.0;
     private Window? _crossEventBoardWindow;
@@ -101,6 +117,49 @@ public partial class MainWindow : Window
     private Grid? _crossEventBoardWindowGrid;
     private bool _uiReady;
 
+    private enum CrossEventCustomAnchorKind
+    {
+        None,
+        Recommended,
+        DayLoad,
+        StageWave,
+        StageWaveEnabled,
+        FinalDay,
+        MinimumRest
+    }
+
+    private sealed record CrossEventCustomAnchor(
+        CrossEventCustomAnchorKind Kind,
+        string? DayLabel = null,
+        string? EventName = null,
+        CrossEventFinalDayMatchCategory? Category = null)
+    {
+        public static CrossEventCustomAnchor None { get; } = new(CrossEventCustomAnchorKind.None);
+
+        public string Describe()
+        {
+            return Kind switch
+            {
+                CrossEventCustomAnchorKind.DayLoad when !string.IsNullOrWhiteSpace(DayLabel) => $"{DayLabel} 目标负载率",
+                CrossEventCustomAnchorKind.StageWave when !string.IsNullOrWhiteSpace(DayLabel) => $"{DayLabel} 阶段推进",
+                CrossEventCustomAnchorKind.StageWaveEnabled => "阶段波次推进",
+                CrossEventCustomAnchorKind.FinalDay when !string.IsNullOrWhiteSpace(EventName) && Category is not null
+                    => $"{EventName} {GetFinalDayCategoryText(Category.Value)}收官日偏好",
+                CrossEventCustomAnchorKind.MinimumRest => "最小休息间隔",
+                CrossEventCustomAnchorKind.Recommended => "推荐分布",
+                _ => "当前参数"
+            };
+        }
+    }
+
+    private sealed record CrossEventCustomSliderTag(
+        CrossEventCustomAnchorKind Kind,
+        string DayLabel);
+
+    private sealed record CrossEventFinalDayTag(
+        string EventName,
+        CrossEventFinalDayMatchCategory Category);
+
     public MainWindow()
     {
         InitializeComponent();
@@ -108,6 +167,19 @@ public partial class MainWindow : Window
         SeedBox.Text = DrawWorkflow.GenerateSeed();
         ScheduleDatePicker.SelectedDate = new DateTimeOffset(DateTime.Today);
         ScheduleDaysList.ItemsSource = _scheduleDays;
+        CrossEventCustomSchedulingPanel.IsVisible = false;
+        CrossEventStageWaveBox.PropertyChanged += (_, args) =>
+        {
+            if (args.Property == ToggleButton.IsCheckedProperty)
+            {
+                QueueCrossEventCustomRecalculate(new CrossEventCustomAnchor(CrossEventCustomAnchorKind.StageWaveEnabled));
+            }
+        };
+        _crossEventCustomRecalculateTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(450)
+        };
+        _crossEventCustomRecalculateTimer.Tick += CrossEventCustomRecalculateTimer_Tick;
         Opened += MainWindow_Opened;
     }
 
@@ -726,13 +798,20 @@ public partial class MainWindow : Window
 
         try
         {
-            _crossEventScheduleBoard = _crossEventConflictWorkflow.LoadScheduleBoard(
+            _crossEventBaseScheduleBoard = _crossEventConflictWorkflow.LoadScheduleBoard(
                 paths,
                 GetCrossEventMinimumRestMinutes());
-            RefreshCrossEventScheduleBoard();
-            RefreshCrossEventBoardWindow(GetSelectedCrossEventDayLabel());
+            _crossEventScheduleBoard = _crossEventBaseScheduleBoard;
+            _crossEventLastAcceptedBoard = null;
+            _crossEventSchedulingOptions = null;
+            _crossEventRecommendedCustomOptions = null;
+            _crossEventLastAcceptedOptions = null;
             PreviewTabs.SelectedItem = CrossEventPreviewTab;
-            SetStatus(BuildCrossEventStatus("多项目赛程已加载", _crossEventScheduleBoard));
+            RunCrossEventScheduling(
+                GetCrossEventSchedulingStrategy(),
+                CrossEventCustomAnchor.None,
+                "多项目赛程已加载并自动编排",
+                rollbackOnFailure: false);
         }
         catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
         {
@@ -740,7 +819,86 @@ public partial class MainWindow : Window
         }
     }
 
-    private void AutoAdjustCrossEventSchedule_Click(object? sender, RoutedEventArgs e)
+    private void CrossEventSchedulingStrategyBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (!_uiReady && _crossEventScheduleBoard is null)
+        {
+            return;
+        }
+
+        var strategy = GetCrossEventSchedulingStrategy();
+        CrossEventCustomSchedulingPanel.IsVisible = strategy == CrossEventSchedulingStrategy.Custom;
+        if (_crossEventScheduleBoard is null)
+        {
+            return;
+        }
+
+        if (strategy == CrossEventSchedulingStrategy.Custom)
+        {
+            EnsureCrossEventCustomRecommendation();
+        }
+        else
+        {
+            _crossEventRecommendedCustomOptions = null;
+        }
+
+        RunCrossEventScheduling(
+            strategy,
+            strategy == CrossEventSchedulingStrategy.Custom
+                ? new CrossEventCustomAnchor(CrossEventCustomAnchorKind.Recommended)
+                : CrossEventCustomAnchor.None,
+            $"{GetCrossEventSchedulingStrategyName(strategy)}策略已重新编排",
+            rollbackOnFailure: true);
+    }
+
+    private void CrossEventCustomOption_Changed(object? sender, RoutedEventArgs e)
+    {
+        QueueCrossEventCustomRecalculate(CrossEventCustomAnchor.None);
+    }
+
+    private void CrossEventCustomSlider_ValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_updatingCrossEventCustomControls)
+        {
+            return;
+        }
+
+        UpdateCrossEventCustomLabels();
+        var anchor = sender is Slider { Tag: CrossEventCustomSliderTag tag }
+            ? new CrossEventCustomAnchor(tag.Kind, tag.DayLabel)
+            : CrossEventCustomAnchor.None;
+        QueueCrossEventCustomRecalculate(anchor);
+    }
+
+    private void CrossEventCustomRecalculateTimer_Tick(object? sender, EventArgs e)
+    {
+        _crossEventCustomRecalculateTimer?.Stop();
+        if (GetCrossEventSchedulingStrategy() == CrossEventSchedulingStrategy.Custom)
+        {
+            RunCrossEventScheduling(
+                CrossEventSchedulingStrategy.Custom,
+                _pendingCrossEventCustomAnchor,
+                $"自定义参数已按{_pendingCrossEventCustomAnchor.Describe()}重新编排",
+                rollbackOnFailure: true);
+        }
+    }
+
+    private void QueueCrossEventCustomRecalculate(CrossEventCustomAnchor anchor)
+    {
+        if (_updatingCrossEventCustomControls
+            || _crossEventScheduleBoard is null
+            || GetCrossEventSchedulingStrategy() != CrossEventSchedulingStrategy.Custom)
+        {
+            return;
+        }
+
+        _pendingCrossEventCustomAnchor = anchor;
+        _crossEventCustomRecalculateTimer?.Stop();
+        _crossEventCustomRecalculateTimer?.Start();
+        SetStatus($"自定义参数已变化，将以{anchor.Describe()}为锚点重新编排…", isWarning: true);
+    }
+
+    private void ResetCrossEventCustomDefaults_Click(object? sender, RoutedEventArgs e)
     {
         if (_crossEventScheduleBoard is null)
         {
@@ -748,25 +906,36 @@ public partial class MainWindow : Window
             return;
         }
 
+        EnsureCrossEventCustomRecommendation();
+        RunCrossEventScheduling(
+            CrossEventSchedulingStrategy.Custom,
+            new CrossEventCustomAnchor(CrossEventCustomAnchorKind.Recommended),
+            "已恢复推荐分布并重新编排",
+            rollbackOnFailure: true);
+    }
+
+    private void CrossEventRestMinutesBox_LostFocus(object? sender, RoutedEventArgs e)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            return;
+        }
+
         try
         {
-            var result = _crossEventConflictWorkflow.AutoAdjustScheduleBoard(_crossEventScheduleBoard);
-            _crossEventScheduleBoard = result.Board;
-            RefreshCrossEventScheduleBoard(GetSelectedCrossEventDayLabel());
-            RefreshCrossEventBoardWindow(GetSelectedCrossEventDayLabel());
-            PreviewTabs.SelectedItem = CrossEventPreviewTab;
-            var message = $"自动调整完成：移动 {result.MovedCount} 场，仍有 {result.RemainingBlockingConflictItemCount} 张冲突卡片。";
-            if (result.Messages.Count > 0)
-            {
-                message += $" {string.Join("；", result.Messages.Take(3))}";
-            }
-
-            SetStatus(message, isWarning: result.RemainingBlockingConflictItemCount > 0);
+            _ = GetCrossEventMinimumRestMinutes();
         }
-        catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
+        catch (DrawValidationException ex)
         {
             SetStatus(ex.Message, isError: true);
+            return;
         }
+
+        RunCrossEventScheduling(
+            GetCrossEventSchedulingStrategy(),
+            new CrossEventCustomAnchor(CrossEventCustomAnchorKind.MinimumRest),
+            "最小休息间隔已变化并重新编排",
+            rollbackOnFailure: true);
     }
 
     private void SaveCrossEventScheduleBoard_Click(object? sender, RoutedEventArgs e)
@@ -2442,6 +2611,615 @@ public partial class MainWindow : Window
         }
 
         return minutes;
+    }
+
+    private CrossEventSchedulingStrategy GetCrossEventSchedulingStrategy()
+    {
+        if (CrossEventSchedulingStrategyBox.SelectedItem is ComboBoxItem item
+            && item.Tag is not null
+            && Enum.TryParse<CrossEventSchedulingStrategy>(item.Tag.ToString(), out var strategy))
+        {
+            return strategy;
+        }
+
+        return CrossEventSchedulingStrategy.BalancedRelaxed;
+    }
+
+    private static string GetCrossEventSchedulingStrategyName(CrossEventSchedulingStrategy strategy)
+    {
+        return strategy switch
+        {
+            CrossEventSchedulingStrategy.Compact => "紧凑完成",
+            CrossEventSchedulingStrategy.FinalsDayFriendly => "决赛日友好",
+            CrossEventSchedulingStrategy.Custom => "自定义",
+            _ => "均衡宽松"
+        };
+    }
+
+    private bool RunCrossEventScheduling(
+        CrossEventSchedulingStrategy strategy,
+        CrossEventCustomAnchor anchor,
+        string successPrefix,
+        bool rollbackOnFailure)
+    {
+        if (_runningCrossEventScheduling)
+        {
+            return false;
+        }
+
+        if (_crossEventBaseScheduleBoard is null)
+        {
+            SetStatus("请先加载多项目赛程。", isError: true);
+            return false;
+        }
+
+        var selectedDay = GetSelectedCrossEventDayLabel();
+        var version = ++_crossEventSchedulingVersion;
+        _runningCrossEventScheduling = true;
+        try
+        {
+            var baseBoard = RebuildCrossEventBaseBoardForCurrentRest();
+            var options = strategy == CrossEventSchedulingStrategy.Custom
+                ? BuildAnchoredCustomSchedulingOptions(baseBoard, anchor)
+                : _crossEventConflictWorkflow.CreateSchedulingOptions(baseBoard, strategy);
+            var result = _crossEventConflictWorkflow.AutoAdjustScheduleBoard(baseBoard, options);
+            if (version != _crossEventSchedulingVersion)
+            {
+                return false;
+            }
+
+            if (result.RemainingBlockingConflictItemCount > 0)
+            {
+                RestoreLastAcceptedCrossEventSchedule(rollbackOnFailure);
+                var reason = result.Messages.Count > 0
+                    ? $" {string.Join("；", result.Messages.Take(3))}"
+                    : "";
+                SetStatus(
+                    $"{anchor.Describe()}无可行方案，仍有 {result.RemainingBlockingConflictItemCount} 张硬冲突卡片，已回滚到上一可行赛程。{reason}",
+                    isError: true);
+                return false;
+            }
+
+            _crossEventScheduleBoard = result.Board;
+            _crossEventSchedulingOptions = _crossEventScheduleBoard.SchedulingOptions ?? options;
+            _crossEventLastAcceptedBoard = _crossEventScheduleBoard;
+            _crossEventLastAcceptedOptions = _crossEventSchedulingOptions;
+            if (strategy == CrossEventSchedulingStrategy.Custom && _crossEventRecommendedCustomOptions is null)
+            {
+                _crossEventRecommendedCustomOptions = _crossEventSchedulingOptions with
+                {
+                    Strategy = CrossEventSchedulingStrategy.Custom
+                };
+            }
+
+            RebuildCrossEventCustomSchedulingControls();
+            RefreshCrossEventScheduleBoard(selectedDay);
+            RefreshCrossEventBoardWindow(selectedDay);
+            PreviewTabs.SelectedItem = CrossEventPreviewTab;
+            var message =
+                $"{BuildCrossEventStatus(successPrefix, _crossEventScheduleBoard)} 策略：{GetCrossEventSchedulingStrategyName(strategy)}，移动 {result.MovedCount} 场，硬冲突 0。";
+            if (anchor.Kind != CrossEventCustomAnchorKind.None)
+            {
+                message += $" 锚点：{anchor.Describe()}。";
+            }
+
+            if (result.Messages.Count > 0)
+            {
+                message += $" {string.Join("；", result.Messages.Take(3))}";
+            }
+
+            SetStatus(message, isWarning: _crossEventScheduleBoard.Report.NoticeCount > 0);
+            return true;
+        }
+        catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
+        {
+            RestoreLastAcceptedCrossEventSchedule(rollbackOnFailure);
+            SetStatus($"{anchor.Describe()}无法生成可行赛程：{ex.Message}", isError: true);
+            return false;
+        }
+        finally
+        {
+            _pendingCrossEventCustomAnchor = CrossEventCustomAnchor.None;
+            _runningCrossEventScheduling = false;
+        }
+    }
+
+    private CrossEventScheduleBoard RebuildCrossEventBaseBoardForCurrentRest()
+    {
+        var minimumRestMinutes = GetCrossEventMinimumRestMinutes();
+        if (_crossEventBaseScheduleBoard is null)
+        {
+            throw new DrawValidationException("请先加载多项目赛程。");
+        }
+
+        if (_crossEventBaseScheduleBoard.MinimumRestMinutes == minimumRestMinutes)
+        {
+            return _crossEventBaseScheduleBoard;
+        }
+
+        _crossEventBaseScheduleBoard = _crossEventConflictWorkflow.RebuildScheduleBoard(
+            _crossEventBaseScheduleBoard,
+            minimumRestMinutes,
+            _crossEventSchedulingOptions);
+        _crossEventRecommendedCustomOptions = null;
+        return _crossEventBaseScheduleBoard;
+    }
+
+    private void RestoreLastAcceptedCrossEventSchedule(bool rollbackOnFailure)
+    {
+        if (!rollbackOnFailure || _crossEventLastAcceptedBoard is null)
+        {
+            return;
+        }
+
+        _crossEventScheduleBoard = _crossEventLastAcceptedBoard;
+        _crossEventSchedulingOptions = _crossEventLastAcceptedOptions ?? _crossEventLastAcceptedBoard.SchedulingOptions;
+        RebuildCrossEventCustomSchedulingControls();
+        RefreshCrossEventScheduleBoard(GetSelectedCrossEventDayLabel());
+        RefreshCrossEventBoardWindow(GetSelectedCrossEventDayLabel());
+    }
+
+    private void EnsureCrossEventCustomRecommendation(bool force = false)
+    {
+        if (!force && _crossEventRecommendedCustomOptions is not null)
+        {
+            return;
+        }
+
+        var baseBoard = _crossEventBaseScheduleBoard ?? _crossEventScheduleBoard;
+        if (baseBoard is null)
+        {
+            return;
+        }
+
+        var current = _crossEventLastAcceptedOptions ?? _crossEventSchedulingOptions;
+        _crossEventRecommendedCustomOptions = current is not null
+            ? current with { Strategy = CrossEventSchedulingStrategy.Custom }
+            : _crossEventConflictWorkflow.CreateSchedulingOptions(baseBoard, CrossEventSchedulingStrategy.BalancedRelaxed) with
+            {
+                Strategy = CrossEventSchedulingStrategy.Custom
+            };
+    }
+
+    private CrossEventSchedulingOptions BuildAnchoredCustomSchedulingOptions(
+        CrossEventScheduleBoard baseBoard,
+        CrossEventCustomAnchor anchor)
+    {
+        EnsureCrossEventCustomRecommendation();
+        var recommendation = _crossEventRecommendedCustomOptions
+            ?? _crossEventConflictWorkflow.CreateSchedulingOptions(baseBoard, CrossEventSchedulingStrategy.BalancedRelaxed) with
+            {
+                Strategy = CrossEventSchedulingStrategy.Custom
+            };
+        var current = (_crossEventLastAcceptedOptions?.Strategy == CrossEventSchedulingStrategy.Custom
+                ? _crossEventLastAcceptedOptions
+                : _crossEventSchedulingOptions?.Strategy == CrossEventSchedulingStrategy.Custom
+                    ? _crossEventSchedulingOptions
+                    : recommendation)
+            ?? recommendation;
+
+        return anchor.Kind switch
+        {
+            CrossEventCustomAnchorKind.Recommended => recommendation,
+            CrossEventCustomAnchorKind.DayLoad when !string.IsNullOrWhiteSpace(anchor.DayLabel) => current with
+            {
+                Strategy = CrossEventSchedulingStrategy.Custom,
+                DayLoadTargets = BuildAnchoredDayLoadTargets(baseBoard, recommendation, anchor.DayLabel)
+            },
+            CrossEventCustomAnchorKind.StageWave when !string.IsNullOrWhiteSpace(anchor.DayLabel) => current with
+            {
+                Strategy = CrossEventSchedulingStrategy.Custom,
+                SynchronizeStageWaves = CrossEventStageWaveBox.IsChecked == true,
+                StageWaveTargets = BuildAnchoredStageWaveTargets(baseBoard, recommendation, anchor.DayLabel)
+            },
+            CrossEventCustomAnchorKind.StageWaveEnabled => current with
+            {
+                Strategy = CrossEventSchedulingStrategy.Custom,
+                SynchronizeStageWaves = CrossEventStageWaveBox.IsChecked == true
+            },
+            CrossEventCustomAnchorKind.FinalDay when !string.IsNullOrWhiteSpace(anchor.EventName) && anchor.Category is not null => current with
+            {
+                Strategy = CrossEventSchedulingStrategy.Custom,
+                FinalDayRules = BuildAnchoredFinalDayRules(current, anchor.EventName, anchor.Category.Value)
+            },
+            _ => current with { Strategy = CrossEventSchedulingStrategy.Custom }
+        };
+    }
+
+    private IReadOnlyList<CrossEventDayLoadTarget> BuildAnchoredDayLoadTargets(
+        CrossEventScheduleBoard board,
+        CrossEventSchedulingOptions recommendation,
+        string anchorDayLabel)
+    {
+        var orderedDays = board.Days.OrderBy(day => day.DayLabel, StringComparer.Ordinal).ToList();
+        if (!_crossEventDayLoadSliders.TryGetValue(anchorDayLabel, out var anchorSlider))
+        {
+            return recommendation.DayLoadTargets;
+        }
+
+        var capacityByDay = orderedDays.ToDictionary(
+            day => day.DayLabel,
+            day => Math.Max(1, (int)Math.Round((day.EndTime - day.StartTime).TotalMinutes) * Math.Max(1, day.Courts.Count)),
+            StringComparer.Ordinal);
+        var recommendedMinutes = orderedDays.Sum(day =>
+            capacityByDay[day.DayLabel] * (recommendation.DayLoadTargets.FirstOrDefault(target => target.DayLabel == day.DayLabel)?.TargetUtilization ?? 0.6));
+        var anchorCapacity = capacityByDay[anchorDayLabel];
+        var anchorTarget = Math.Clamp(anchorSlider.Value / 100d, 0.05, 1.0);
+        var anchorMinutes = anchorCapacity * anchorTarget;
+        var remainingMinutes = Math.Max(0, recommendedMinutes - anchorMinutes);
+        var remainingDays = orderedDays
+            .Where(day => !string.Equals(day.DayLabel, anchorDayLabel, StringComparison.Ordinal))
+            .ToList();
+        var weights = remainingDays.ToDictionary(
+            day => day.DayLabel,
+            day => Math.Max(
+                1d,
+                capacityByDay[day.DayLabel]
+                * (recommendation.DayLoadTargets.FirstOrDefault(target => target.DayLabel == day.DayLabel)?.TargetUtilization ?? 0.6)),
+            StringComparer.Ordinal);
+        var assigned = AllocateTargetMinutes(remainingDays, capacityByDay, weights, remainingMinutes);
+
+        var result = new List<CrossEventDayLoadTarget>();
+        foreach (var day in orderedDays)
+        {
+            var target = string.Equals(day.DayLabel, anchorDayLabel, StringComparison.Ordinal)
+                ? anchorTarget
+                : assigned.TryGetValue(day.DayLabel, out var minutes)
+                    ? minutes / capacityByDay[day.DayLabel]
+                    : recommendation.DayLoadTargets.FirstOrDefault(item => item.DayLabel == day.DayLabel)?.TargetUtilization ?? 0.6;
+            result.Add(new CrossEventDayLoadTarget(day.DayLabel, target, Math.Min(1.0, target + 0.15)));
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyDictionary<string, double> AllocateTargetMinutes(
+        IReadOnlyList<CrossEventScheduleBoardDay> days,
+        IReadOnlyDictionary<string, int> capacityByDay,
+        IReadOnlyDictionary<string, double> weights,
+        double totalMinutes)
+    {
+        var result = new Dictionary<string, double>(StringComparer.Ordinal);
+        var pending = days.ToList();
+        var remaining = Math.Max(0, totalMinutes);
+        while (pending.Count > 0)
+        {
+            var totalWeight = pending.Sum(day => weights.TryGetValue(day.DayLabel, out var weight) ? Math.Max(1d, weight) : 1d);
+            var lockedAny = false;
+            foreach (var day in pending.ToList())
+            {
+                var capacity = Math.Max(1, capacityByDay[day.DayLabel]);
+                var min = capacity * 0.05;
+                var max = capacity;
+                var weight = weights.TryGetValue(day.DayLabel, out var dayWeight) ? Math.Max(1d, dayWeight) : 1d;
+                var proposed = totalWeight <= 0 ? remaining / pending.Count : remaining * weight / totalWeight;
+                if (proposed < min || proposed > max)
+                {
+                    var clamped = Math.Clamp(proposed, min, max);
+                    result[day.DayLabel] = clamped;
+                    remaining -= clamped;
+                    pending.Remove(day);
+                    lockedAny = true;
+                }
+            }
+
+            if (!lockedAny)
+            {
+                foreach (var day in pending)
+                {
+                    var weight = weights.TryGetValue(day.DayLabel, out var dayWeight) ? Math.Max(1d, dayWeight) : 1d;
+                    result[day.DayLabel] = totalWeight <= 0 ? remaining / pending.Count : remaining * weight / totalWeight;
+                }
+
+                break;
+            }
+
+            remaining = Math.Max(0, remaining);
+        }
+
+        return result;
+    }
+
+    private IReadOnlyList<CrossEventStageWaveTarget> BuildAnchoredStageWaveTargets(
+        CrossEventScheduleBoard board,
+        CrossEventSchedulingOptions recommendation,
+        string anchorDayLabel)
+    {
+        var orderedDays = board.Days.OrderBy(day => day.DayLabel, StringComparer.Ordinal).ToList();
+        if (!_crossEventStageWaveSliders.TryGetValue(anchorDayLabel, out var anchorSlider))
+        {
+            return recommendation.StageWaveTargets;
+        }
+
+        var baseTargets = BuildStageWaveTargetLookup(orderedDays, recommendation);
+        var anchorIndex = orderedDays.FindIndex(day => string.Equals(day.DayLabel, anchorDayLabel, StringComparison.Ordinal));
+        if (anchorIndex < 0)
+        {
+            return recommendation.StageWaveTargets;
+        }
+
+        var anchorBase = baseTargets[anchorDayLabel];
+        var anchorTarget = Math.Clamp(anchorSlider.Value / 100d, 0.05, 0.95);
+        var result = new List<CrossEventStageWaveTarget>();
+        for (var index = 0; index < orderedDays.Count; index++)
+        {
+            var day = orderedDays[index];
+            double value;
+            if (index == orderedDays.Count - 1)
+            {
+                value = 1.0;
+            }
+            else if (index == anchorIndex)
+            {
+                value = anchorTarget;
+            }
+            else if (index < anchorIndex)
+            {
+                value = anchorBase <= 0.05
+                    ? anchorTarget * (index + 1d) / (anchorIndex + 1d)
+                    : anchorTarget * (baseTargets[day.DayLabel] / anchorBase);
+            }
+            else
+            {
+                var denominator = Math.Max(0.05, 1.0 - anchorBase);
+                value = anchorTarget + ((baseTargets[day.DayLabel] - anchorBase) / denominator * (1.0 - anchorTarget));
+            }
+
+            result.Add(new CrossEventStageWaveTarget(day.DayLabel, value));
+        }
+
+        return NormalizeStageWaveTargets(result);
+    }
+
+    private static Dictionary<string, double> BuildStageWaveTargetLookup(
+        IReadOnlyList<CrossEventScheduleBoardDay> orderedDays,
+        CrossEventSchedulingOptions options)
+    {
+        return orderedDays.Select((day, index) => (day, index)).ToDictionary(
+            item => item.day.DayLabel,
+            item => options.StageWaveTargets.FirstOrDefault(target => target.DayLabel == item.day.DayLabel)?.CumulativeProgress
+                ?? ((item.index + 1d) / orderedDays.Count),
+            StringComparer.Ordinal);
+    }
+
+    private IReadOnlyList<CrossEventFinalDayRule> BuildAnchoredFinalDayRules(
+        CrossEventSchedulingOptions current,
+        string eventName,
+        CrossEventFinalDayMatchCategory category)
+    {
+        var result = current.FinalDayRules.ToList();
+        var index = result.FindIndex(rule => rule.EventName == eventName && rule.Category == category);
+        var isChecked = _crossEventFinalDayBoxes.TryGetValue((eventName, category), out var box)
+            && box.IsChecked == true;
+        var next = new CrossEventFinalDayRule(
+            eventName,
+            category,
+            isChecked ? CrossEventFinalDayPolicy.MustFinalDay : CrossEventFinalDayPolicy.AvoidFinalDay);
+        if (index >= 0)
+        {
+            result[index] = next;
+        }
+        else
+        {
+            result.Add(next);
+        }
+
+        return result;
+    }
+
+    private static List<CrossEventStageWaveTarget> NormalizeStageWaveTargets(
+        IReadOnlyList<CrossEventStageWaveTarget> targets)
+    {
+        var result = new List<CrossEventStageWaveTarget>();
+        var previous = 0.05;
+        for (var index = 0; index < targets.Count; index++)
+        {
+            var isLast = index == targets.Count - 1;
+            var remaining = targets.Count - index - 1;
+            var maxValue = Math.Min(0.95, 1.0 - (remaining * 0.05));
+            var value = isLast
+                ? 1.0
+                : Math.Clamp(targets[index].CumulativeProgress, previous + 0.05, maxValue);
+            result.Add(targets[index] with { CumulativeProgress = value });
+            previous = value;
+        }
+
+        return result;
+    }
+
+    private void RebuildCrossEventCustomSchedulingControls()
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            CrossEventCustomDayLoadPanel.Children.Clear();
+            CrossEventStageWavePanel.Children.Clear();
+            CrossEventFinalDayPanel.Children.Clear();
+            return;
+        }
+
+        _updatingCrossEventCustomControls = true;
+        try
+        {
+            var strategy = GetCrossEventSchedulingStrategy();
+            CrossEventCustomSchedulingPanel.IsVisible = strategy == CrossEventSchedulingStrategy.Custom;
+            var options = _crossEventSchedulingOptions
+                ?? _crossEventConflictWorkflow.CreateSchedulingOptions(_crossEventScheduleBoard, CrossEventSchedulingStrategy.BalancedRelaxed);
+            CrossEventCustomHintText.Text =
+                "这些参数来自系统按“均衡宽松”推导的当前最优值；微调后会全局重排，可能跨天溢出或回填。";
+            RebuildCrossEventDayLoadControls(options);
+            RebuildCrossEventStageWaveControls(options);
+            RebuildCrossEventFinalDayControls(options);
+            UpdateCrossEventCustomLabels();
+        }
+        finally
+        {
+            _updatingCrossEventCustomControls = false;
+        }
+    }
+
+    private void RebuildCrossEventDayLoadControls(CrossEventSchedulingOptions options)
+    {
+        CrossEventCustomDayLoadPanel.Children.Clear();
+        _crossEventDayLoadSliders.Clear();
+        _crossEventDayLoadLabels.Clear();
+        foreach (var day in _crossEventScheduleBoard!.Days.OrderBy(day => day.DayLabel, StringComparer.Ordinal))
+        {
+            var target = options.DayLoadTargets.FirstOrDefault(item => item.DayLabel == day.DayLabel)?.TargetUtilization ?? 0.6;
+            var label = new TextBlock
+            {
+                Foreground = new SolidColorBrush(Color.FromRgb(71, 85, 105)),
+                TextWrapping = TextWrapping.Wrap
+            };
+            var slider = new Slider
+            {
+                Minimum = 10,
+                Maximum = 100,
+                TickFrequency = 5,
+                IsSnapToTickEnabled = true,
+                Value = Math.Round(target * 20) * 5,
+                Tag = new CrossEventCustomSliderTag(CrossEventCustomAnchorKind.DayLoad, day.DayLabel)
+            };
+            slider.ValueChanged += CrossEventCustomSlider_ValueChanged;
+            _crossEventDayLoadLabels[day.DayLabel] = label;
+            _crossEventDayLoadSliders[day.DayLabel] = slider;
+            CrossEventCustomDayLoadPanel.Children.Add(new StackPanel
+            {
+                Spacing = 4,
+                Children =
+                {
+                    label,
+                    slider
+                }
+            });
+        }
+    }
+
+    private void RebuildCrossEventStageWaveControls(CrossEventSchedulingOptions options)
+    {
+        CrossEventStageWavePanel.Children.Clear();
+        _crossEventStageWaveSliders.Clear();
+        _crossEventStageWaveLabels.Clear();
+        CrossEventStageWaveBox.IsChecked = options.SynchronizeStageWaves;
+        var orderedDays = _crossEventScheduleBoard!.Days.OrderBy(day => day.DayLabel, StringComparer.Ordinal).ToList();
+        for (var index = 0; index < orderedDays.Count - 1; index++)
+        {
+            var day = orderedDays[index];
+            var target = options.StageWaveTargets.FirstOrDefault(item => item.DayLabel == day.DayLabel)?.CumulativeProgress
+                ?? ((index + 1d) / orderedDays.Count);
+            var label = new TextBlock
+            {
+                Foreground = new SolidColorBrush(Color.FromRgb(71, 85, 105)),
+                TextWrapping = TextWrapping.Wrap
+            };
+            var slider = new Slider
+            {
+                Minimum = 10,
+                Maximum = 95,
+                TickFrequency = 5,
+                IsSnapToTickEnabled = true,
+                Value = Math.Round(target * 20) * 5,
+                Tag = new CrossEventCustomSliderTag(CrossEventCustomAnchorKind.StageWave, day.DayLabel)
+            };
+            slider.ValueChanged += CrossEventCustomSlider_ValueChanged;
+            _crossEventStageWaveLabels[day.DayLabel] = label;
+            _crossEventStageWaveSliders[day.DayLabel] = slider;
+            CrossEventStageWavePanel.Children.Add(new StackPanel
+            {
+                Spacing = 4,
+                Children =
+                {
+                    label,
+                    slider
+                }
+            });
+        }
+    }
+
+    private void RebuildCrossEventFinalDayControls(CrossEventSchedulingOptions options)
+    {
+        CrossEventFinalDayPanel.Children.Clear();
+        _crossEventFinalDayBoxes.Clear();
+        var categories = new[]
+        {
+            CrossEventFinalDayMatchCategory.Final,
+            CrossEventFinalDayMatchCategory.Semifinal,
+            CrossEventFinalDayMatchCategory.Bronze,
+            CrossEventFinalDayMatchCategory.Placement5To8
+        };
+        foreach (var source in _crossEventScheduleBoard!.Sources.OrderBy(source => source.EventName, StringComparer.Ordinal))
+        {
+            var row = new StackPanel { Spacing = 4 };
+            row.Children.Add(new TextBlock
+            {
+                Text = source.EventName,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78))
+            });
+            var checks = new WrapPanel
+            {
+                Orientation = Orientation.Horizontal,
+                ItemSpacing = 8
+            };
+            foreach (var category in categories)
+            {
+                var policy = options.FinalDayRules.FirstOrDefault(rule => rule.EventName == source.EventName && rule.Category == category)?.Policy
+                    ?? CrossEventFinalDayPolicy.Flexible;
+                var box = new CheckBox
+                {
+                    Content = GetFinalDayCategoryText(category),
+                    IsChecked = policy is CrossEventFinalDayPolicy.MustFinalDay or CrossEventFinalDayPolicy.PreferFinalDay,
+                    Tag = new CrossEventFinalDayTag(source.EventName, category)
+                };
+                box.PropertyChanged += (sender, args) =>
+                {
+                    if (args.Property == ToggleButton.IsCheckedProperty)
+                    {
+                        var anchor = sender is CheckBox { Tag: CrossEventFinalDayTag tag }
+                            ? new CrossEventCustomAnchor(
+                                CrossEventCustomAnchorKind.FinalDay,
+                                EventName: tag.EventName,
+                                Category: tag.Category)
+                            : CrossEventCustomAnchor.None;
+                        QueueCrossEventCustomRecalculate(anchor);
+                    }
+                };
+                _crossEventFinalDayBoxes[(source.EventName, category)] = box;
+                checks.Children.Add(box);
+            }
+
+            row.Children.Add(checks);
+            CrossEventFinalDayPanel.Children.Add(row);
+        }
+    }
+
+    private void UpdateCrossEventCustomLabels()
+    {
+        foreach (var pair in _crossEventDayLoadSliders)
+        {
+            if (_crossEventDayLoadLabels.TryGetValue(pair.Key, out var label))
+            {
+                label.Text = $"{pair.Key}：目标负载率 {Math.Round(pair.Value.Value)}%";
+            }
+        }
+
+        foreach (var pair in _crossEventStageWaveSliders)
+        {
+            if (_crossEventStageWaveLabels.TryGetValue(pair.Key, out var label))
+            {
+                label.Text = $"{pair.Key} 结束前：预计完成全局阶段进度 {Math.Round(pair.Value.Value)}%";
+            }
+        }
+    }
+
+    private static string GetFinalDayCategoryText(CrossEventFinalDayMatchCategory category)
+    {
+        return category switch
+        {
+            CrossEventFinalDayMatchCategory.Semifinal => "半决赛",
+            CrossEventFinalDayMatchCategory.Bronze => "铜牌赛",
+            CrossEventFinalDayMatchCategory.Placement5To8 => "5-8名赛",
+            _ => "决赛"
+        };
     }
 
     private void ApplyScheduleCourtPreset()

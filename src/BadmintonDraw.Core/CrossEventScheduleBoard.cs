@@ -7,7 +7,8 @@ public sealed record CrossEventScheduleBoard(
     IReadOnlyList<CrossEventPlayerMultiEntry> PlayerDetails,
     CrossEventConflictReport Report,
     int MinimumRestMinutes,
-    bool HasUnsavedChanges)
+    bool HasUnsavedChanges,
+    CrossEventSchedulingOptions? SchedulingOptions = null)
 {
     public int BlockingConflictItemCount => Items.Count(item => item.IsBlockingConflict);
 
