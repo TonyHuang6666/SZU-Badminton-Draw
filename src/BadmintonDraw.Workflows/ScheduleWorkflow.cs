@@ -190,6 +190,36 @@ public sealed class ScheduleWorkflow
             .ToList();
     }
 
+    public static ScheduleBoardView BuildScheduleBoardView(
+        SchedulePlan schedule,
+        IReadOnlySet<string>? lockedMatchNames = null)
+    {
+        var items = schedule.Matches
+            .Select(match =>
+            {
+                var isLocked = lockedMatchNames?.Contains(match.MatchName) == true;
+                return new ScheduleBoardItem(
+                    match.MatchName,
+                    ScheduleBoardDrag.BuildSingleEventPayload(match.MatchName),
+                    match.MatchName,
+                    match.DayLabel,
+                    match.StartTime,
+                    match.EndTime,
+                    match.Court,
+                    match.Order,
+                    $"{match.GroupName} · {match.MatchName}",
+                    $"{match.TimeRange} · {match.Phase}" + (isLocked ? " · 已完成" : ""),
+                    $"{match.SideA}  vs  {match.SideB}",
+                    IsLocked: isLocked);
+            })
+            .ToList();
+
+        return new ScheduleBoardView(
+            ScheduleBoardKind.SingleEvent,
+            BuildBoardDays(schedule),
+            items);
+    }
+
     public static SchedulePlan MoveScheduledMatch(
         SchedulePlan schedule,
         string matchName,

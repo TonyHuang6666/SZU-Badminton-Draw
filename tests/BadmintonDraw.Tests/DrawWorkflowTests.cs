@@ -2011,6 +2011,83 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void ScheduleWorkflowBuildsSharedBoardViewForSingleEvent()
+    {
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1", 1, "A组", "首轮赛", "男单1", "张三", "李四"),
+                new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B2", 1, "A组", "首轮赛", "男单2", "王五", "赵六")
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1", "B2"])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        var view = ScheduleWorkflow.BuildScheduleBoardView(
+            schedule,
+            new HashSet<string>(StringComparer.Ordinal) { "男单2" });
+        var lockedItem = Assert.Single(view.GetItems("2026-06-13", "B2", new TimeOnly(14, 0)));
+
+        Assert.Equal(ScheduleBoardKind.SingleEvent, view.Kind);
+        Assert.Equal(["2026-06-13"], view.DayLabels);
+        Assert.Equal("男单2", lockedItem.Key);
+        Assert.True(lockedItem.IsLocked);
+        Assert.Equal(ScheduleBoardDrag.BuildSingleEventPayload("男单2"), lockedItem.DragPayload);
+        Assert.Contains("已完成", lockedItem.Subtitle);
+        Assert.True(ScheduleBoardDrag.TryParseSingleEventPayload(lockedItem.DragPayload, out var matchName));
+        Assert.Equal("男单2", matchName);
+        Assert.Equal(ScheduleBoardLayout.WindowMinZoom, ScheduleBoardLayout.ClampWindowZoom(0.1));
+    }
+
+    [Fact]
+    public void CrossEventWorkflowBuildsSharedBoardViewForCrossEvent()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-board-view-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "混双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [new DrawParticipant("张三", PrimaryName: "张三"), new DrawParticipant("李四", PrimaryName: "李四")],
+                    CreateSingleMatchSchedule("男单1", "张三", "李四", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1")));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "混双",
+                    [
+                        new DrawParticipant("[张三 郑九]", PrimaryName: "张三", PartnerName: "郑九"),
+                        new DrawParticipant("[钱十 吴一]", PrimaryName: "钱十", PartnerName: "吴一")
+                    ],
+                    CreateSingleMatchSchedule("混双1", "[张三 郑九]", "[钱十 吴一]", new TimeOnly(14, 10), new TimeOnly(14, 40), "C1")));
+
+            var board = new CrossEventConflictWorkflow().LoadScheduleBoard(
+                [firstProgressPath, secondProgressPath],
+                minimumRestMinutes: 20);
+            var view = CrossEventConflictWorkflow.BuildScheduleBoardView(board);
+            var mixedDoublesItem = view.Items.Single(item => item.SortText == "混双");
+
+            Assert.Equal(ScheduleBoardKind.CrossEvent, view.Kind);
+            Assert.Equal(board.Days.Select(day => day.DayLabel).ToArray(), view.DayLabels);
+            Assert.Equal(mixedDoublesItem.Key, mixedDoublesItem.DragPayload);
+            Assert.False(ScheduleBoardDrag.TryParseSingleEventPayload(mixedDoublesItem.DragPayload, out _));
+            Assert.True(mixedDoublesItem.IsBlocking);
+            Assert.Contains("张三", mixedDoublesItem.SideText);
+            Assert.NotEmpty(mixedDoublesItem.DetailText);
+            Assert.NotEmpty(mixedDoublesItem.Tooltip);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
     public void ScheduleWorkflowRejectsDependencyOrderViolationWhenMoving()
     {
         var schedule = new SchedulePlan(

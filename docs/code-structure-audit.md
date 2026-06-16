@@ -16,7 +16,7 @@
 ## 主要风险
 
 - Avalonia 与 WPF 都有较大的窗口代码，后续容易出现 UI 层重复逻辑。
-- 单项目和多项目时间场地表格的显示、拖拽和缩放概念相近，适合逐步抽出共享视图模型。
+- 单项目和多项目时间场地表格已经抽出共享 `ScheduleBoardView`、`ScheduleBoardItem`、`ScheduleBoardDropTarget`、`ScheduleBoardDrag` 和 `ScheduleBoardLayout`；后续新增定位、闪烁或拖拽限制时，应优先扩展共享模型，再由 Avalonia/WPF 做薄适配。
 - `CrossEventConflictWorkflow` 已经承担加载、检测、调整、保存、导出等多种职责，后续可按“加载/调整/导出”拆分。
 - `ScheduleExcelWriter` 负责的工作表较多，继续增加材料包细节时要避免单类过度膨胀。
 - 文档和 release 说明容易跟版本能力漂移，应把每次重大功能的边界写进 `docs/`。
@@ -26,11 +26,11 @@
 - 将 `ScheduleMatchText` 从内部工具改为公开共享工具，允许 `Workflows` 复用胜者/负者占位解析逻辑。
 - 移除跨项目合并赛程中的重复 `TryParseOutcomeReference` 实现，减少同类规则在两个位置漂移的风险。
 - 增加跨项目合并导出的回归测试，锁定“严重冲突禁止导出”和“同名场次引用带项目名前缀”两条关键行为。
+- 增加 `ScheduleBoardView` 共享时间场地面板模型，并让单项目赛程窗口和多项目工作台共同使用这一套日期、场地、时间槽、卡片状态、拖拽载荷和缩放规则。
 
 ## 后续可拆分点
 
-1. 抽出 `ScheduleBoardViewModel`，让单项目和多项目时间场地表格共享日期、场地、时间槽、卡片状态和缩放数据。
-2. 把 `CrossEventConflictWorkflow` 中的导出逻辑拆到单独服务，例如 `CrossEventMergedMaterialsExporter`。
-3. 把 `ScheduleExcelWriter` 的记录表、时间场地网格、参数页拆成内部小 writer。
-4. 给 docs 增加“版本能力矩阵”，发布前用它检查 README、usage、build、macOS 文档是否同步。
-5. 若 WPF 进入维护期，删除或冻结 WPF 里的新功能入口，避免用户看到两套不一致的体验。
+1. 把 `CrossEventConflictWorkflow` 中的导出逻辑拆到单独服务，例如 `CrossEventMergedMaterialsExporter`。
+2. 把 `ScheduleExcelWriter` 的记录表、时间场地网格、参数页拆成内部小 writer。
+3. 给 docs 增加“版本能力矩阵”，发布前用它检查 README、usage、build、macOS 文档是否同步。
+4. 若 WPF 进入维护期，删除或冻结 WPF 里的新功能入口，避免用户看到两套不一致的体验。

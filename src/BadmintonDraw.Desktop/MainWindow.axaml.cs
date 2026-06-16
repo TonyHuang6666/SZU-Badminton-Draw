@@ -55,14 +55,9 @@ public partial class MainWindow : Window
     private readonly ScheduleConstraintAnalyzer _scheduleConstraintAnalyzer = new();
     private readonly TournamentProgressWorkflow _progressWorkflow = new();
     private readonly CrossEventConflictWorkflow _crossEventConflictWorkflow = new();
-    private const double CrossEventBoardMinZoom = 0.65;
-    private const double CrossEventBoardWindowMinZoom = 0.25;
-    private const double CrossEventBoardMaxZoom = 1.6;
-    private const double CrossEventBoardZoomStep = 0.15;
     private const double ParticipantRosterMinZoom = 0.5;
     private const double ParticipantRosterMaxZoom = 1.8;
     private const double ParticipantRosterZoomStep = 0.1;
-    private const string ScheduleDragPrefix = "schedule:";
     private static readonly IBrush ReadyStatusBrush = new SolidColorBrush(Color.FromRgb(25, 169, 116));
     private static readonly IBrush WarningStatusBrush = new SolidColorBrush(Color.FromRgb(217, 119, 6));
     private static readonly IBrush ErrorStatusBrush = new SolidColorBrush(Color.FromRgb(185, 28, 28));
@@ -1475,9 +1470,9 @@ public partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         });
         controls.Children.Add(_scheduleBoardWindowDayBox!);
-        controls.Children.Add(CreateCrossEventWindowButton("缩小", (_, _) => SetScheduleBoardWindowZoom(_scheduleBoardWindowZoom - CrossEventBoardZoomStep)));
+        controls.Children.Add(CreateCrossEventWindowButton("缩小", (_, _) => SetScheduleBoardWindowZoom(_scheduleBoardWindowZoom - ScheduleBoardLayout.ZoomStep)));
         controls.Children.Add(CreateCrossEventWindowButton("100%", (_, _) => SetScheduleBoardWindowZoom(1.0)));
-        controls.Children.Add(CreateCrossEventWindowButton("放大", (_, _) => SetScheduleBoardWindowZoom(_scheduleBoardWindowZoom + CrossEventBoardZoomStep)));
+        controls.Children.Add(CreateCrossEventWindowButton("放大", (_, _) => SetScheduleBoardWindowZoom(_scheduleBoardWindowZoom + ScheduleBoardLayout.ZoomStep)));
         Grid.SetColumn(controls, 1);
         headerGrid.Children.Add(controls);
         header.Child = headerGrid;
@@ -1509,7 +1504,7 @@ public partial class MainWindow : Window
 
     private void SetScheduleBoardWindowZoom(double value)
     {
-        _scheduleBoardWindowZoom = Math.Clamp(value, CrossEventBoardWindowMinZoom, CrossEventBoardMaxZoom);
+        _scheduleBoardWindowZoom = ScheduleBoardLayout.ClampWindowZoom(value);
         RefreshScheduleBoardWindow(_scheduleBoardWindowDayBox?.SelectedItem?.ToString());
     }
 
@@ -1529,9 +1524,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dayLabels = ScheduleWorkflow.BuildBoardDays(_latestSchedule)
-            .Select(day => day.DayLabel)
-            .ToList();
+        var boardView = BuildSingleScheduleBoardView();
+        var dayLabels = boardView.DayLabels;
         _scheduleBoardWindowDayBox.SelectionChanged -= ScheduleBoardWindowDayBox_SelectionChanged;
         _scheduleBoardWindowDayBox.ItemsSource = dayLabels;
         var selectedDay = !string.IsNullOrWhiteSpace(preferredDayLabel) && dayLabels.Contains(preferredDayLabel)
@@ -1545,7 +1539,31 @@ public partial class MainWindow : Window
         _scheduleBoardWindowDayBox.SelectedItem = selectedDay;
         _scheduleBoardWindowDayBox.SelectionChanged += ScheduleBoardWindowDayBox_SelectionChanged;
         _scheduleBoardWindowSummaryText.Text = BuildScheduleBoardSummary(_latestSchedule, _scheduleBoardWindowZoom);
-        RenderScheduleBoard(_scheduleBoardWindowGrid, selectedDay, _scheduleBoardWindowZoom);
+        RenderScheduleBoardView(_scheduleBoardWindowGrid, boardView, selectedDay, _scheduleBoardWindowZoom);
+    }
+
+    private ScheduleBoardView BuildSingleScheduleBoardView()
+    {
+        return ScheduleWorkflow.BuildScheduleBoardView(
+            _latestSchedule ?? EmptySchedulePlan(),
+            _progressState?.Results.Keys.ToHashSet(StringComparer.Ordinal));
+    }
+
+    private ScheduleBoardView? BuildCrossEventScheduleBoardView()
+    {
+        return _crossEventScheduleBoard is null
+            ? null
+            : CrossEventConflictWorkflow.BuildScheduleBoardView(_crossEventScheduleBoard);
+    }
+
+    private static SchedulePlan EmptySchedulePlan()
+    {
+        return new SchedulePlan(
+            Array.Empty<ScheduledMatch>(),
+            new ScheduleSettings(
+                Array.Empty<ScheduleDaySettings>(),
+                MatchMinutes: 20,
+                MaxMatchesPerEntrantPerDay: 3));
     }
 
     private static string BuildScheduleBoardSummary(SchedulePlan schedule, double zoom)
@@ -1558,21 +1576,33 @@ public partial class MainWindow : Window
 
     private void RenderScheduleBoard(Grid targetGrid, string? dayLabel, double zoom)
     {
+        RenderScheduleBoardView(targetGrid, _latestSchedule is null ? null : BuildSingleScheduleBoardView(), dayLabel, zoom);
+    }
+
+    private void RenderScheduleBoardView(
+        Grid targetGrid,
+        ScheduleBoardView? board,
+        string? dayLabel,
+        double zoom)
+    {
         targetGrid.Children.Clear();
         targetGrid.RowDefinitions.Clear();
         targetGrid.ColumnDefinitions.Clear();
-        _scheduleBoardWindowMatchCards.Clear();
-        if (_latestSchedule is null || string.IsNullOrWhiteSpace(dayLabel))
+        if (board?.Kind == ScheduleBoardKind.SingleEvent)
+        {
+            _scheduleBoardWindowMatchCards.Clear();
+        }
+
+        if (board is null || string.IsNullOrWhiteSpace(dayLabel))
         {
             AddCrossEventEmptyText(targetGrid, "尚未选择比赛日。", zoom);
             return;
         }
 
-        var days = ScheduleWorkflow.BuildBoardDays(_latestSchedule);
-        var day = days.FirstOrDefault(item => string.Equals(item.DayLabel, dayLabel, StringComparison.Ordinal));
+        var day = board.FindDay(dayLabel);
         if (day is null)
         {
-            AddCrossEventEmptyText(targetGrid, "当前比赛日没有赛程。", zoom);
+            AddCrossEventEmptyText(targetGrid, board.EmptyDayText, zoom);
             return;
         }
 
@@ -1594,9 +1624,6 @@ public partial class MainWindow : Window
             AddCrossEventHeaderCell(targetGrid, day.Courts[courtIndex], 0, courtIndex + 1, zoom);
         }
 
-        var dayMatches = _latestSchedule.Matches
-            .Where(match => string.Equals(match.DayLabel, day.DayLabel, StringComparison.Ordinal))
-            .ToList();
         for (var slotIndex = 0; slotIndex < day.TimeSlots.Count; slotIndex++)
         {
             var slot = day.TimeSlots[slotIndex];
@@ -1604,31 +1631,40 @@ public partial class MainWindow : Window
             for (var courtIndex = 0; courtIndex < day.Courts.Count; courtIndex++)
             {
                 var court = day.Courts[courtIndex];
-                var cellMatches = dayMatches
-                    .Where(match => string.Equals(match.Court, court, StringComparison.Ordinal)
-                                    && match.StartTime == slot)
-                    .OrderBy(match => match.Order)
-                    .ToList();
-                AddScheduleDropCell(targetGrid, day.DayLabel, slot, court, slotIndex + 1, courtIndex + 1, cellMatches, zoom);
+                AddScheduleBoardDropCell(
+                    targetGrid,
+                    board.Kind,
+                    day.DayLabel,
+                    slot,
+                    court,
+                    slotIndex + 1,
+                    courtIndex + 1,
+                    board.GetItems(day.DayLabel, court, slot),
+                    zoom);
             }
         }
     }
 
-    private void AddScheduleDropCell(
+    private void AddScheduleBoardDropCell(
         Grid targetGrid,
+        ScheduleBoardKind boardKind,
         string dayLabel,
         TimeOnly slot,
         string court,
         int row,
         int column,
-        IReadOnlyList<ScheduledMatch> matches,
+        IReadOnlyList<ScheduleBoardItem> items,
         double zoom)
     {
         var stack = new StackPanel();
-        foreach (var match in matches)
+        foreach (var item in items)
         {
-            var card = CreateScheduleMatchCard(match, zoom);
-            _scheduleBoardWindowMatchCards[match.MatchName] = card;
+            var card = CreateScheduleBoardMatchCard(item, zoom);
+            if (boardKind == ScheduleBoardKind.SingleEvent)
+            {
+                _scheduleBoardWindowMatchCards[item.FocusKey] = card;
+            }
+
             stack.Children.Add(card);
         }
 
@@ -1639,35 +1675,47 @@ public partial class MainWindow : Window
             BorderThickness = new Avalonia.Thickness(0, 0, 1, 1),
             MinHeight = ScaleCrossEvent(72, zoom),
             Padding = new Avalonia.Thickness(ScaleCrossEvent(6, zoom)),
-            Tag = new ScheduleDropTarget(dayLabel, slot, court),
+            Tag = new ScheduleBoardDropTarget(boardKind, dayLabel, slot, court),
             Child = stack
         };
         DragDrop.SetAllowDrop(border, true);
-        DragDrop.AddDragOverHandler(border, ScheduleCell_DragOver);
-        DragDrop.AddDropHandler(border, ScheduleCell_Drop);
+        DragDrop.AddDragOverHandler(border, ScheduleBoardCell_DragOver);
+        DragDrop.AddDropHandler(border, ScheduleBoardCell_Drop);
         Grid.SetRow(border, row);
         Grid.SetColumn(border, column);
         targetGrid.Children.Add(border);
     }
 
-    private Border CreateScheduleMatchCard(ScheduledMatch match, double zoom)
+    private Border CreateScheduleBoardMatchCard(ScheduleBoardItem item, double zoom)
     {
-        var isCompleted = IsScheduleMatchCompleted(match);
+        var borderColor = item.IsBlocking
+            ? Color.FromRgb(220, 38, 38)
+            : Color.FromRgb(199, 210, 228);
+        var backgroundColor = item.IsBlocking
+            ? Color.FromRgb(254, 242, 242)
+            : item.IsLocked
+                ? Color.FromRgb(241, 245, 249)
+                : Color.FromRgb(248, 251, 255);
         var card = new Border
         {
-            Background = new SolidColorBrush(isCompleted ? Color.FromRgb(241, 245, 249) : Color.FromRgb(248, 251, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(199, 210, 228)),
-            BorderThickness = new Avalonia.Thickness(1),
+            Background = new SolidColorBrush(backgroundColor),
+            BorderBrush = new SolidColorBrush(borderColor),
+            BorderThickness = new Avalonia.Thickness(item.IsBlocking ? 2 : 1),
             CornerRadius = new Avalonia.CornerRadius(8),
             Padding = new Avalonia.Thickness(ScaleCrossEvent(8, zoom)),
             Margin = new Avalonia.Thickness(0, 0, 0, ScaleCrossEvent(6, zoom)),
-            Tag = match,
-            Cursor = isCompleted ? Cursor.Default : new Cursor(StandardCursorType.Hand)
+            Tag = item,
+            Cursor = item.IsLocked ? Cursor.Default : new Cursor(StandardCursorType.Hand)
         };
+        if (!string.IsNullOrWhiteSpace(item.Tooltip))
+        {
+            ToolTip.SetTip(card, item.Tooltip);
+        }
+
         var stack = new StackPanel { Spacing = 3 };
         stack.Children.Add(new TextBlock
         {
-            Text = $"{match.GroupName} · {match.MatchName}",
+            Text = item.Title,
             FontSize = ScaleCrossEventFont(13, zoom),
             FontWeight = FontWeight.Bold,
             Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
@@ -1675,88 +1723,139 @@ public partial class MainWindow : Window
         });
         stack.Children.Add(new TextBlock
         {
-            Text = $"{match.TimeRange} · {match.Phase}" + (isCompleted ? " · 已完成" : ""),
+            Text = item.Subtitle,
             Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
             FontSize = ScaleCrossEventFont(12, zoom)
         });
         stack.Children.Add(new TextBlock
         {
-            Text = $"{match.SideA}  vs  {match.SideB}",
+            Text = item.SideText,
             TextWrapping = TextWrapping.Wrap,
             FontSize = ScaleCrossEventFont(12, zoom)
         });
+        if (item.IsBlocking && !string.IsNullOrWhiteSpace(item.DetailText))
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = item.DetailText,
+                Foreground = new SolidColorBrush(Color.FromRgb(185, 28, 28)),
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = ScaleCrossEventFont(12, zoom)
+            });
+        }
+
         card.Child = stack;
-        card.PointerPressed += ScheduleMatchCard_PointerPressed;
+        card.PointerPressed += ScheduleBoardMatchCard_PointerPressed;
         return card;
     }
 
-    private bool IsScheduleMatchCompleted(ScheduledMatch match)
+    private async void ScheduleBoardMatchCard_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        return _progressState?.Results.ContainsKey(match.MatchName) == true;
-    }
-
-    private async void ScheduleMatchCard_PointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (sender is not Border { Tag: ScheduledMatch match } || IsScheduleMatchCompleted(match))
+        if (sender is not Border { Tag: ScheduleBoardItem item } || item.IsLocked)
         {
             return;
         }
 
         var data = new DataTransfer();
-        data.Add(DataTransferItem.CreateText($"{ScheduleDragPrefix}{match.MatchName}"));
+        data.Add(DataTransferItem.CreateText(item.DragPayload));
         await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move);
     }
 
-    private void ScheduleCell_DragOver(object? sender, DragEventArgs e)
+    private void ScheduleBoardCell_DragOver(object? sender, DragEventArgs e)
     {
         var text = e.DataTransfer.TryGetText();
-        e.DragEffects = !string.IsNullOrWhiteSpace(text) && text.StartsWith(ScheduleDragPrefix, StringComparison.Ordinal)
+        e.DragEffects = sender is Border { Tag: ScheduleBoardDropTarget target }
+                        && IsScheduleBoardDragAllowed(target.Kind, text)
             ? DragDropEffects.Move
             : DragDropEffects.None;
         e.Handled = true;
     }
 
-    private void ScheduleCell_Drop(object? sender, DragEventArgs e)
+    private void ScheduleBoardCell_Drop(object? sender, DragEventArgs e)
     {
-        if (_latestSchedule is null || sender is not Border { Tag: ScheduleDropTarget target })
+        if (sender is not Border { Tag: ScheduleBoardDropTarget target })
         {
             return;
         }
 
-        var text = e.DataTransfer.TryGetText();
-        if (string.IsNullOrWhiteSpace(text) || !text.StartsWith(ScheduleDragPrefix, StringComparison.Ordinal))
+        var payload = e.DataTransfer.TryGetText();
+        if (!IsScheduleBoardDragAllowed(target.Kind, payload))
         {
             return;
         }
 
-        var matchName = text[ScheduleDragPrefix.Length..];
         try
         {
-            _latestSchedule = ScheduleWorkflow.MoveScheduledMatch(
-                _latestSchedule,
-                matchName,
-                target.DayLabel,
-                target.StartTime,
-                target.Court,
-                _progressState?.Results.Keys.ToHashSet(StringComparer.Ordinal));
-            if (_progressState is not null)
+            if (target.Kind == ScheduleBoardKind.SingleEvent)
             {
-                _progressState = ReplaceProgressSchedule(_progressState, _latestSchedule);
-                UpdateProgressDisplay();
+                MoveSingleScheduleBoardItem(payload!, target);
             }
-
-            ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
-            UpdateScheduleConstraintReport(_latestSchedule);
-            ScheduleSummaryText.Text = $"已调整 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。";
-            RefreshScheduleBoardWindow(target.DayLabel);
-            SetStatus(
-                "赛程安排已调整；后续导出会使用调整后的时间和场地。",
-                isWarning: _latestScheduleConstraintReport is { SevereCount: > 0 } or { WarningCount: > 0 });
+            else
+            {
+                MoveCrossEventScheduleBoardItem(payload!, target);
+            }
         }
         catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
         {
             SetStatus(ex.Message, isError: true);
         }
+    }
+
+    private static bool IsScheduleBoardDragAllowed(ScheduleBoardKind kind, string? payload)
+    {
+        return kind == ScheduleBoardKind.SingleEvent
+            ? ScheduleBoardDrag.TryParseSingleEventPayload(payload, out _)
+            : !string.IsNullOrWhiteSpace(payload)
+              && !ScheduleBoardDrag.TryParseSingleEventPayload(payload, out _);
+    }
+
+    private void MoveSingleScheduleBoardItem(string payload, ScheduleBoardDropTarget target)
+    {
+        if (_latestSchedule is null
+            || !ScheduleBoardDrag.TryParseSingleEventPayload(payload, out var matchName))
+        {
+            return;
+        }
+
+        _latestSchedule = ScheduleWorkflow.MoveScheduledMatch(
+            _latestSchedule,
+            matchName,
+            target.DayLabel,
+            target.StartTime,
+            target.Court,
+            _progressState?.Results.Keys.ToHashSet(StringComparer.Ordinal));
+        if (_progressState is not null)
+        {
+            _progressState = ReplaceProgressSchedule(_progressState, _latestSchedule);
+            UpdateProgressDisplay();
+        }
+
+        ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
+        UpdateScheduleConstraintReport(_latestSchedule);
+        ScheduleSummaryText.Text = $"已调整 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。";
+        RefreshScheduleBoardWindow(target.DayLabel);
+        SetStatus(
+            "赛程安排已调整；后续导出会使用调整后的时间和场地。",
+            isWarning: _latestScheduleConstraintReport is { SevereCount: > 0 } or { WarningCount: > 0 });
+    }
+
+    private void MoveCrossEventScheduleBoardItem(string payload, ScheduleBoardDropTarget target)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            return;
+        }
+
+        _crossEventScheduleBoard = _crossEventConflictWorkflow.MoveScheduleItem(
+            _crossEventScheduleBoard,
+            payload,
+            target.DayLabel,
+            target.StartTime,
+            target.Court);
+        RefreshCrossEventScheduleBoard(target.DayLabel);
+        RefreshCrossEventBoardWindow(target.DayLabel);
+        PreviewTabs.SelectedItem = CrossEventPreviewTab;
+        SetStatus(BuildCrossEventStatus("已调整多项目赛程", _crossEventScheduleBoard));
     }
 
     private static TournamentProgressState ReplaceProgressSchedule(TournamentProgressState state, SchedulePlan schedule)
@@ -1773,7 +1872,7 @@ public partial class MainWindow : Window
 
     private void ZoomOutCrossEventBoard_Click(object? sender, RoutedEventArgs e)
     {
-        SetCrossEventBoardZoom(_crossEventBoardZoom - CrossEventBoardZoomStep);
+        SetCrossEventBoardZoom(_crossEventBoardZoom - ScheduleBoardLayout.ZoomStep);
     }
 
     private void ResetCrossEventBoardZoom_Click(object? sender, RoutedEventArgs e)
@@ -1783,7 +1882,7 @@ public partial class MainWindow : Window
 
     private void ZoomInCrossEventBoard_Click(object? sender, RoutedEventArgs e)
     {
-        SetCrossEventBoardZoom(_crossEventBoardZoom + CrossEventBoardZoomStep);
+        SetCrossEventBoardZoom(_crossEventBoardZoom + ScheduleBoardLayout.ZoomStep);
     }
 
     private void OpenCrossEventBoardWindow_Click(object? sender, RoutedEventArgs e)
@@ -1877,9 +1976,9 @@ public partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         });
         controls.Children.Add(_crossEventBoardWindowDayBox!);
-        controls.Children.Add(CreateCrossEventWindowButton("缩小", (_, _) => SetCrossEventBoardWindowZoom(_crossEventBoardWindowZoom - CrossEventBoardZoomStep)));
+        controls.Children.Add(CreateCrossEventWindowButton("缩小", (_, _) => SetCrossEventBoardWindowZoom(_crossEventBoardWindowZoom - ScheduleBoardLayout.ZoomStep)));
         controls.Children.Add(CreateCrossEventWindowButton("100%", (_, _) => SetCrossEventBoardWindowZoom(1.0)));
-        controls.Children.Add(CreateCrossEventWindowButton("放大", (_, _) => SetCrossEventBoardWindowZoom(_crossEventBoardWindowZoom + CrossEventBoardZoomStep)));
+        controls.Children.Add(CreateCrossEventWindowButton("放大", (_, _) => SetCrossEventBoardWindowZoom(_crossEventBoardWindowZoom + ScheduleBoardLayout.ZoomStep)));
         Grid.SetColumn(controls, 1);
         headerGrid.Children.Add(controls);
         header.Child = headerGrid;
@@ -1923,7 +2022,7 @@ public partial class MainWindow : Window
 
     private void SetCrossEventBoardWindowZoom(double value)
     {
-        _crossEventBoardWindowZoom = Math.Clamp(value, CrossEventBoardWindowMinZoom, CrossEventBoardMaxZoom);
+        _crossEventBoardWindowZoom = ScheduleBoardLayout.ClampWindowZoom(value);
         RefreshCrossEventBoardWindow(_crossEventBoardWindowDayBox?.SelectedItem?.ToString());
     }
 
@@ -1956,7 +2055,7 @@ public partial class MainWindow : Window
 
     private void SetCrossEventBoardZoom(double value)
     {
-        var next = Math.Clamp(value, CrossEventBoardMinZoom, CrossEventBoardMaxZoom);
+        var next = ScheduleBoardLayout.ClampMainZoom(value);
         if (Math.Abs(next - _crossEventBoardZoom) < 0.001)
         {
             return;
@@ -2015,12 +2114,12 @@ public partial class MainWindow : Window
 
     private static double ScaleCrossEvent(double value, double zoom)
     {
-        return Math.Round(value * zoom);
+        return Math.Round(ScheduleBoardLayout.Scale(value, zoom));
     }
 
     private static double ScaleCrossEventFont(double value, double zoom)
     {
-        return Math.Round(value * Math.Clamp(zoom, 0.82, 1.35), 1);
+        return Math.Round(ScheduleBoardLayout.ScaleFont(value, zoom), 1);
     }
 
     private async void OpenProgress_Click(object? sender, RoutedEventArgs e)
@@ -3282,58 +3381,7 @@ public partial class MainWindow : Window
 
     private void RenderCrossEventScheduleBoard(Grid targetGrid, string? dayLabel, double zoom)
     {
-        targetGrid.Children.Clear();
-        targetGrid.RowDefinitions.Clear();
-        targetGrid.ColumnDefinitions.Clear();
-        if (_crossEventScheduleBoard is null || string.IsNullOrWhiteSpace(dayLabel))
-        {
-            AddCrossEventEmptyText(targetGrid, "尚未选择比赛日。", zoom);
-            return;
-        }
-
-        var day = _crossEventScheduleBoard.Days.FirstOrDefault(item => string.Equals(item.DayLabel, dayLabel, StringComparison.Ordinal));
-        if (day is null)
-        {
-            AddCrossEventEmptyText(targetGrid, "当前比赛日没有赛程。", zoom);
-            return;
-        }
-
-        targetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ScaleCrossEvent(96, zoom)) });
-        foreach (var _ in day.Courts)
-        {
-            targetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ScaleCrossEvent(190, zoom)) });
-        }
-
-        targetGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        foreach (var _ in day.TimeSlots)
-        {
-            targetGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        }
-
-        AddCrossEventHeaderCell(targetGrid, "比赛时间", 0, 0, zoom);
-        for (var courtIndex = 0; courtIndex < day.Courts.Count; courtIndex++)
-        {
-            AddCrossEventHeaderCell(targetGrid, day.Courts[courtIndex], 0, courtIndex + 1, zoom);
-        }
-
-        var dayItems = _crossEventScheduleBoard.Items
-            .Where(item => string.Equals(item.DayLabel, day.DayLabel, StringComparison.Ordinal))
-            .ToList();
-        for (var slotIndex = 0; slotIndex < day.TimeSlots.Count; slotIndex++)
-        {
-            var slot = day.TimeSlots[slotIndex];
-            AddCrossEventTimeCell(targetGrid, slot, slotIndex + 1, zoom);
-            for (var courtIndex = 0; courtIndex < day.Courts.Count; courtIndex++)
-            {
-                var court = day.Courts[courtIndex];
-                var cellItems = dayItems
-                    .Where(item => string.Equals(item.Court, court, StringComparison.Ordinal)
-                                   && item.StartTime == slot)
-                    .OrderBy(item => item.EventName, StringComparer.Ordinal)
-                    .ToList();
-                AddCrossEventDropCell(targetGrid, day.DayLabel, slot, court, slotIndex + 1, courtIndex + 1, cellItems, zoom);
-            }
-        }
+        RenderScheduleBoardView(targetGrid, BuildCrossEventScheduleBoardView(), dayLabel, zoom);
     }
 
     private void AddCrossEventEmptyText(Grid targetGrid, string text, double zoom)
@@ -3390,153 +3438,6 @@ public partial class MainWindow : Window
         Grid.SetRow(border, row);
         Grid.SetColumn(border, 0);
         targetGrid.Children.Add(border);
-    }
-
-    private void AddCrossEventDropCell(
-        Grid targetGrid,
-        string dayLabel,
-        TimeOnly slot,
-        string court,
-        int row,
-        int column,
-        IReadOnlyList<CrossEventScheduleBoardItem> items,
-        double zoom)
-    {
-        var stack = new StackPanel();
-        foreach (var item in items)
-        {
-            stack.Children.Add(CreateCrossEventMatchCard(item, zoom));
-        }
-
-        var border = new Border
-        {
-            Background = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
-            BorderThickness = new Avalonia.Thickness(0, 0, 1, 1),
-            MinHeight = ScaleCrossEvent(72, zoom),
-            Padding = new Avalonia.Thickness(ScaleCrossEvent(6, zoom)),
-            Tag = new CrossEventDropTarget(dayLabel, slot, court),
-            Child = stack
-        };
-        DragDrop.SetAllowDrop(border, true);
-        DragDrop.AddDragOverHandler(border, CrossEventCell_DragOver);
-        DragDrop.AddDropHandler(border, CrossEventCell_Drop);
-        Grid.SetRow(border, row);
-        Grid.SetColumn(border, column);
-        targetGrid.Children.Add(border);
-    }
-
-    private Border CreateCrossEventMatchCard(CrossEventScheduleBoardItem item, double zoom)
-    {
-        var borderColor = item.IsBlockingConflict
-            ? Color.FromRgb(220, 38, 38)
-            : Color.FromRgb(199, 210, 228);
-        var backgroundColor = item.IsBlockingConflict
-            ? Color.FromRgb(254, 242, 242)
-            : item.IsCompleted
-                ? Color.FromRgb(241, 245, 249)
-                : Color.FromRgb(248, 251, 255);
-        var card = new Border
-        {
-            Background = new SolidColorBrush(backgroundColor),
-            BorderBrush = new SolidColorBrush(borderColor),
-            BorderThickness = new Avalonia.Thickness(item.IsBlockingConflict ? 2 : 1),
-            CornerRadius = new Avalonia.CornerRadius(8),
-            Padding = new Avalonia.Thickness(ScaleCrossEvent(8, zoom)),
-            Margin = new Avalonia.Thickness(0, 0, 0, ScaleCrossEvent(6, zoom)),
-            Tag = item,
-            Cursor = item.IsCompleted ? Cursor.Default : new Cursor(StandardCursorType.Hand)
-        };
-        if (!string.IsNullOrWhiteSpace(item.ConflictSummary))
-        {
-            ToolTip.SetTip(card, item.ConflictSummary);
-        }
-        var stack = new StackPanel { Spacing = 3 };
-        stack.Children.Add(new TextBlock
-        {
-            Text = item.MatchLabel,
-            FontSize = ScaleCrossEventFont(13, zoom),
-            FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
-            TextWrapping = TextWrapping.Wrap
-        });
-        stack.Children.Add(new TextBlock
-        {
-            Text = $"{item.TimeRange} · {item.Status}",
-            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
-            FontSize = ScaleCrossEventFont(12, zoom)
-        });
-        stack.Children.Add(new TextBlock
-        {
-            Text = $"{item.SideA}  vs  {item.SideB}",
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = ScaleCrossEventFont(12, zoom)
-        });
-        if (item.IsBlockingConflict)
-        {
-            stack.Children.Add(new TextBlock
-            {
-                Text = item.ConflictSummary,
-                Foreground = new SolidColorBrush(Color.FromRgb(185, 28, 28)),
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = ScaleCrossEventFont(12, zoom)
-            });
-        }
-
-        card.Child = stack;
-        card.PointerPressed += CrossEventMatchCard_PointerPressed;
-        return card;
-    }
-
-    private async void CrossEventMatchCard_PointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (sender is not Border { Tag: CrossEventScheduleBoardItem item } || item.IsCompleted)
-        {
-            return;
-        }
-
-        var data = new DataTransfer();
-        data.Add(DataTransferItem.CreateText(item.Key));
-        await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move);
-    }
-
-    private void CrossEventCell_DragOver(object? sender, DragEventArgs e)
-    {
-        e.DragEffects = e.DataTransfer.Contains(DataFormat.Text) ? DragDropEffects.Move : DragDropEffects.None;
-        e.Handled = true;
-    }
-
-    private void CrossEventCell_Drop(object? sender, DragEventArgs e)
-    {
-        if (_crossEventScheduleBoard is null
-            || sender is not Border { Tag: CrossEventDropTarget target })
-        {
-            return;
-        }
-
-        var key = e.DataTransfer.TryGetText();
-        if (string.IsNullOrWhiteSpace(key) || key.StartsWith(ScheduleDragPrefix, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        try
-        {
-            _crossEventScheduleBoard = _crossEventConflictWorkflow.MoveScheduleItem(
-                _crossEventScheduleBoard,
-                key,
-                target.DayLabel,
-                target.StartTime,
-                target.Court);
-            RefreshCrossEventScheduleBoard(target.DayLabel);
-            RefreshCrossEventBoardWindow(target.DayLabel);
-            PreviewTabs.SelectedItem = CrossEventPreviewTab;
-            SetStatus(BuildCrossEventStatus("已调整多项目赛程", _crossEventScheduleBoard));
-        }
-        catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
-        {
-            SetStatus(ex.Message, isError: true);
-        }
     }
 
     private string? GetSelectedCrossEventDayLabel()
@@ -3856,16 +3757,6 @@ public partial class MainWindow : Window
             return $"{Title}\n{Detail}";
         }
     }
-
-    private sealed record CrossEventDropTarget(
-        string DayLabel,
-        TimeOnly StartTime,
-        string Court);
-
-    private sealed record ScheduleDropTarget(
-        string DayLabel,
-        TimeOnly StartTime,
-        string Court);
 
     private enum CrossEventPlayerSortMode
     {

@@ -59,6 +59,43 @@ public sealed class CrossEventConflictWorkflow
         return BuildScheduleBoard(sources, minimumRestMinutes, hasUnsavedChanges: false);
     }
 
+    public static ScheduleBoardView BuildScheduleBoardView(CrossEventScheduleBoard board)
+    {
+        var days = board.Days
+            .Select(day => new ScheduleBoardDay(
+                day.DayLabel,
+                day.StartTime,
+                day.EndTime,
+                day.Courts,
+                day.SlotMinutes,
+                day.TimeSlots))
+            .ToList();
+        var items = board.Items
+            .Select(item => new ScheduleBoardItem(
+                item.Key,
+                item.Key,
+                item.Key,
+                item.DayLabel,
+                item.StartTime,
+                item.EndTime,
+                item.Court,
+                item.Order,
+                item.MatchLabel,
+                $"{item.TimeRange} · {item.Status}",
+                $"{item.SideA}  vs  {item.SideB}",
+                item.IsBlockingConflict ? item.ConflictSummary : "",
+                item.ConflictSummary,
+                item.IsCompleted,
+                item.IsBlockingConflict,
+                item.EventName))
+            .ToList();
+
+        return new ScheduleBoardView(
+            ScheduleBoardKind.CrossEvent,
+            days,
+            items);
+    }
+
     public CrossEventScheduleBoard MoveScheduleItem(
         CrossEventScheduleBoard board,
         string itemKey,
