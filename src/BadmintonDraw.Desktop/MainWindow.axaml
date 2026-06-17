@@ -548,10 +548,6 @@
                                                               Content="统一按阶段波次推进"
                                                               IsChecked="True" />
                                                     <StackPanel x:Name="CrossEventStageWavePanel" Spacing="8" />
-                                                    <TextBlock Text="跨项目统一收官日"
-                                                               FontWeight="SemiBold"
-                                                               Foreground="#243B63" />
-                                                    <StackPanel x:Name="CrossEventFinalDayPanel" Spacing="6" />
                                                     <Button Classes="secondary"
                                                             Content="恢复推荐分布"
                                                             Click="ResetCrossEventCustomDefaults_Click" />

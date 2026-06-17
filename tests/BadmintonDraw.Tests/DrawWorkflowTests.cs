@@ -1779,7 +1779,16 @@ public sealed class DrawWorkflowTests
                         new DrawParticipant("[张三 郑九]", PrimaryName: "张三", PartnerName: "郑九"),
                         new DrawParticipant("[钱十 吴一]", PrimaryName: "钱十", PartnerName: "吴一")
                     ],
-                    CreateSingleMatchSchedule("混双1", "[张三 郑九]", "[钱十 吴一]", new TimeOnly(14, 10), new TimeOnly(14, 40), "C1")));
+                    CreateSingleMatchSchedule("混双1", "[张三 郑九]", "[钱十 吴一]", new TimeOnly(14, 10), new TimeOnly(14, 40), "C1") with
+                    {
+                        Settings = new ScheduleSettings(
+                            [
+                                new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["C1"]),
+                                new ScheduleDaySettings(new DateOnly(2026, 6, 14), new TimeOnly(14, 0), new TimeOnly(18, 0), ["C1"])
+                            ],
+                            MatchMinutes: 30,
+                            MaxMatchesPerEntrantPerDay: 2)
+                    }));
 
             var workflow = new CrossEventConflictWorkflow();
             var board = workflow.LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 20);
@@ -1798,8 +1807,8 @@ public sealed class DrawWorkflowTests
             var adjusted = workflow.MoveScheduleItem(
                 board,
                 mixedDoublesKey,
-                "2026-06-13",
-                new TimeOnly(15, 0),
+                "2026-06-14",
+                new TimeOnly(14, 0),
                 "C1");
             var saveResult = workflow.SaveScheduleBoard(adjusted);
             var reopened = store.Read(secondProgressPath);
@@ -1809,16 +1818,18 @@ public sealed class DrawWorkflowTests
             Assert.True(adjusted.HasUnsavedChanges);
             Assert.Equal(0, adjustedPlayer.SevereIssueCount);
             Assert.Equal(0, adjustedPlayer.WarningIssueCount);
-            Assert.Equal(30, adjustedPlayer.ShortestRestMinutes);
+            Assert.True(adjustedPlayer.ShortestRestMinutes is null or >= 20);
             Assert.Contains(
                 adjustedPlayer.Appearances,
                 appearance => appearance.EventName == "混双"
-                              && appearance.StartTime == new TimeOnly(15, 0)
+                              && appearance.DayLabel == "2026-06-14"
+                              && appearance.StartTime == new TimeOnly(14, 0)
                               && appearance.ConflictSeverity is null);
             Assert.Equal(2, saveResult.UpdatedPaths.Count);
-            Assert.Equal(new TimeOnly(15, 0), reopened.Snapshot.Schedule.Matches.Single().StartTime);
-            Assert.Equal(new TimeOnly(15, 30), reopened.Snapshot.Schedule.Matches.Single().EndTime);
-            Assert.Contains("C1", reopened.Snapshot.Schedule.Settings.Days.Single().Courts);
+            Assert.Equal("2026-06-14", reopened.Snapshot.Schedule.Matches.Single().DayLabel);
+            Assert.Equal(new TimeOnly(14, 0), reopened.Snapshot.Schedule.Matches.Single().StartTime);
+            Assert.Equal(new TimeOnly(14, 30), reopened.Snapshot.Schedule.Matches.Single().EndTime);
+            Assert.Contains("C1", reopened.Snapshot.Schedule.Settings.Days.Single(day => day.DayLabel == "2026-06-14").Courts);
         }
         finally
         {
@@ -2114,7 +2125,10 @@ public sealed class DrawWorkflowTests
                 new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B2", 1, "A组", "首轮赛", "男单2", "王五", "赵六")
             ],
             new ScheduleSettings(
-                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1", "B2"])],
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1", "B2"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 14), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1", "B2"])
+                ],
                 MatchMinutes: 30,
                 MaxMatchesPerEntrantPerDay: 2));
 
@@ -2130,6 +2144,17 @@ public sealed class DrawWorkflowTests
         Assert.Equal(new TimeOnly(15, 0), adjusted.EndTime);
         Assert.Equal("B1", adjusted.Court);
         Assert.Equal([1, 2], moved.Matches.Select(match => match.Order).ToArray());
+        var crossDay = ScheduleWorkflow.MoveScheduledMatch(
+            schedule,
+            "男单2",
+            "2026-06-14",
+            new TimeOnly(14, 0),
+            "B1");
+        var crossDayMatch = crossDay.Matches.Single(match => match.MatchName == "男单2");
+        Assert.Equal("2026-06-14", crossDayMatch.DayLabel);
+        Assert.Equal(new TimeOnly(14, 0), crossDayMatch.StartTime);
+        Assert.Equal(new TimeOnly(14, 30), crossDayMatch.EndTime);
+        Assert.Equal("B1", crossDayMatch.Court);
         Assert.Throws<DrawValidationException>(() => ScheduleWorkflow.MoveScheduledMatch(
             schedule,
             "男单2",

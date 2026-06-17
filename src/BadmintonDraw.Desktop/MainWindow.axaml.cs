@@ -107,7 +107,6 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, TextBlock> _crossEventDayLoadLabels = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Slider> _crossEventStageWaveSliders = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TextBlock> _crossEventStageWaveLabels = new(StringComparer.Ordinal);
-    private readonly Dictionary<(string EventName, CrossEventFinalDayMatchCategory Category), CheckBox> _crossEventFinalDayBoxes = [];
     private DispatcherTimer? _crossEventCustomRecalculateTimer;
     private double _crossEventBoardZoom = 1.0;
     private double _crossEventBoardWindowZoom = 1.0;
@@ -124,15 +123,12 @@ public partial class MainWindow : Window
         DayLoad,
         StageWave,
         StageWaveEnabled,
-        FinalDay,
         MinimumRest
     }
 
     private sealed record CrossEventCustomAnchor(
         CrossEventCustomAnchorKind Kind,
-        string? DayLabel = null,
-        string? EventName = null,
-        CrossEventFinalDayMatchCategory? Category = null)
+        string? DayLabel = null)
     {
         public static CrossEventCustomAnchor None { get; } = new(CrossEventCustomAnchorKind.None);
 
@@ -143,8 +139,6 @@ public partial class MainWindow : Window
                 CrossEventCustomAnchorKind.DayLoad when !string.IsNullOrWhiteSpace(DayLabel) => $"{DayLabel} 目标负载率",
                 CrossEventCustomAnchorKind.StageWave when !string.IsNullOrWhiteSpace(DayLabel) => $"{DayLabel} 阶段推进",
                 CrossEventCustomAnchorKind.StageWaveEnabled => "阶段波次推进",
-                CrossEventCustomAnchorKind.FinalDay when !string.IsNullOrWhiteSpace(EventName) && Category is not null
-                    => $"{EventName} {GetFinalDayCategoryText(Category.Value)}收官日偏好",
                 CrossEventCustomAnchorKind.MinimumRest => "最小休息间隔",
                 CrossEventCustomAnchorKind.Recommended => "推荐分布",
                 _ => "当前参数"
@@ -155,10 +149,6 @@ public partial class MainWindow : Window
     private sealed record CrossEventCustomSliderTag(
         CrossEventCustomAnchorKind Kind,
         string DayLabel);
-
-    private sealed record CrossEventFinalDayTag(
-        string EventName,
-        CrossEventFinalDayMatchCategory Category);
 
     public MainWindow()
     {
@@ -1828,7 +1818,7 @@ public partial class MainWindow : Window
         var stack = new StackPanel();
         foreach (var item in items)
         {
-            var card = CreateScheduleBoardMatchCard(item, zoom);
+            var card = CreateScheduleBoardMatchCard(item, boardKind, zoom);
             if (boardKind == ScheduleBoardKind.SingleEvent)
             {
                 _scheduleBoardWindowMatchCards[item.FocusKey] = card;
@@ -1855,7 +1845,7 @@ public partial class MainWindow : Window
         targetGrid.Children.Add(border);
     }
 
-    private Border CreateScheduleBoardMatchCard(ScheduleBoardItem item, double zoom)
+    private Border CreateScheduleBoardMatchCard(ScheduleBoardItem item, ScheduleBoardKind boardKind, double zoom)
     {
         var borderColor = item.IsBlocking
             ? Color.FromRgb(220, 38, 38)
@@ -1879,6 +1869,10 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(item.Tooltip))
         {
             ToolTip.SetTip(card, item.Tooltip);
+        }
+        else if (!item.IsLocked)
+        {
+            ToolTip.SetTip(card, "拖拽可调整到当前比赛日的空位；右键可移动到其他比赛日。");
         }
 
         var stack = new StackPanel { Spacing = 3 };
@@ -1914,6 +1908,19 @@ public partial class MainWindow : Window
         }
 
         card.Child = stack;
+        if (!item.IsLocked)
+        {
+            var moveItem = new MenuItem
+            {
+                Header = "移动到指定比赛日..."
+            };
+            moveItem.Click += (_, _) => _ = ShowScheduleBoardMoveDialogAsync(boardKind, item);
+            card.ContextMenu = new ContextMenu
+            {
+                Items = { moveItem }
+            };
+        }
+
         card.PointerPressed += ScheduleBoardMatchCard_PointerPressed;
         return card;
     }
@@ -1925,9 +1932,190 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!e.GetCurrentPoint((Control)sender).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
         var data = new DataTransfer();
         data.Add(DataTransferItem.CreateText(item.DragPayload));
         await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move);
+    }
+
+    private async Task ShowScheduleBoardMoveDialogAsync(ScheduleBoardKind boardKind, ScheduleBoardItem item)
+    {
+        var board = boardKind == ScheduleBoardKind.SingleEvent
+            ? BuildSingleScheduleBoardView()
+            : BuildCrossEventScheduleBoardView();
+        if (board is null)
+        {
+            SetStatus("当前没有可调整的赛程看板。", isError: true);
+            return;
+        }
+
+        var dialog = new Window
+        {
+            Title = "移动比赛",
+            Width = 520,
+            Height = 360,
+            MinWidth = 460,
+            MinHeight = 320,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+        var owner = boardKind == ScheduleBoardKind.SingleEvent
+            ? _scheduleBoardWindow ?? this
+            : _crossEventBoardWindow ?? this;
+
+        var root = new Grid
+        {
+            RowDefinitions = new RowDefinitions("*,Auto"),
+            Margin = new Avalonia.Thickness(18)
+        };
+        var form = new StackPanel { Spacing = 10 };
+        form.Children.Add(new TextBlock
+        {
+            Text = item.Title,
+            FontSize = 18,
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78)),
+            TextWrapping = TextWrapping.Wrap
+        });
+        form.Children.Add(new TextBlock
+        {
+            Text = $"当前：{item.DayLabel} {item.TimeRange} {item.Court}",
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var dayBox = new ComboBox { MinWidth = 220, ItemsSource = board.DayLabels };
+        var timeBox = new ComboBox { MinWidth = 160 };
+        var courtBox = new ComboBox { MinWidth = 160 };
+        var errorText = new TextBlock
+        {
+            Foreground = ErrorStatusBrush,
+            TextWrapping = TextWrapping.Wrap
+        };
+
+        void UpdateTargetControls(string? preferredTime = null, string? preferredCourt = null)
+        {
+            var day = board.FindDay(dayBox.SelectedItem?.ToString());
+            if (day is null)
+            {
+                timeBox.ItemsSource = Array.Empty<string>();
+                courtBox.ItemsSource = Array.Empty<string>();
+                return;
+            }
+
+            var timeTexts = day.TimeSlots.Select(time => time.ToString("HH:mm")).ToList();
+            timeBox.ItemsSource = timeTexts;
+            var selectedTime = !string.IsNullOrWhiteSpace(preferredTime) && timeTexts.Contains(preferredTime)
+                ? preferredTime
+                : timeTexts.Contains(item.StartTime.ToString("HH:mm"))
+                    ? item.StartTime.ToString("HH:mm")
+                    : timeTexts.FirstOrDefault();
+            timeBox.SelectedItem = selectedTime;
+
+            courtBox.ItemsSource = day.Courts;
+            var selectedCourt = !string.IsNullOrWhiteSpace(preferredCourt) && day.Courts.Contains(preferredCourt, StringComparer.Ordinal)
+                ? preferredCourt
+                : day.Courts.Contains(item.Court, StringComparer.Ordinal)
+                    ? item.Court
+                    : day.Courts.FirstOrDefault();
+            courtBox.SelectedItem = selectedCourt;
+        }
+
+        dayBox.SelectionChanged += (_, _) => UpdateTargetControls();
+        dayBox.SelectedItem = board.DayLabels.Contains(item.DayLabel) ? item.DayLabel : board.DayLabels.FirstOrDefault();
+        UpdateTargetControls(item.StartTime.ToString("HH:mm"), item.Court);
+
+        form.Children.Add(CreateScheduleMoveField("目标比赛日", dayBox));
+        form.Children.Add(CreateScheduleMoveField("目标时间", timeBox));
+        form.Children.Add(CreateScheduleMoveField("目标场地", courtBox));
+        form.Children.Add(errorText);
+        root.Children.Add(form);
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 10,
+            Margin = new Avalonia.Thickness(0, 16, 0, 0)
+        };
+        var cancelButton = new Button
+        {
+            Content = "取消",
+            Width = 90,
+            HorizontalContentAlignment = HorizontalAlignment.Center
+        };
+        cancelButton.Click += (_, _) => dialog.Close(false);
+        var moveButton = new Button
+        {
+            Content = "移动",
+            Width = 90,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            Classes = { "primary" }
+        };
+        moveButton.Click += (_, _) =>
+        {
+            errorText.Text = "";
+            if (string.IsNullOrWhiteSpace(dayBox.SelectedItem?.ToString())
+                || string.IsNullOrWhiteSpace(timeBox.SelectedItem?.ToString())
+                || string.IsNullOrWhiteSpace(courtBox.SelectedItem?.ToString())
+                || !TimeOnly.TryParse(timeBox.SelectedItem!.ToString(), out var startTime))
+            {
+                errorText.Text = "请选择完整的目标比赛日、时间和场地。";
+                return;
+            }
+
+            var target = new ScheduleBoardDropTarget(
+                boardKind,
+                dayBox.SelectedItem!.ToString()!,
+                startTime,
+                courtBox.SelectedItem!.ToString()!);
+            try
+            {
+                if (boardKind == ScheduleBoardKind.SingleEvent)
+                {
+                    MoveSingleScheduleBoardItem(item.DragPayload, target);
+                }
+                else
+                {
+                    MoveCrossEventScheduleBoardItem(item.DragPayload, target);
+                }
+
+                dialog.Close(true);
+            }
+            catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
+            {
+                errorText.Text = ex.Message;
+            }
+        };
+        buttons.Children.Add(cancelButton);
+        buttons.Children.Add(moveButton);
+        Grid.SetRow(buttons, 1);
+        root.Children.Add(buttons);
+
+        dialog.Content = root;
+        await dialog.ShowDialog<bool>(owner);
+    }
+
+    private static Grid CreateScheduleMoveField(string label, Control editor)
+    {
+        var grid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("110,*"),
+            ColumnSpacing = 10
+        };
+        grid.Children.Add(new TextBlock
+        {
+            Text = label,
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            FontWeight = FontWeight.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        Grid.SetColumn(editor, 1);
+        grid.Children.Add(editor);
+        return grid;
     }
 
     private void ScheduleBoardCell_DragOver(object? sender, DragEventArgs e)
@@ -2817,11 +3005,6 @@ public partial class MainWindow : Window
                 Strategy = CrossEventSchedulingStrategy.Custom,
                 SynchronizeStageWaves = CrossEventStageWaveBox.IsChecked == true
             },
-            CrossEventCustomAnchorKind.FinalDay when !string.IsNullOrWhiteSpace(anchor.EventName) && anchor.Category is not null => current with
-            {
-                Strategy = CrossEventSchedulingStrategy.Custom,
-                FinalDayRules = BuildAnchoredFinalDayRules(current, anchor.EventName, anchor.Category.Value)
-            },
             _ => current with { Strategy = CrossEventSchedulingStrategy.Custom }
         };
     }
@@ -2982,31 +3165,6 @@ public partial class MainWindow : Window
             StringComparer.Ordinal);
     }
 
-    private IReadOnlyList<CrossEventFinalDayRule> BuildAnchoredFinalDayRules(
-        CrossEventSchedulingOptions current,
-        string eventName,
-        CrossEventFinalDayMatchCategory category)
-    {
-        var result = current.FinalDayRules.ToList();
-        var index = result.FindIndex(rule => rule.EventName == eventName && rule.Category == category);
-        var isChecked = _crossEventFinalDayBoxes.TryGetValue((eventName, category), out var box)
-            && box.IsChecked == true;
-        var next = new CrossEventFinalDayRule(
-            eventName,
-            category,
-            isChecked ? CrossEventFinalDayPolicy.MustFinalDay : CrossEventFinalDayPolicy.AvoidFinalDay);
-        if (index >= 0)
-        {
-            result[index] = next;
-        }
-        else
-        {
-            result.Add(next);
-        }
-
-        return result;
-    }
-
     private static List<CrossEventStageWaveTarget> NormalizeStageWaveTargets(
         IReadOnlyList<CrossEventStageWaveTarget> targets)
     {
@@ -3033,7 +3191,6 @@ public partial class MainWindow : Window
         {
             CrossEventCustomDayLoadPanel.Children.Clear();
             CrossEventStageWavePanel.Children.Clear();
-            CrossEventFinalDayPanel.Children.Clear();
             return;
         }
 
@@ -3048,7 +3205,6 @@ public partial class MainWindow : Window
                 "这些参数来自系统按“均衡宽松”推导的当前最优值；微调后会全局重排，可能跨天溢出或回填。";
             RebuildCrossEventDayLoadControls(options);
             RebuildCrossEventStageWaveControls(options);
-            RebuildCrossEventFinalDayControls(options);
             UpdateCrossEventCustomLabels();
         }
         finally
@@ -3135,63 +3291,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RebuildCrossEventFinalDayControls(CrossEventSchedulingOptions options)
-    {
-        CrossEventFinalDayPanel.Children.Clear();
-        _crossEventFinalDayBoxes.Clear();
-        var categories = new[]
-        {
-            CrossEventFinalDayMatchCategory.Final,
-            CrossEventFinalDayMatchCategory.Semifinal,
-            CrossEventFinalDayMatchCategory.Bronze,
-            CrossEventFinalDayMatchCategory.Placement5To8
-        };
-        foreach (var source in _crossEventScheduleBoard!.Sources.OrderBy(source => source.EventName, StringComparer.Ordinal))
-        {
-            var row = new StackPanel { Spacing = 4 };
-            row.Children.Add(new TextBlock
-            {
-                Text = source.EventName,
-                FontWeight = FontWeight.SemiBold,
-                Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78))
-            });
-            var checks = new WrapPanel
-            {
-                Orientation = Orientation.Horizontal,
-                ItemSpacing = 8
-            };
-            foreach (var category in categories)
-            {
-                var policy = options.FinalDayRules.FirstOrDefault(rule => rule.EventName == source.EventName && rule.Category == category)?.Policy
-                    ?? CrossEventFinalDayPolicy.Flexible;
-                var box = new CheckBox
-                {
-                    Content = GetFinalDayCategoryText(category),
-                    IsChecked = policy is CrossEventFinalDayPolicy.MustFinalDay or CrossEventFinalDayPolicy.PreferFinalDay,
-                    Tag = new CrossEventFinalDayTag(source.EventName, category)
-                };
-                box.PropertyChanged += (sender, args) =>
-                {
-                    if (args.Property == ToggleButton.IsCheckedProperty)
-                    {
-                        var anchor = sender is CheckBox { Tag: CrossEventFinalDayTag tag }
-                            ? new CrossEventCustomAnchor(
-                                CrossEventCustomAnchorKind.FinalDay,
-                                EventName: tag.EventName,
-                                Category: tag.Category)
-                            : CrossEventCustomAnchor.None;
-                        QueueCrossEventCustomRecalculate(anchor);
-                    }
-                };
-                _crossEventFinalDayBoxes[(source.EventName, category)] = box;
-                checks.Children.Add(box);
-            }
-
-            row.Children.Add(checks);
-            CrossEventFinalDayPanel.Children.Add(row);
-        }
-    }
-
     private void UpdateCrossEventCustomLabels()
     {
         foreach (var pair in _crossEventDayLoadSliders)
@@ -3209,17 +3308,6 @@ public partial class MainWindow : Window
                 label.Text = $"{pair.Key} 结束前：预计完成全局阶段进度 {Math.Round(pair.Value.Value)}%";
             }
         }
-    }
-
-    private static string GetFinalDayCategoryText(CrossEventFinalDayMatchCategory category)
-    {
-        return category switch
-        {
-            CrossEventFinalDayMatchCategory.Semifinal => "半决赛",
-            CrossEventFinalDayMatchCategory.Bronze => "铜牌赛",
-            CrossEventFinalDayMatchCategory.Placement5To8 => "5-8名赛",
-            _ => "决赛"
-        };
     }
 
     private void ApplyScheduleCourtPreset()
