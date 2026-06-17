@@ -90,6 +90,8 @@ public partial class MainWindow : Window
     private ComboBox? _scheduleBoardWindowDayBox;
     private TextBlock? _scheduleBoardWindowSummaryText;
     private Grid? _scheduleBoardWindowGrid;
+    private Button? _scheduleBoardWindowUndoButton;
+    private readonly Stack<SingleScheduleUndoSnapshot> _singleScheduleUndoStack = new();
     private readonly Dictionary<string, Border> _scheduleBoardWindowMatchCards = new(StringComparer.Ordinal);
     private int _scheduleBoardHighlightVersion;
     private Window? _scheduleConstraintWindow;
@@ -114,6 +116,8 @@ public partial class MainWindow : Window
     private ComboBox? _crossEventBoardWindowDayBox;
     private TextBlock? _crossEventBoardWindowSummaryText;
     private Grid? _crossEventBoardWindowGrid;
+    private Button? _crossEventBoardWindowUndoButton;
+    private readonly Stack<CrossEventScheduleUndoSnapshot> _crossEventScheduleUndoStack = new();
     private bool _uiReady;
 
     private enum CrossEventCustomAnchorKind
@@ -150,6 +154,16 @@ public partial class MainWindow : Window
         CrossEventCustomAnchorKind Kind,
         string DayLabel);
 
+    private sealed record SingleScheduleUndoSnapshot(
+        SchedulePlan Schedule,
+        TournamentProgressState? ProgressState,
+        string? ProgressFilePath,
+        string? DayLabel);
+
+    private sealed record CrossEventScheduleUndoSnapshot(
+        CrossEventScheduleBoard Board,
+        string? DayLabel);
+
     public MainWindow()
     {
         InitializeComponent();
@@ -158,6 +172,8 @@ public partial class MainWindow : Window
         ScheduleDatePicker.SelectedDate = new DateTimeOffset(DateTime.Today);
         ScheduleDaysList.ItemsSource = _scheduleDays;
         CrossEventCustomSchedulingPanel.IsVisible = false;
+        UpdateScheduleUndoButtons();
+        UpdateCrossEventUndoButtons();
         CrossEventStageWaveBox.PropertyChanged += (_, args) =>
         {
             if (args.Property == ToggleButton.IsCheckedProperty)
@@ -708,6 +724,7 @@ public partial class MainWindow : Window
                 _latestWorkflowResult,
                 _latestSchedule);
             _progressFilePath = path;
+            ClearSingleScheduleUndoStack();
             UpdateProgressDisplay();
             SetStatus($"赛事存档已创建：{path}");
         }
@@ -796,6 +813,7 @@ public partial class MainWindow : Window
             _crossEventSchedulingOptions = null;
             _crossEventRecommendedCustomOptions = null;
             _crossEventLastAcceptedOptions = null;
+            ClearCrossEventScheduleUndoStack();
             PreviewTabs.SelectedItem = CrossEventPreviewTab;
             RunCrossEventScheduling(
                 GetCrossEventSchedulingStrategy(),
@@ -940,6 +958,7 @@ public partial class MainWindow : Window
         {
             var result = _crossEventConflictWorkflow.SaveScheduleBoard(_crossEventScheduleBoard);
             _crossEventScheduleBoard = _crossEventScheduleBoard with { HasUnsavedChanges = false };
+            ClearCrossEventScheduleUndoStack();
             RefreshCrossEventScheduleBoard(GetSelectedCrossEventDayLabel());
             RefreshCrossEventBoardWindow(GetSelectedCrossEventDayLabel());
             SetStatus($"已保存 {result.UpdatedPaths.Count} 个赛事存档，备份 {result.BackupPaths.Count} 个。");
@@ -1269,6 +1288,7 @@ public partial class MainWindow : Window
             _scheduleBoardWindowDayBox = null;
             _scheduleBoardWindowSummaryText = null;
             _scheduleBoardWindowGrid = null;
+            _scheduleBoardWindowUndoButton = null;
             _scheduleBoardWindowMatchCards.Clear();
         };
         RefreshScheduleBoardWindow(preferredDayLabel);
@@ -1629,9 +1649,12 @@ public partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         });
         controls.Children.Add(_scheduleBoardWindowDayBox!);
+        _scheduleBoardWindowUndoButton = CreateCrossEventWindowButton("撤销", UndoSingleScheduleMove_Click);
+        controls.Children.Add(_scheduleBoardWindowUndoButton);
         controls.Children.Add(CreateCrossEventWindowButton("缩小", (_, _) => SetScheduleBoardWindowZoom(_scheduleBoardWindowZoom - ScheduleBoardLayout.ZoomStep)));
         controls.Children.Add(CreateCrossEventWindowButton("100%", (_, _) => SetScheduleBoardWindowZoom(1.0)));
         controls.Children.Add(CreateCrossEventWindowButton("放大", (_, _) => SetScheduleBoardWindowZoom(_scheduleBoardWindowZoom + ScheduleBoardLayout.ZoomStep)));
+        UpdateScheduleUndoButtons();
         Grid.SetColumn(controls, 1);
         headerGrid.Children.Add(controls);
         header.Child = headerGrid;
@@ -2174,13 +2197,25 @@ public partial class MainWindow : Window
             return;
         }
 
-        _latestSchedule = ScheduleWorkflow.MoveScheduledMatch(
+        var previousSchedule = _latestSchedule;
+        var previousProgressState = _progressState;
+        var previousDayLabel = previousSchedule.Matches
+            .FirstOrDefault(match => string.Equals(match.MatchName, matchName, StringComparison.Ordinal))
+            ?.DayLabel
+            ?? target.DayLabel;
+        var movedSchedule = ScheduleWorkflow.MoveScheduledMatch(
             _latestSchedule,
             matchName,
             target.DayLabel,
             target.StartTime,
             target.Court,
             _progressState?.Results.Keys.ToHashSet(StringComparer.Ordinal));
+        _singleScheduleUndoStack.Push(new SingleScheduleUndoSnapshot(
+            previousSchedule,
+            previousProgressState,
+            _progressFilePath,
+            previousDayLabel));
+        _latestSchedule = movedSchedule;
         if (_progressState is not null)
         {
             _progressState = ReplaceProgressSchedule(_progressState, _latestSchedule);
@@ -2191,6 +2226,7 @@ public partial class MainWindow : Window
         UpdateScheduleConstraintReport(_latestSchedule);
         ScheduleSummaryText.Text = $"已调整 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。";
         RefreshScheduleBoardWindow(target.DayLabel);
+        UpdateScheduleUndoButtons();
         SetStatus(
             "赛程安排已调整；后续导出会使用调整后的时间和场地。",
             isWarning: _latestScheduleConstraintReport is { SevereCount: > 0 } or { WarningCount: > 0 });
@@ -2203,16 +2239,108 @@ public partial class MainWindow : Window
             return;
         }
 
-        _crossEventScheduleBoard = _crossEventConflictWorkflow.MoveScheduleItem(
+        var previousBoard = _crossEventScheduleBoard;
+        var previousDayLabel = previousBoard.Items
+            .FirstOrDefault(item => string.Equals(item.Key, payload, StringComparison.Ordinal))
+            ?.DayLabel
+            ?? target.DayLabel;
+        var movedBoard = _crossEventConflictWorkflow.MoveScheduleItem(
             _crossEventScheduleBoard,
             payload,
             target.DayLabel,
             target.StartTime,
             target.Court);
+        _crossEventScheduleUndoStack.Push(new CrossEventScheduleUndoSnapshot(
+            previousBoard,
+            previousDayLabel));
+        _crossEventScheduleBoard = movedBoard;
         RefreshCrossEventScheduleBoard(target.DayLabel);
         RefreshCrossEventBoardWindow(target.DayLabel);
+        UpdateCrossEventUndoButtons();
         PreviewTabs.SelectedItem = CrossEventPreviewTab;
         SetStatus(BuildCrossEventStatus("已调整多项目赛程", _crossEventScheduleBoard));
+    }
+
+    private void UndoSingleScheduleMove_Click(object? sender, RoutedEventArgs e)
+    {
+        if (!_singleScheduleUndoStack.TryPop(out var snapshot))
+        {
+            SetStatus("当前没有可撤销的赛程调整。", isWarning: true);
+            UpdateScheduleUndoButtons();
+            return;
+        }
+
+        _latestSchedule = snapshot.Schedule;
+        _progressState = snapshot.ProgressState;
+        _progressFilePath = snapshot.ProgressFilePath;
+
+        UpdateProgressDisplay();
+        ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
+        UpdateScheduleConstraintReport(_latestSchedule);
+        ScheduleSummaryText.Text = $"已撤销上一步调整；当前 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。";
+        RefreshScheduleBoardWindow(snapshot.DayLabel);
+        UpdateScheduleUndoButtons();
+        SetStatus(
+            "已撤销上一步赛程调整；后续导出会使用撤销后的时间和场地。",
+            isWarning: _latestScheduleConstraintReport is { SevereCount: > 0 } or { WarningCount: > 0 });
+    }
+
+    private void UndoCrossEventScheduleMove_Click(object? sender, RoutedEventArgs e)
+    {
+        if (!_crossEventScheduleUndoStack.TryPop(out var snapshot))
+        {
+            SetStatus("当前没有可撤销的多项目赛程调整。", isWarning: true);
+            UpdateCrossEventUndoButtons();
+            return;
+        }
+
+        _crossEventScheduleBoard = snapshot.Board;
+        _crossEventSchedulingOptions = snapshot.Board.SchedulingOptions ?? _crossEventSchedulingOptions;
+        RefreshCrossEventScheduleBoard(snapshot.DayLabel);
+        RefreshCrossEventBoardWindow(snapshot.DayLabel);
+        UpdateCrossEventUndoButtons();
+        PreviewTabs.SelectedItem = CrossEventPreviewTab;
+        SetStatus(BuildCrossEventStatus("已撤销上一步多项目赛程调整", _crossEventScheduleBoard));
+    }
+
+    private void ClearSingleScheduleUndoStack()
+    {
+        _singleScheduleUndoStack.Clear();
+        UpdateScheduleUndoButtons();
+    }
+
+    private void ClearCrossEventScheduleUndoStack()
+    {
+        _crossEventScheduleUndoStack.Clear();
+        UpdateCrossEventUndoButtons();
+    }
+
+    private void UpdateScheduleUndoButtons()
+    {
+        var canUndo = _singleScheduleUndoStack.Count > 0;
+        if (ScheduleUndoButton is not null)
+        {
+            ScheduleUndoButton.IsEnabled = canUndo;
+        }
+
+        if (_scheduleBoardWindowUndoButton is not null)
+        {
+            _scheduleBoardWindowUndoButton.IsEnabled = canUndo;
+        }
+    }
+
+    private void UpdateCrossEventUndoButtons()
+    {
+        var canUndo = _crossEventScheduleUndoStack.Count > 0;
+        if (CrossEventUndoButton is not null)
+        {
+            CrossEventUndoButton.IsEnabled = canUndo;
+        }
+
+        if (_crossEventBoardWindowUndoButton is not null)
+        {
+            _crossEventBoardWindowUndoButton.IsEnabled = canUndo;
+        }
     }
 
     private static TournamentProgressState ReplaceProgressSchedule(TournamentProgressState state, SchedulePlan schedule)
@@ -2288,6 +2416,7 @@ public partial class MainWindow : Window
             _crossEventBoardWindowDayBox = null;
             _crossEventBoardWindowSummaryText = null;
             _crossEventBoardWindowGrid = null;
+            _crossEventBoardWindowUndoButton = null;
         };
         RefreshCrossEventBoardWindow(GetSelectedCrossEventDayLabel());
         _crossEventBoardWindow.Show(this);
@@ -2333,9 +2462,12 @@ public partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         });
         controls.Children.Add(_crossEventBoardWindowDayBox!);
+        _crossEventBoardWindowUndoButton = CreateCrossEventWindowButton("撤销", UndoCrossEventScheduleMove_Click);
+        controls.Children.Add(_crossEventBoardWindowUndoButton);
         controls.Children.Add(CreateCrossEventWindowButton("缩小", (_, _) => SetCrossEventBoardWindowZoom(_crossEventBoardWindowZoom - ScheduleBoardLayout.ZoomStep)));
         controls.Children.Add(CreateCrossEventWindowButton("100%", (_, _) => SetCrossEventBoardWindowZoom(1.0)));
         controls.Children.Add(CreateCrossEventWindowButton("放大", (_, _) => SetCrossEventBoardWindowZoom(_crossEventBoardWindowZoom + ScheduleBoardLayout.ZoomStep)));
+        UpdateCrossEventUndoButtons();
         Grid.SetColumn(controls, 1);
         headerGrid.Children.Add(controls);
         header.Child = headerGrid;
@@ -2547,6 +2679,7 @@ public partial class MainWindow : Window
                 allowCorrections: preview.Corrections.Count > 0);
             _progressState = outcome.State;
             _latestSchedule = outcome.State.Snapshot.Schedule;
+            ClearSingleScheduleUndoStack();
             UpdateProgressDisplay();
 
             nextDayLabel = TournamentProgressWorkflow.GetNextMatchRecordDayLabel(outcome.State);
@@ -2600,6 +2733,7 @@ public partial class MainWindow : Window
 
             var settings = BuildScheduleSettings();
             _latestSchedule = _scheduleWorkflow.Generate(_latestResult, settings);
+            ClearSingleScheduleUndoStack();
             UpdateScheduleConstraintReport(_latestSchedule);
             ClearProgressReference();
             ScheduleSummaryText.Text = _latestSchedule.IsComplete
@@ -2872,6 +3006,7 @@ public partial class MainWindow : Window
             _crossEventSchedulingOptions = _crossEventScheduleBoard.SchedulingOptions ?? options;
             _crossEventLastAcceptedBoard = _crossEventScheduleBoard;
             _crossEventLastAcceptedOptions = _crossEventSchedulingOptions;
+            ClearCrossEventScheduleUndoStack();
             if (strategy == CrossEventSchedulingStrategy.Custom && _crossEventRecommendedCustomOptions is null)
             {
                 _crossEventRecommendedCustomOptions = _crossEventSchedulingOptions with
@@ -2942,6 +3077,7 @@ public partial class MainWindow : Window
 
         _crossEventScheduleBoard = _crossEventLastAcceptedBoard;
         _crossEventSchedulingOptions = _crossEventLastAcceptedOptions ?? _crossEventLastAcceptedBoard.SchedulingOptions;
+        ClearCrossEventScheduleUndoStack();
         RebuildCrossEventCustomSchedulingControls();
         RefreshCrossEventScheduleBoard(GetSelectedCrossEventDayLabel());
         RefreshCrossEventBoardWindow(GetSelectedCrossEventDayLabel());
@@ -4059,6 +4195,7 @@ public partial class MainWindow : Window
             _participants = state.Snapshot.Participants;
             _participantImportWarnings = state.Snapshot.ImportWarnings;
             _importWarnings = _latestWorkflowResult.WarningMessages;
+            ClearSingleScheduleUndoStack();
 
             CompetitionModeBox.SelectedIndex = state.Snapshot.DrawResult.Settings.CompetitionMode switch
             {
@@ -4517,6 +4654,7 @@ public partial class MainWindow : Window
     {
         _latestSchedule = null;
         _latestScheduleConstraintReport = null;
+        ClearSingleScheduleUndoStack();
         ScheduleSummaryText.Text = "尚未生成赛程";
         UpdateScheduleConstraintButton();
         ScheduleList.ItemsSource = Array.Empty<SchedulePreviewRow>();

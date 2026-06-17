@@ -588,7 +588,7 @@
                                             CornerRadius="8"
                                             Padding="12"
                                             Margin="0,8,0,0">
-                                        <TextBlock Text="拖拽方式：先在右侧选择目标比赛日，再把比赛卡片拖到目标时间和场地格子。排程检查报告会优先使用当前看板状态。"
+                                        <TextBlock Text="拖拽方式：先在右侧选择目标比赛日，再把比赛卡片拖到目标时间和场地格子；误拖后可点“撤销调整”。排程检查报告会优先使用当前看板状态。"
                                                    Foreground="#5F5577"
                                                    TextWrapping="Wrap" />
                                     </Border>
@@ -751,7 +751,7 @@
                                             BorderThickness="1"
                                             CornerRadius="8"
                                             Padding="12">
-                                        <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="12">
+                                        <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="12">
                                             <Button Classes="secondary"
                                                     Width="88"
                                                     Content="打开窗口"
@@ -763,8 +763,15 @@
                                                     Content="查看提醒"
                                                     IsEnabled="False"
                                                     Click="ShowScheduleConstraintDetails_Click" />
+                                            <Button x:Name="ScheduleUndoButton"
+                                                    Grid.Column="2"
+                                                    Classes="secondary"
+                                                    Width="112"
+                                                    Content="撤销调整"
+                                                    IsEnabled="False"
+                                                    Click="UndoSingleScheduleMove_Click" />
                                             <TextBlock x:Name="ScheduleSummaryText"
-                                                       Grid.Column="2"
+                                                       Grid.Column="3"
                                                        Text="尚未生成赛程"
                                                        Foreground="#35445D"
                                                        FontWeight="SemiBold"
@@ -855,6 +862,12 @@
                                                     Width="88"
                                                     Content="打开窗口"
                                                     Click="OpenCrossEventBoardWindow_Click" />
+                                            <Button x:Name="CrossEventUndoButton"
+                                                    Classes="secondary"
+                                                    Width="112"
+                                                    Content="撤销调整"
+                                                    IsEnabled="False"
+                                                    Click="UndoCrossEventScheduleMove_Click" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="2" Spacing="5">
                                             <TextBlock Text="显示比赛日"
