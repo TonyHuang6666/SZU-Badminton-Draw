@@ -274,6 +274,45 @@ public sealed class ScheduleWorkflow
         return moved;
     }
 
+    public static ScheduleBoardMoveValidationResult ValidateScheduledMatchMove(
+        SchedulePlan schedule,
+        string matchName,
+        string dayLabel,
+        TimeOnly startTime,
+        string court,
+        IReadOnlySet<string>? lockedMatchNames = null)
+    {
+        try
+        {
+            var moved = MoveScheduledMatch(schedule, matchName, dayLabel, startTime, court, lockedMatchNames);
+            var targetText = $"目标：{dayLabel} {startTime:HH:mm} · {court}";
+            var newIssues = FindNewRelevantMoveIssues(schedule, moved, matchName);
+            var blockingIssue = newIssues.FirstOrDefault(issue =>
+                issue.Severity == ScheduleConstraintSeverity.Severe);
+            if (blockingIssue is not null)
+            {
+                return ScheduleBoardMoveValidationResult.Blocked(
+                    $"{targetText} 不可放置：{blockingIssue.Message}",
+                    BuildAffectedMatches(matchName, blockingIssue));
+            }
+
+            var warningIssue = newIssues.FirstOrDefault(issue =>
+                issue.Severity is ScheduleConstraintSeverity.Warning or ScheduleConstraintSeverity.Notice);
+            if (warningIssue is not null)
+            {
+                return ScheduleBoardMoveValidationResult.Warning(
+                    $"{targetText} 可放置，但有提醒：{warningIssue.Message}",
+                    BuildAffectedMatches(matchName, warningIssue));
+            }
+
+            return ScheduleBoardMoveValidationResult.Allowed($"{targetText} 可以放置。");
+        }
+        catch (DrawValidationException ex)
+        {
+            return ScheduleBoardMoveValidationResult.Blocked(ex.Message, [matchName]);
+        }
+    }
+
     public static ScheduleSettings BuildSettings(ScheduleWorkflowRequest request)
     {
         var day = new ScheduleDayWorkflowRequest(
@@ -650,6 +689,58 @@ public sealed class ScheduleWorkflow
                 "比分、用时或胜方提醒，将按已填写胜方推进",
                 importResult.ValidationIssues));
         return $"记录表存在需要裁判长确认的情况：{string.Join("，", parts)}。{detail}\n\n是否仍继续导出下一比赛日赛程记录表？";
+    }
+
+    private static IReadOnlyList<ScheduleConstraintIssue> FindNewRelevantMoveIssues(
+        SchedulePlan before,
+        SchedulePlan after,
+        string matchName)
+    {
+        var analyzer = new ScheduleConstraintAnalyzer();
+        var beforeKeys = analyzer.Analyze(before).Issues
+            .Where(issue => IsRelevantMoveIssue(issue, matchName))
+            .Select(BuildMoveIssueKey)
+            .ToHashSet(StringComparer.Ordinal);
+        return analyzer.Analyze(after).Issues
+            .Where(issue => IsRelevantMoveIssue(issue, matchName))
+            .Where(issue => !beforeKeys.Contains(BuildMoveIssueKey(issue)))
+            .OrderByDescending(issue => issue.Severity)
+            .ThenBy(issue => issue.DayLabel, StringComparer.Ordinal)
+            .ThenBy(issue => issue.StartTime ?? TimeOnly.MinValue)
+            .ThenBy(issue => issue.MatchName, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static bool IsRelevantMoveIssue(ScheduleConstraintIssue issue, string matchName)
+    {
+        return string.Equals(issue.MatchName, matchName, StringComparison.Ordinal)
+               || issue.Message.Contains(matchName, StringComparison.Ordinal);
+    }
+
+    private static string BuildMoveIssueKey(ScheduleConstraintIssue issue)
+    {
+        return string.Join(
+            "\u001F",
+            issue.Severity,
+            issue.Type,
+            issue.Scope,
+            issue.DayLabel,
+            issue.StartTime?.ToString("HH:mm") ?? "",
+            issue.Court ?? "",
+            issue.Phase,
+            issue.MatchName,
+            issue.PlayerName ?? "",
+            issue.Message);
+    }
+
+    private static IReadOnlyList<string> BuildAffectedMatches(
+        string movedMatchName,
+        ScheduleConstraintIssue issue)
+    {
+        return new[] { movedMatchName, issue.MatchName }
+            .Where(matchName => !string.IsNullOrWhiteSpace(matchName))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
 
     private static string BuildTimedBracketPath(string scheduleOutputPath, WorkflowExportFormat format)

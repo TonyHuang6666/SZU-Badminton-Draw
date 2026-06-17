@@ -1804,6 +1804,25 @@ public sealed class DrawWorkflowTests
                 appearance => appearance.EventName == "男单"
                               && appearance.ConflictSeverity == CrossEventConflictSeverity.Severe);
 
+            var blockedValidation = workflow.ValidateScheduleItemMove(
+                board,
+                mixedDoublesKey,
+                "2026-06-13",
+                new TimeOnly(14, 0),
+                "B1");
+            Assert.False(blockedValidation.CanDrop);
+            Assert.Equal(ScheduleBoardMoveValidationSeverity.Blocked, blockedValidation.Severity);
+            Assert.Contains("不可放置", blockedValidation.Message);
+
+            var allowedValidation = workflow.ValidateScheduleItemMove(
+                board,
+                mixedDoublesKey,
+                "2026-06-14",
+                new TimeOnly(14, 0),
+                "C1");
+            Assert.True(allowedValidation.CanDrop);
+            Assert.Equal(ScheduleBoardMoveValidationSeverity.Allowed, allowedValidation.Severity);
+
             var adjusted = workflow.MoveScheduleItem(
                 board,
                 mixedDoublesKey,
@@ -2132,6 +2151,15 @@ public sealed class DrawWorkflowTests
                 MatchMinutes: 30,
                 MaxMatchesPerEntrantPerDay: 2));
 
+        var allowedValidation = ScheduleWorkflow.ValidateScheduledMatchMove(
+            schedule,
+            "男单2",
+            "2026-06-13",
+            new TimeOnly(14, 30),
+            "B1");
+        Assert.True(allowedValidation.CanDrop);
+        Assert.Equal(ScheduleBoardMoveValidationSeverity.Allowed, allowedValidation.Severity);
+
         var moved = ScheduleWorkflow.MoveScheduledMatch(
             schedule,
             "男单2",
@@ -2155,6 +2183,15 @@ public sealed class DrawWorkflowTests
         Assert.Equal(new TimeOnly(14, 0), crossDayMatch.StartTime);
         Assert.Equal(new TimeOnly(14, 30), crossDayMatch.EndTime);
         Assert.Equal("B1", crossDayMatch.Court);
+        var blockedValidation = ScheduleWorkflow.ValidateScheduledMatchMove(
+            schedule,
+            "男单2",
+            "2026-06-13",
+            new TimeOnly(14, 0),
+            "B1");
+        Assert.False(blockedValidation.CanDrop);
+        Assert.Equal(ScheduleBoardMoveValidationSeverity.Blocked, blockedValidation.Severity);
+        Assert.Contains("已有比赛", blockedValidation.Message);
         Assert.Throws<DrawValidationException>(() => ScheduleWorkflow.MoveScheduledMatch(
             schedule,
             "男单2",
@@ -2286,6 +2323,56 @@ public sealed class DrawWorkflowTests
             "B2"));
         Assert.Contains("赛程顺序错误", exception.Message);
         Assert.Contains("前序场次结束前开始", exception.Message);
+    }
+
+    [Fact]
+    public void ScheduleWorkflowWarnsWhenMoveCreatesShortDependencyRest()
+    {
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(
+                    1,
+                    "2026-06-13",
+                    new TimeOnly(14, 0),
+                    new TimeOnly(14, 30),
+                    "B1",
+                    1,
+                    "A组",
+                    "16进8",
+                    "A组16进8第1场",
+                    "张三",
+                    "李四",
+                    MatchId: "m1"),
+                new ScheduledMatch(
+                    2,
+                    "2026-06-13",
+                    new TimeOnly(15, 0),
+                    new TimeOnly(15, 30),
+                    "B2",
+                    1,
+                    "A组",
+                    "8进4",
+                    "A组8进4第1场",
+                    "A组16进8第1场胜者",
+                    "王五",
+                    MatchId: "m2",
+                    Dependencies: [Dependency("m1", "A组16进8第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1", "B2"])],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        var validation = ScheduleWorkflow.ValidateScheduledMatchMove(
+            schedule,
+            "A组8进4第1场",
+            "2026-06-13",
+            new TimeOnly(14, 30),
+            "B2");
+
+        Assert.True(validation.CanDrop);
+        Assert.Equal(ScheduleBoardMoveValidationSeverity.Warning, validation.Severity);
+        Assert.Contains("场次接续风险", validation.Message);
     }
 
     [Fact]

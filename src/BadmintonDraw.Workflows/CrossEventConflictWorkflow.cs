@@ -158,6 +158,40 @@ public sealed class CrossEventConflictWorkflow
         return BuildScheduleBoard(sources, board.MinimumRestMinutes, hasUnsavedChanges: true, board.SchedulingOptions);
     }
 
+    public ScheduleBoardMoveValidationResult ValidateScheduleItemMove(
+        CrossEventScheduleBoard board,
+        string itemKey,
+        string dayLabel,
+        TimeOnly startTime,
+        string court)
+    {
+        var targetText = $"目标：{dayLabel} {startTime:HH:mm} · {court}";
+        try
+        {
+            var movedBoard = MoveScheduleItem(board, itemKey, dayLabel, startTime, court);
+            var movedItem = movedBoard.Items.FirstOrDefault(item => string.Equals(item.Key, itemKey, StringComparison.Ordinal));
+            if (movedItem is null)
+            {
+                return ScheduleBoardMoveValidationResult.Blocked("找不到移动后的比赛。", [itemKey]);
+            }
+
+            return movedItem.ConflictSeverity switch
+            {
+                CrossEventConflictSeverity.Severe => ScheduleBoardMoveValidationResult.Blocked(
+                    $"{targetText} 不可放置：{movedItem.ConflictSummary}",
+                    [movedItem.MatchName]),
+                CrossEventConflictSeverity.Warning or CrossEventConflictSeverity.Notice => ScheduleBoardMoveValidationResult.Warning(
+                    $"{targetText} 可放置，但有提醒：{movedItem.ConflictSummary}",
+                    [movedItem.MatchName]),
+                _ => ScheduleBoardMoveValidationResult.Allowed($"{targetText} 可以放置。")
+            };
+        }
+        catch (DrawValidationException ex)
+        {
+            return ScheduleBoardMoveValidationResult.Blocked(ex.Message, [itemKey]);
+        }
+    }
+
     public CrossEventScheduleAutoAdjustResult AutoAdjustScheduleBoard(
         CrossEventScheduleBoard board,
         CrossEventSchedulingOptions? options = null)

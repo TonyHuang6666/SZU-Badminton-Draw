@@ -73,6 +73,12 @@ public partial class MainWindow : Window
     private static readonly IBrush UnscheduledRowBorder = new SolidColorBrush(Color.FromRgb(246, 190, 190));
     private static readonly IBrush UnscheduledBadgeBackground = new SolidColorBrush(Color.FromRgb(255, 228, 230));
     private static readonly IBrush UnscheduledBadgeForeground = new SolidColorBrush(Color.FromRgb(159, 18, 57));
+    private static readonly IBrush DropAllowedBackground = new SolidColorBrush(Color.FromRgb(236, 253, 245));
+    private static readonly IBrush DropAllowedBorder = new SolidColorBrush(Color.FromRgb(34, 197, 94));
+    private static readonly IBrush DropWarningBackground = new SolidColorBrush(Color.FromRgb(255, 251, 235));
+    private static readonly IBrush DropWarningBorder = new SolidColorBrush(Color.FromRgb(245, 158, 11));
+    private static readonly IBrush DropBlockedBackground = new SolidColorBrush(Color.FromRgb(254, 242, 242));
+    private static readonly IBrush DropBlockedBorder = new SolidColorBrush(Color.FromRgb(220, 38, 38));
 
     private IReadOnlyList<DrawParticipant> _participants = [];
     private IReadOnlyList<string> _importWarnings = [];
@@ -118,6 +124,9 @@ public partial class MainWindow : Window
     private Grid? _crossEventBoardWindowGrid;
     private Button? _crossEventBoardWindowUndoButton;
     private readonly Stack<CrossEventScheduleUndoSnapshot> _crossEventScheduleUndoStack = new();
+    private readonly Dictionary<string, ScheduleBoardMoveValidationResult> _scheduleBoardMoveValidationCache = new(StringComparer.Ordinal);
+    private Border? _scheduleBoardDragHoverCell;
+    private string? _lastScheduleBoardDragFeedbackMessage;
     private bool _uiReady;
 
     private enum CrossEventCustomAnchorKind
@@ -1862,6 +1871,7 @@ public partial class MainWindow : Window
         };
         DragDrop.SetAllowDrop(border, true);
         DragDrop.AddDragOverHandler(border, ScheduleBoardCell_DragOver);
+        DragDrop.AddDragLeaveHandler(border, ScheduleBoardCell_DragLeave);
         DragDrop.AddDropHandler(border, ScheduleBoardCell_Drop);
         Grid.SetRow(border, row);
         Grid.SetColumn(border, column);
@@ -1960,6 +1970,8 @@ public partial class MainWindow : Window
             return;
         }
 
+        _scheduleBoardMoveValidationCache.Clear();
+        ClearScheduleBoardDragFeedback();
         var data = new DataTransfer();
         data.Add(DataTransferItem.CreateText(item.DragPayload));
         await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move);
@@ -2144,23 +2156,40 @@ public partial class MainWindow : Window
     private void ScheduleBoardCell_DragOver(object? sender, DragEventArgs e)
     {
         var text = e.DataTransfer.TryGetText();
-        e.DragEffects = sender is Border { Tag: ScheduleBoardDropTarget target }
-                        && IsScheduleBoardDragAllowed(target.Kind, text)
-            ? DragDropEffects.Move
-            : DragDropEffects.None;
+        if (sender is not Border cell || cell.Tag is not ScheduleBoardDropTarget target)
+        {
+            e.DragEffects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        var result = ValidateScheduleBoardDrop(target, text);
+        ApplyScheduleBoardDragFeedback(cell, result);
+        e.DragEffects = result.CanDrop ? DragDropEffects.Move : DragDropEffects.None;
         e.Handled = true;
+    }
+
+    private void ScheduleBoardCell_DragLeave(object? sender, DragEventArgs e)
+    {
+        if (ReferenceEquals(sender, _scheduleBoardDragHoverCell))
+        {
+            ClearScheduleBoardDragFeedback();
+        }
     }
 
     private void ScheduleBoardCell_Drop(object? sender, DragEventArgs e)
     {
+        ClearScheduleBoardDragFeedback();
         if (sender is not Border { Tag: ScheduleBoardDropTarget target })
         {
             return;
         }
 
         var payload = e.DataTransfer.TryGetText();
-        if (!IsScheduleBoardDragAllowed(target.Kind, payload))
+        var validation = ValidateScheduleBoardDrop(target, payload);
+        if (!validation.CanDrop)
         {
+            SetStatus(validation.Message, isError: true);
             return;
         }
 
@@ -2189,12 +2218,122 @@ public partial class MainWindow : Window
               && !ScheduleBoardDrag.TryParseSingleEventPayload(payload, out _);
     }
 
+    private ScheduleBoardMoveValidationResult ValidateScheduleBoardDrop(
+        ScheduleBoardDropTarget target,
+        string? payload)
+    {
+        var cacheKey = $"{target.Kind}\u001F{payload}\u001F{target.DayLabel}\u001F{target.StartTime:HH:mm}\u001F{target.Court}";
+        if (_scheduleBoardMoveValidationCache.TryGetValue(cacheKey, out var cached))
+        {
+            return cached;
+        }
+
+        var result = ValidateScheduleBoardDropCore(target, payload);
+        _scheduleBoardMoveValidationCache[cacheKey] = result;
+        return result;
+    }
+
+    private ScheduleBoardMoveValidationResult ValidateScheduleBoardDropCore(
+        ScheduleBoardDropTarget target,
+        string? payload)
+    {
+        if (!IsScheduleBoardDragAllowed(target.Kind, payload))
+        {
+            return ScheduleBoardMoveValidationResult.Blocked("不能把这张比赛卡片放到当前赛程面板。");
+        }
+
+        if (target.Kind == ScheduleBoardKind.SingleEvent)
+        {
+            if (_latestSchedule is null
+                || !ScheduleBoardDrag.TryParseSingleEventPayload(payload, out var matchName))
+            {
+                return ScheduleBoardMoveValidationResult.Blocked("当前没有可调整的单项目赛程。");
+            }
+
+            return ScheduleWorkflow.ValidateScheduledMatchMove(
+                _latestSchedule,
+                matchName,
+                target.DayLabel,
+                target.StartTime,
+                target.Court,
+                _progressState?.Results.Keys.ToHashSet(StringComparer.Ordinal));
+        }
+
+        if (_crossEventScheduleBoard is null || string.IsNullOrWhiteSpace(payload))
+        {
+            return ScheduleBoardMoveValidationResult.Blocked("当前没有可调整的多项目赛程。");
+        }
+
+        return _crossEventConflictWorkflow.ValidateScheduleItemMove(
+            _crossEventScheduleBoard,
+            payload,
+            target.DayLabel,
+            target.StartTime,
+            target.Court);
+    }
+
+    private void ApplyScheduleBoardDragFeedback(
+        Border cell,
+        ScheduleBoardMoveValidationResult result)
+    {
+        if (!ReferenceEquals(_scheduleBoardDragHoverCell, cell))
+        {
+            ClearScheduleBoardDragFeedback();
+            _scheduleBoardDragHoverCell = cell;
+        }
+
+        var (background, border) = result.Severity switch
+        {
+            ScheduleBoardMoveValidationSeverity.Blocked => (DropBlockedBackground, DropBlockedBorder),
+            ScheduleBoardMoveValidationSeverity.Warning => (DropWarningBackground, DropWarningBorder),
+            _ => (DropAllowedBackground, DropAllowedBorder)
+        };
+        cell.Background = background;
+        cell.BorderBrush = border;
+        cell.BorderThickness = new Avalonia.Thickness(2);
+        ToolTip.SetTip(cell, result.Message);
+        if (!string.Equals(_lastScheduleBoardDragFeedbackMessage, result.Message, StringComparison.Ordinal))
+        {
+            _lastScheduleBoardDragFeedbackMessage = result.Message;
+            SetStatus(
+                result.Message,
+                isError: result.Severity == ScheduleBoardMoveValidationSeverity.Blocked,
+                isWarning: result.Severity == ScheduleBoardMoveValidationSeverity.Warning);
+        }
+    }
+
+    private void ClearScheduleBoardDragFeedback()
+    {
+        if (_scheduleBoardDragHoverCell is not null)
+        {
+            _scheduleBoardDragHoverCell.Background = Brushes.White;
+            _scheduleBoardDragHoverCell.BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240));
+            _scheduleBoardDragHoverCell.BorderThickness = new Avalonia.Thickness(0, 0, 1, 1);
+            ToolTip.SetTip(_scheduleBoardDragHoverCell, null);
+        }
+
+        _scheduleBoardDragHoverCell = null;
+        _lastScheduleBoardDragFeedbackMessage = null;
+    }
+
     private void MoveSingleScheduleBoardItem(string payload, ScheduleBoardDropTarget target)
     {
         if (_latestSchedule is null
             || !ScheduleBoardDrag.TryParseSingleEventPayload(payload, out var matchName))
         {
             return;
+        }
+
+        var validation = ScheduleWorkflow.ValidateScheduledMatchMove(
+            _latestSchedule,
+            matchName,
+            target.DayLabel,
+            target.StartTime,
+            target.Court,
+            _progressState?.Results.Keys.ToHashSet(StringComparer.Ordinal));
+        if (!validation.CanDrop)
+        {
+            throw new DrawValidationException(validation.Message);
         }
 
         var previousSchedule = _latestSchedule;
@@ -2237,6 +2376,17 @@ public partial class MainWindow : Window
         if (_crossEventScheduleBoard is null)
         {
             return;
+        }
+
+        var validation = _crossEventConflictWorkflow.ValidateScheduleItemMove(
+            _crossEventScheduleBoard,
+            payload,
+            target.DayLabel,
+            target.StartTime,
+            target.Court);
+        if (!validation.CanDrop)
+        {
+            throw new DrawValidationException(validation.Message);
         }
 
         var previousBoard = _crossEventScheduleBoard;

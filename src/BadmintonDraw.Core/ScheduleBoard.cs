@@ -75,6 +75,51 @@ public sealed record ScheduleBoardDropTarget(
     TimeOnly StartTime,
     string Court);
 
+public enum ScheduleBoardMoveValidationSeverity
+{
+    Allowed = 0,
+    Warning = 1,
+    Blocked = 2
+}
+
+public sealed record ScheduleBoardMoveValidationResult(
+    ScheduleBoardMoveValidationSeverity Severity,
+    string Message,
+    IReadOnlyList<string>? AffectedMatches = null)
+{
+    public IReadOnlyList<string> AffectedMatches { get; init; } =
+        AffectedMatches ?? Array.Empty<string>();
+
+    public bool CanDrop => Severity != ScheduleBoardMoveValidationSeverity.Blocked;
+
+    public static ScheduleBoardMoveValidationResult Allowed(string message)
+    {
+        return new ScheduleBoardMoveValidationResult(
+            ScheduleBoardMoveValidationSeverity.Allowed,
+            message);
+    }
+
+    public static ScheduleBoardMoveValidationResult Warning(
+        string message,
+        IReadOnlyList<string>? affectedMatches = null)
+    {
+        return new ScheduleBoardMoveValidationResult(
+            ScheduleBoardMoveValidationSeverity.Warning,
+            message,
+            affectedMatches);
+    }
+
+    public static ScheduleBoardMoveValidationResult Blocked(
+        string message,
+        IReadOnlyList<string>? affectedMatches = null)
+    {
+        return new ScheduleBoardMoveValidationResult(
+            ScheduleBoardMoveValidationSeverity.Blocked,
+            message,
+            affectedMatches);
+    }
+}
+
 public static class ScheduleBoardDrag
 {
     public const string SingleEventPrefix = "schedule:";
