@@ -27,13 +27,13 @@ dotnet test
 dotnet run --project src\BadmintonDraw.App\BadmintonDraw.App.csproj
 ```
 
-也可以直接运行跨平台 Avalonia 版：
+也可以直接运行跨平台 Avalonia 版。Avalonia 是当前 GUI 开发主线，macOS、Windows 和 Linux 都使用这个入口：
 
 ```powershell
 dotnet run --project src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj
 ```
 
-也可以直接用 Visual Studio 或 Rider 打开 `BadmintonDraw.sln`。Windows WPF 版启动项目是 `BadmintonDraw.App`；跨平台 Avalonia 版启动项目是 `BadmintonDraw.Desktop`。
+也可以直接用 Visual Studio、Rider 或 VS Code 打开 `BadmintonDraw.sln`。跨平台 Avalonia 版启动项目是 `BadmintonDraw.Desktop`；Windows WPF 版启动项目是 `BadmintonDraw.App`，目前仅作为历史备用入口和必要时的回归对照。
 
 如果 Visual Studio 正在运行 `BadmintonDraw.App`，重新构建时可能出现 DLL 被锁定。关闭正在运行的抽签工具窗口后重新构建即可；不需要关闭整个 Visual Studio。
 
@@ -69,7 +69,7 @@ Avalonia Windows 版：
 dotnet publish src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
 ```
 
-WPF Windows 版：
+WPF Windows 版目前暂缓维护，仅在需要 Windows 备用包时构建：
 
 ```powershell
 dotnet publish src\BadmintonDraw.App\BadmintonDraw.App.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
@@ -82,7 +82,7 @@ src\BadmintonDraw.Desktop\bin\Release\net8.0\win-x64\publish
 src\BadmintonDraw.App\bin\Release\net8.0-windows\win-x64\publish
 ```
 
-把发布目录中的 `.exe` 发给干事即可使用。4.0 起 WPF 版不再要求压缩包包装；Avalonia Windows 版是首选桌面版，WPF 版保留为 Windows 备用版本。
+把发布目录中的 `.exe` 发给干事即可使用。Avalonia Windows 版是首选桌面版；WPF 版保留为历史备用版本，不作为常规 release 必发产物。
 
 ### macOS
 
@@ -129,10 +129,10 @@ gh release create v4.3.0 \
 
 ## 跨平台说明
 
-`BadmintonDraw.Core`、`BadmintonDraw.Excel` 和 `BadmintonDraw.Workflows` 是普通 .NET 项目，可以在 macOS/Linux 上参与构建和测试。Windows WPF GUI 只能在 Windows 上运行；Avalonia GUI 位于 `src/BadmintonDraw.Desktop`，用于 macOS/Windows/Linux 跨平台桌面版。
+`BadmintonDraw.Core`、`BadmintonDraw.Excel` 和 `BadmintonDraw.Workflows` 是普通 .NET 项目，可以在 macOS/Linux 上参与构建和测试。Avalonia GUI 位于 `src/BadmintonDraw.Desktop`，用于 macOS/Windows/Linux 跨平台桌面版，也是当前 GUI 主线。Windows WPF GUI 只能在 Windows 上运行，保留为历史备用入口。
 
 跨平台维护时应保持：
 
 - 保留 `BadmintonDraw.Core` 作为跨平台核心。
-- 让 WPF 和 Avalonia 都调用 `BadmintonDraw.Workflows`，避免 UI 层重复业务逻辑。
+- 新功能优先落在 Avalonia、`Core`、`Excel` 和 `Workflows`；WPF 如需恢复维护，也应继续调用 `BadmintonDraw.Workflows`，避免 UI 层重复业务逻辑。
 - 保持 Excel、图片、PDF 导出逻辑在独立类库中，减少界面迁移成本。

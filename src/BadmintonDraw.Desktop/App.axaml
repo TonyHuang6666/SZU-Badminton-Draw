@@ -1,8 +1,8 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="BadmintonDraw.Desktop.App"
-             RequestedThemeVariant="Default">
-             <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
+             RequestedThemeVariant="Light">
+             <!-- The current UI uses explicit light surfaces; keep Avalonia controls in light mode even when the OS is dark. -->
 
     <Application.Styles>
         <FluentTheme />

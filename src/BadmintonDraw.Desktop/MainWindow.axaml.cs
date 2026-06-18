@@ -56,6 +56,7 @@ public partial class MainWindow : Window
     private readonly ScheduleConstraintAnalyzer _scheduleConstraintAnalyzer = new();
     private readonly TournamentProgressWorkflow _progressWorkflow = new();
     private readonly CrossEventConflictWorkflow _crossEventConflictWorkflow = new();
+    private const int ScheduleBoardDayDropdownThreshold = 5;
     private const double ParticipantRosterMinZoom = 0.5;
     private const double ParticipantRosterMaxZoom = 1.8;
     private const double ParticipantRosterZoomStep = 0.1;
@@ -94,6 +95,7 @@ public partial class MainWindow : Window
     private double _scheduleBoardWindowZoom = 1.0;
     private Window? _scheduleBoardWindow;
     private ComboBox? _scheduleBoardWindowDayBox;
+    private StackPanel? _scheduleBoardWindowDayPickerPanel;
     private TextBlock? _scheduleBoardWindowSummaryText;
     private Grid? _scheduleBoardWindowGrid;
     private Button? _scheduleBoardWindowUndoButton;
@@ -121,6 +123,7 @@ public partial class MainWindow : Window
     private double _crossEventBoardWindowZoom = 1.0;
     private Window? _crossEventBoardWindow;
     private ComboBox? _crossEventBoardWindowDayBox;
+    private StackPanel? _crossEventBoardWindowDayPickerPanel;
     private TextBlock? _crossEventBoardWindowSummaryText;
     private Grid? _crossEventBoardWindowGrid;
     private Button? _crossEventBoardWindowUndoButton;
@@ -1313,6 +1316,7 @@ public partial class MainWindow : Window
             _scheduleBoardWindowGrid = null;
             _scheduleBoardWindowUndoButton = null;
             _scheduleBoardWindowDayTabs = null;
+            _scheduleBoardWindowDayPickerPanel = null;
             _scheduleBoardWindowMatchCards.Clear();
         };
         RefreshScheduleBoardWindow(preferredDayLabel);
@@ -1678,13 +1682,20 @@ public partial class MainWindow : Window
             Spacing = 8,
             VerticalAlignment = VerticalAlignment.Bottom
         };
-        controls.Children.Add(new TextBlock
+        _scheduleBoardWindowDayPickerPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _scheduleBoardWindowDayPickerPanel.Children.Add(new TextBlock
         {
             Text = "比赛日",
             Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
             VerticalAlignment = VerticalAlignment.Center
         });
-        controls.Children.Add(_scheduleBoardWindowDayBox!);
+        _scheduleBoardWindowDayPickerPanel.Children.Add(_scheduleBoardWindowDayBox!);
+        controls.Children.Add(_scheduleBoardWindowDayPickerPanel);
         _scheduleBoardWindowUndoButton = CreateCrossEventWindowButton("撤销", UndoSingleScheduleMove_Click);
         controls.Children.Add(_scheduleBoardWindowUndoButton);
         controls.Children.Add(CreateCrossEventWindowButton("缩小", (_, _) => SetScheduleBoardWindowZoom(_scheduleBoardWindowZoom - ScheduleBoardLayout.ZoomStep)));
@@ -1756,6 +1767,11 @@ public partial class MainWindow : Window
         }
 
         _scheduleBoardWindowDayBox.SelectedItem = selectedDay;
+        if (_scheduleBoardWindowDayPickerPanel is not null)
+        {
+            _scheduleBoardWindowDayPickerPanel.IsVisible = dayLabels.Count > ScheduleBoardDayDropdownThreshold;
+        }
+
         _scheduleBoardWindowDayBox.SelectionChanged += ScheduleBoardWindowDayBox_SelectionChanged;
         _scheduleBoardWindowSummaryText.Text = BuildScheduleBoardSummary(_latestSchedule, _scheduleBoardWindowZoom);
         RenderScheduleBoardDayTabs(_scheduleBoardWindowDayTabs, ScheduleBoardKind.SingleEvent, dayLabels, selectedDay);
@@ -1781,7 +1797,7 @@ public partial class MainWindow : Window
 
         targetPanel.Children.Add(new TextBlock
         {
-            Text = "拖到日期切换：",
+            Text = "点击切换日期，拖到日期可跨日移动：",
             Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Avalonia.Thickness(0, 0, 2, 0)
@@ -1806,7 +1822,8 @@ public partial class MainWindow : Window
                     Foreground = new SolidColorBrush(isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(43, 20, 95))
                 }
             };
-            ToolTip.SetTip(tab, $"拖动比赛卡片到这里可切换到 {dayLabel}，再拖到具体时间和场地。");
+            ToolTip.SetTip(tab, $"点击切换到 {dayLabel}；拖动比赛卡片到这里可跨日移动。");
+            tab.PointerPressed += ScheduleBoardDayTab_PointerPressed;
             DragDrop.SetAllowDrop(tab, true);
             DragDrop.AddDragOverHandler(tab, ScheduleBoardDayTab_DragOver);
             DragDrop.AddDropHandler(tab, ScheduleBoardDayTab_Drop);
@@ -2283,6 +2300,18 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void ScheduleBoardDayTab_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Border { Tag: ScheduleBoardDayTabTarget target }
+            || !e.GetCurrentPoint((Control)sender).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        SwitchScheduleBoardSelectedDay(target);
+        e.Handled = true;
+    }
+
     private void ScheduleBoardDayTab_Drop(object? sender, DragEventArgs e)
     {
         var payload = e.DataTransfer.TryGetText();
@@ -2294,6 +2323,30 @@ public partial class MainWindow : Window
         }
 
         e.Handled = true;
+    }
+
+    private void SwitchScheduleBoardSelectedDay(ScheduleBoardDayTabTarget target)
+    {
+        var selectedDayLabel = target.Kind == ScheduleBoardKind.SingleEvent
+            ? _scheduleBoardWindowDayBox?.SelectedItem?.ToString()
+            : _crossEventBoardWindowDayBox?.SelectedItem?.ToString();
+        if (string.Equals(selectedDayLabel, target.DayLabel, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _scheduleBoardMoveValidationCache.Clear();
+        ClearScheduleBoardDragFeedback();
+        if (target.Kind == ScheduleBoardKind.SingleEvent)
+        {
+            RefreshScheduleBoardWindow(target.DayLabel);
+        }
+        else
+        {
+            RefreshCrossEventBoardWindow(target.DayLabel);
+        }
+
+        SetStatus($"已切换到 {target.DayLabel} 赛程。");
     }
 
     private void SwitchScheduleBoardDragDay(ScheduleBoardDayTabTarget target)
@@ -3135,6 +3188,7 @@ public partial class MainWindow : Window
             _crossEventBoardWindowGrid = null;
             _crossEventBoardWindowUndoButton = null;
             _crossEventBoardWindowDayTabs = null;
+            _crossEventBoardWindowDayPickerPanel = null;
         };
         RefreshCrossEventBoardWindow(GetSelectedCrossEventDayLabel());
         _crossEventBoardWindow.Show(this);
@@ -3185,13 +3239,20 @@ public partial class MainWindow : Window
             Spacing = 8,
             VerticalAlignment = VerticalAlignment.Bottom
         };
-        controls.Children.Add(new TextBlock
+        _crossEventBoardWindowDayPickerPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _crossEventBoardWindowDayPickerPanel.Children.Add(new TextBlock
         {
             Text = "比赛日",
             Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
             VerticalAlignment = VerticalAlignment.Center
         });
-        controls.Children.Add(_crossEventBoardWindowDayBox!);
+        _crossEventBoardWindowDayPickerPanel.Children.Add(_crossEventBoardWindowDayBox!);
+        controls.Children.Add(_crossEventBoardWindowDayPickerPanel);
         _crossEventBoardWindowUndoButton = CreateCrossEventWindowButton("撤销", UndoCrossEventScheduleMove_Click);
         controls.Children.Add(_crossEventBoardWindowUndoButton);
         controls.Children.Add(CreateCrossEventWindowButton("缩小", (_, _) => SetCrossEventBoardWindowZoom(_crossEventBoardWindowZoom - ScheduleBoardLayout.ZoomStep)));
@@ -3268,6 +3329,11 @@ public partial class MainWindow : Window
         }
 
         _crossEventBoardWindowDayBox.SelectedItem = selectedDay;
+        if (_crossEventBoardWindowDayPickerPanel is not null)
+        {
+            _crossEventBoardWindowDayPickerPanel.IsVisible = dayLabels.Count > ScheduleBoardDayDropdownThreshold;
+        }
+
         _crossEventBoardWindowDayBox.SelectionChanged += CrossEventBoardWindowDayBox_SelectionChanged;
         _crossEventBoardWindowSummaryText.Text = BuildCrossEventBoardSummary(_crossEventScheduleBoard, _crossEventBoardWindowZoom);
         RenderScheduleBoardDayTabs(_crossEventBoardWindowDayTabs, ScheduleBoardKind.CrossEvent, dayLabels, selectedDay);

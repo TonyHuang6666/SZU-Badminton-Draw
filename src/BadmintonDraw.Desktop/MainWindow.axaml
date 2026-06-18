@@ -47,6 +47,22 @@
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Foreground" Value="#111827" />
         </Style>
+        <Style Selector="ComboBox:pointerover">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#93C5FD" />
+            <Setter Property="Foreground" Value="#111827" />
+        </Style>
+        <Style Selector="ComboBoxItem">
+            <Setter Property="Foreground" Value="#111827" />
+        </Style>
+        <Style Selector="ComboBoxItem:pointerover">
+            <Setter Property="Background" Value="#EFF6FF" />
+            <Setter Property="Foreground" Value="#0F172A" />
+        </Style>
+        <Style Selector="ComboBoxItem:selected">
+            <Setter Property="Background" Value="#DBEAFE" />
+            <Setter Property="Foreground" Value="#0F172A" />
+        </Style>
         <Style Selector="Button">
             <Setter Property="MinHeight" Value="40" />
             <Setter Property="Padding" Value="14,8" />
@@ -58,15 +74,30 @@
             <Setter Property="BorderBrush" Value="#0F5F9F" />
             <Setter Property="Foreground" Value="White" />
         </Style>
+        <Style Selector="Button.primary:pointerover">
+            <Setter Property="Background" Value="#0B548D" />
+            <Setter Property="BorderBrush" Value="#0B548D" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
         <Style Selector="Button.secondary">
             <Setter Property="Background" Value="#FFFFFF" />
             <Setter Property="BorderBrush" Value="#C7D2E4" />
             <Setter Property="Foreground" Value="#243B63" />
         </Style>
+        <Style Selector="Button.secondary:pointerover">
+            <Setter Property="Background" Value="#F1F7FF" />
+            <Setter Property="BorderBrush" Value="#93B9E8" />
+            <Setter Property="Foreground" Value="#17345D" />
+        </Style>
         <Style Selector="Button.subtle">
             <Setter Property="Background" Value="#F4F7FB" />
             <Setter Property="BorderBrush" Value="#D9E2EF" />
             <Setter Property="Foreground" Value="#344767" />
+        </Style>
+        <Style Selector="Button.subtle:pointerover">
+            <Setter Property="Background" Value="#EAF1FA" />
+            <Setter Property="BorderBrush" Value="#C2D1E5" />
+            <Setter Property="Foreground" Value="#243B63" />
         </Style>
         <Style Selector="Button.compact">
             <Setter Property="MinHeight" Value="40" />
@@ -98,6 +129,12 @@
             <Setter Property="Padding" Value="14,8" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="#3F315F" />
+        </Style>
+        <Style Selector="TabItem:pointerover">
+            <Setter Property="Foreground" Value="#111827" />
+        </Style>
+        <Style Selector="TabItem:selected">
+            <Setter Property="Foreground" Value="#111827" />
         </Style>
     </Window.Styles>
 
@@ -588,7 +625,7 @@
                                             CornerRadius="8"
                                             Padding="12"
                                             Margin="0,8,0,0">
-                                        <TextBlock Text="拖拽方式：可在右侧当前比赛日内拖到目标时间和场地；打开独立窗口后可拖到顶部日期标签跨日切换，误拖后可点“撤销调整”。排程检查报告会优先使用当前看板状态。"
+                                        <TextBlock Text="拖拽方式：可在右侧当前比赛日内拖到目标时间和场地；打开独立窗口后可点击顶部日期标签切换日期，也可把卡片拖到日期标签跨日移动。误拖后可点“撤销调整”。排程检查报告会优先使用当前看板状态。"
                                                    Foreground="#5F5577"
                                                    TextWrapping="Wrap" />
                                     </Border>
@@ -914,7 +951,7 @@
                         VerticalAlignment="Center" />
                 <TextBlock x:Name="StatusText"
                            Grid.Column="1"
-                           Text="准备就绪。macOS 版已接入名单模板、名单导入、抽签预览、基础赛程和 Excel 导出。"
+                           Text="准备就绪。跨平台桌面版已支持抽签、赛程、多项目编排、赛事存档和材料包导出。"
                            Foreground="#41506A"
                            FontWeight="SemiBold"
                            TextWrapping="Wrap" />
