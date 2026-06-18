@@ -19,7 +19,7 @@ public sealed class CrossEventConflictWorkflow
     {
         var paths = NormalizeProgressPaths(progressFilePaths);
         var sources = paths.Select(ReadSource).ToList();
-        return _detector.Analyze(sources, minimumRestMinutes);
+        return BuildBoardConflictReport(sources, minimumRestMinutes);
     }
 
     public CrossEventConflictExportResult ExportProgressReport(
@@ -665,8 +665,8 @@ public sealed class CrossEventConflictWorkflow
         bool hasUnsavedChanges,
         CrossEventSchedulingOptions? schedulingOptions = null)
     {
-        var report = _detector.Analyze(sources, minimumRestMinutes);
-        var conflicts = BuildBoardConflicts(sources, report);
+        var report = BuildBoardConflictReport(sources, minimumRestMinutes);
+        var conflicts = BuildBoardConflicts(report);
         var days = BuildBoardDays(sources);
         var items = sources
             .SelectMany(source => source.Matches.Select(match =>
@@ -715,6 +715,20 @@ public sealed class CrossEventConflictWorkflow
             minimumRestMinutes,
             hasUnsavedChanges,
             schedulingOptions);
+    }
+
+    private CrossEventConflictReport BuildBoardConflictReport(
+        IReadOnlyList<CrossEventScheduleSource> sources,
+        int minimumRestMinutes)
+    {
+        var report = _detector.Analyze(sources, minimumRestMinutes);
+        var courtIssues = BuildCourtOverlapIssues(sources);
+        return courtIssues.Count == 0
+            ? report
+            : report with
+            {
+                Issues = report.Issues.Concat(courtIssues).ToList()
+            };
     }
 
     private static CrossEventSchedulingOptions CreateDefaultSchedulingOptions(
@@ -1053,9 +1067,7 @@ public sealed class CrossEventConflictWorkflow
         AddConflict(lookup, key, issue.Severity, $"{issue.PlayerName}：{issue.Detail}");
     }
 
-    private static Dictionary<string, BoardConflictAccumulator> BuildBoardConflicts(
-        IReadOnlyList<CrossEventScheduleSource> sources,
-        CrossEventConflictReport report)
+    private static Dictionary<string, BoardConflictAccumulator> BuildBoardConflicts(CrossEventConflictReport report)
     {
         var conflicts = new Dictionary<string, BoardConflictAccumulator>(StringComparer.Ordinal);
         foreach (var issue in report.Issues.Where(issue => issue.Severity != CrossEventConflictSeverity.Notice))
@@ -1066,13 +1078,23 @@ public sealed class CrossEventConflictWorkflow
             AddConflict(conflicts, secondKey, issue.Severity, $"{issue.PlayerName}：{issue.Detail}");
         }
 
+        return conflicts;
+    }
+
+    private static IReadOnlyList<CrossEventConflictIssue> BuildCourtOverlapIssues(
+        IReadOnlyList<CrossEventScheduleSource> sources)
+    {
+        var issues = new List<CrossEventConflictIssue>();
         foreach (var courtGroup in sources
                      .SelectMany(source => source.Matches.Select(match => (Source: source, Match: match)))
+                     .Where(item => !string.IsNullOrWhiteSpace(item.Match.DayLabel)
+                                    && !string.IsNullOrWhiteSpace(item.Match.Court))
                      .GroupBy(item => (item.Match.DayLabel, item.Match.Court)))
         {
             var matches = courtGroup
                 .OrderBy(item => item.Match.StartTime)
                 .ThenBy(item => item.Source.EventName, StringComparer.Ordinal)
+                .ThenBy(item => item.Match.MatchName, StringComparer.Ordinal)
                 .ToList();
             for (var firstIndex = 0; firstIndex < matches.Count; firstIndex++)
             {
@@ -1085,14 +1107,47 @@ public sealed class CrossEventConflictWorkflow
                         continue;
                     }
 
-                    var detail = $"{courtGroup.Key.DayLabel} {courtGroup.Key.Court} 同一场地时间重叠。";
-                    AddConflict(conflicts, BuildItemKey(first.Source.SourceId, first.Match.MatchName), CrossEventConflictSeverity.Severe, detail);
-                    AddConflict(conflicts, BuildItemKey(second.Source.SourceId, second.Match.MatchName), CrossEventConflictSeverity.Severe, detail);
+                    var dayLabel = courtGroup.Key.DayLabel;
+                    var court = courtGroup.Key.Court;
+                    var detail =
+                        $"{dayLabel} {court} 同一场地时间重叠：{first.Source.EventName} {first.Match.MatchName} 与 {second.Source.EventName} {second.Match.MatchName}。";
+                    issues.Add(new CrossEventConflictIssue(
+                        CrossEventConflictSeverity.Severe,
+                        $"场地 {court}",
+                        $"court:{dayLabel}:{court}",
+                        dayLabel,
+                        null,
+                        BuildCourtConflictAppearance(first.Source, first.Match, second.Match),
+                        BuildCourtConflictAppearance(second.Source, second.Match, first.Match),
+                        detail));
                 }
             }
         }
 
-        return conflicts;
+        return issues;
+    }
+
+    private static CrossEventPlayerAppearance BuildCourtConflictAppearance(
+        CrossEventScheduleSource source,
+        CrossEventScheduledMatch match,
+        CrossEventScheduledMatch opponentMatch)
+    {
+        return new CrossEventPlayerAppearance(
+            source.SourceId,
+            source.EventName,
+            source.SourcePath,
+            source.EventKind,
+            match.Order,
+            match.DayLabel,
+            match.StartTime,
+            match.EndTime,
+            match.Court,
+            match.GroupName,
+            match.Phase,
+            match.MatchName,
+            "场地",
+            $"{match.SideA} vs {match.SideB}",
+            $"{opponentMatch.SideA} vs {opponentMatch.SideB}");
     }
 
     private static void AddConflict(

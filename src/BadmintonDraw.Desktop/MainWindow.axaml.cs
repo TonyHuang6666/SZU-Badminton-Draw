@@ -112,10 +112,12 @@ public partial class MainWindow : Window
     private CrossEventSchedulingOptions? _crossEventLastAcceptedOptions;
     private bool _updatingCrossEventCustomControls;
     private bool _runningCrossEventScheduling;
+    private bool _showingCrossEventSchedulingFailureDialog;
     private int _crossEventSchedulingVersion;
     private CrossEventCustomAnchor _pendingCrossEventCustomAnchor = CrossEventCustomAnchor.None;
     private readonly Dictionary<string, Slider> _crossEventDayLoadSliders = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TextBlock> _crossEventDayLoadLabels = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (double Min, double Max, double Recommended)> _crossEventDayLoadRecommendedRanges = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Slider> _crossEventStageWaveSliders = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TextBlock> _crossEventStageWaveLabels = new(StringComparer.Ordinal);
     private DispatcherTimer? _crossEventCustomRecalculateTimer;
@@ -3791,12 +3793,11 @@ public partial class MainWindow : Window
             if (result.RemainingBlockingConflictItemCount > 0)
             {
                 RestoreLastAcceptedCrossEventSchedule(rollbackOnFailure);
-                var reason = result.Messages.Count > 0
-                    ? $" {string.Join("；", result.Messages.Take(3))}"
-                    : "";
+                var failureMessage = BuildCrossEventSchedulingFailureMessage(result, anchor);
                 SetStatus(
-                    $"{anchor.Describe()}无可行方案，仍有 {result.RemainingBlockingConflictItemCount} 张硬冲突卡片，已回滚到上一可行赛程。{reason}",
+                    $"当前负载目标不可行，已回滚到上一可行排程；仍有 {result.RemainingBlockingConflictItemCount} 张硬冲突卡片。",
                     isError: true);
+                _ = ShowCrossEventSchedulingFailureAsync(failureMessage);
                 return false;
             }
 
@@ -3842,6 +3843,72 @@ public partial class MainWindow : Window
         {
             _pendingCrossEventCustomAnchor = CrossEventCustomAnchor.None;
             _runningCrossEventScheduling = false;
+        }
+    }
+
+    private static string BuildCrossEventSchedulingFailureMessage(
+        CrossEventScheduleAutoAdjustResult result,
+        CrossEventCustomAnchor anchor)
+    {
+        var lines = new List<string>
+        {
+            "当前负载目标不可行，系统已回滚到上一可行排程。",
+            $"触发项：{anchor.Describe()}。",
+            $"仍有 {result.RemainingBlockingConflictItemCount} 张硬冲突卡片。"
+        };
+
+        var blockers = result.Board.Items
+            .Where(item => item.IsBlockingConflict)
+            .OrderBy(item => item.DayLabel, StringComparer.Ordinal)
+            .ThenBy(item => item.StartTime)
+            .ThenBy(item => item.Court, StringComparer.Ordinal)
+            .ThenBy(item => item.EventName, StringComparer.Ordinal)
+            .Take(5)
+            .ToList();
+
+        lines.Add("");
+        lines.Add("前几条阻塞原因：");
+        if (blockers.Count > 0)
+        {
+            for (var index = 0; index < blockers.Count; index++)
+            {
+                var item = blockers[index];
+                lines.Add(
+                    $"{index + 1}. {item.EventName} · {item.MatchName}：{item.DayLabel} {item.TimeRange} {item.Court}，{item.ConflictSummary}");
+            }
+        }
+        else if (result.Messages.Count > 0)
+        {
+            for (var index = 0; index < Math.Min(5, result.Messages.Count); index++)
+            {
+                lines.Add($"{index + 1}. {result.Messages[index]}");
+            }
+        }
+        else
+        {
+            lines.Add("1. 当前场地、日期或阶段目标组合无法满足全部硬约束。");
+        }
+
+        lines.Add("");
+        lines.Add("建议：把当前滑杆调回推荐可行区间，或增加比赛日/场地、放宽休息间隔后再试。");
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private async Task ShowCrossEventSchedulingFailureAsync(string message)
+    {
+        if (_showingCrossEventSchedulingFailureDialog)
+        {
+            return;
+        }
+
+        _showingCrossEventSchedulingFailureDialog = true;
+        try
+        {
+            await ShowInfoAsync("当前负载目标不可行", message);
+        }
+        finally
+        {
+            _showingCrossEventSchedulingFailureDialog = false;
         }
     }
 
@@ -4152,9 +4219,20 @@ public partial class MainWindow : Window
         CrossEventCustomDayLoadPanel.Children.Clear();
         _crossEventDayLoadSliders.Clear();
         _crossEventDayLoadLabels.Clear();
+        _crossEventDayLoadRecommendedRanges.Clear();
+        EnsureCrossEventCustomRecommendation();
+        var recommendedTargets = (_crossEventRecommendedCustomOptions ?? options)
+            .DayLoadTargets
+            .ToDictionary(target => target.DayLabel, target => target.TargetUtilization, StringComparer.Ordinal);
         foreach (var day in _crossEventScheduleBoard!.Days.OrderBy(day => day.DayLabel, StringComparer.Ordinal))
         {
             var target = options.DayLoadTargets.FirstOrDefault(item => item.DayLabel == day.DayLabel)?.TargetUtilization ?? 0.6;
+            var recommended = recommendedTargets.TryGetValue(day.DayLabel, out var recommendedTarget)
+                ? recommendedTarget
+                : target;
+            var recommendedPercent = Math.Round(recommended * 100);
+            var rangeMin = Math.Clamp(recommendedPercent - 15, 10, 100);
+            var rangeMax = Math.Clamp(recommendedPercent + 15, 10, 100);
             var label = new TextBlock
             {
                 Foreground = new SolidColorBrush(Color.FromRgb(71, 85, 105)),
@@ -4169,9 +4247,11 @@ public partial class MainWindow : Window
                 Value = Math.Round(target * 20) * 5,
                 Tag = new CrossEventCustomSliderTag(CrossEventCustomAnchorKind.DayLoad, day.DayLabel)
             };
+            ToolTip.SetTip(slider, $"{day.DayLabel} 推荐可行区间：{rangeMin:0}%-{rangeMax:0}%；系统建议 {recommendedPercent:0}%。");
             slider.ValueChanged += CrossEventCustomSlider_ValueChanged;
             _crossEventDayLoadLabels[day.DayLabel] = label;
             _crossEventDayLoadSliders[day.DayLabel] = slider;
+            _crossEventDayLoadRecommendedRanges[day.DayLabel] = (rangeMin, rangeMax, recommendedPercent);
             CrossEventCustomDayLoadPanel.Children.Add(new StackPanel
             {
                 Spacing = 4,
@@ -4231,7 +4311,7 @@ public partial class MainWindow : Window
         {
             if (_crossEventDayLoadLabels.TryGetValue(pair.Key, out var label))
             {
-                label.Text = $"{pair.Key}：目标负载率 {Math.Round(pair.Value.Value)}%";
+                label.Text = BuildCrossEventDayLoadLabel(pair.Key, pair.Value.Value);
             }
         }
 
@@ -4242,6 +4322,23 @@ public partial class MainWindow : Window
                 label.Text = $"{pair.Key} 结束前：预计完成全局阶段进度 {Math.Round(pair.Value.Value)}%";
             }
         }
+    }
+
+    private string BuildCrossEventDayLoadLabel(string dayLabel, double value)
+    {
+        var rounded = Math.Round(value);
+        if (!_crossEventDayLoadRecommendedRanges.TryGetValue(dayLabel, out var range))
+        {
+            return $"{dayLabel}：目标负载率 {rounded}%";
+        }
+
+        var text = $"{dayLabel}：目标负载率 {rounded}%（推荐可行区间 {range.Min:0}%-{range.Max:0}%，系统建议 {range.Recommended:0}%）";
+        if (rounded < range.Min || rounded > range.Max)
+        {
+            text += "，已超出推荐区间，可能不可行";
+        }
+
+        return text;
     }
 
     private void ApplyScheduleCourtPreset()

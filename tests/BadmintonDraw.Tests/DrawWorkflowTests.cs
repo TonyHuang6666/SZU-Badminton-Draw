@@ -1898,6 +1898,49 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void CrossEventScheduleBoardCountsCourtOverlapInReportAndBlockingItems()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-court-overlap-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "男双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [new DrawParticipant("张三", PrimaryName: "张三"), new DrawParticipant("李四", PrimaryName: "李四")],
+                    CreateSingleMatchSchedule("男单1", "张三", "李四", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1")));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "男双",
+                    [
+                        new DrawParticipant("[王五 赵六]", PrimaryName: "王五", PartnerName: "赵六"),
+                        new DrawParticipant("[孙七 周八]", PrimaryName: "孙七", PartnerName: "周八")
+                    ],
+                    CreateSingleMatchSchedule("男双1", "[王五 赵六]", "[孙七 周八]", new TimeOnly(14, 10), new TimeOnly(14, 40), "B1")));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 20);
+            var directReport = workflow.AnalyzeProgressFiles([firstProgressPath, secondProgressPath], minimumRestMinutes: 20);
+
+            Assert.Equal(2, board.BlockingConflictItemCount);
+            Assert.Equal(1, board.Report.SevereCount);
+            Assert.Equal(1, directReport.SevereCount);
+            Assert.Contains(board.Report.Issues, issue => issue.Detail.Contains("同一场地时间重叠", StringComparison.Ordinal));
+            Assert.All(board.Items, item => Assert.Equal(CrossEventConflictSeverity.Severe, item.ConflictSeverity));
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
     public void CrossEventBalancedAutoAdjustKeepsFinalsOnLastDay()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-balanced-{Guid.NewGuid():N}");
