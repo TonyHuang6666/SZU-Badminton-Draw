@@ -97,6 +97,7 @@ public partial class MainWindow : Window
     private TextBlock? _scheduleBoardWindowSummaryText;
     private Grid? _scheduleBoardWindowGrid;
     private Button? _scheduleBoardWindowUndoButton;
+    private StackPanel? _scheduleBoardWindowDayTabs;
     private readonly Stack<SingleScheduleUndoSnapshot> _singleScheduleUndoStack = new();
     private readonly Dictionary<string, Border> _scheduleBoardWindowMatchCards = new(StringComparer.Ordinal);
     private int _scheduleBoardHighlightVersion;
@@ -123,10 +124,12 @@ public partial class MainWindow : Window
     private TextBlock? _crossEventBoardWindowSummaryText;
     private Grid? _crossEventBoardWindowGrid;
     private Button? _crossEventBoardWindowUndoButton;
+    private StackPanel? _crossEventBoardWindowDayTabs;
     private readonly Stack<CrossEventScheduleUndoSnapshot> _crossEventScheduleUndoStack = new();
     private readonly Dictionary<string, ScheduleBoardMoveValidationResult> _scheduleBoardMoveValidationCache = new(StringComparer.Ordinal);
     private Border? _scheduleBoardDragHoverCell;
     private string? _lastScheduleBoardDragFeedbackMessage;
+    private string? _scheduleBoardDragSwitchDayLabel;
     private bool _uiReady;
 
     private enum CrossEventCustomAnchorKind
@@ -165,6 +168,10 @@ public partial class MainWindow : Window
             };
         }
     }
+
+    private sealed record ScheduleBoardDayTabTarget(
+        ScheduleBoardKind Kind,
+        string DayLabel);
 
     private sealed record CrossEventCustomSliderTag(
         CrossEventCustomAnchorKind Kind,
@@ -1305,6 +1312,7 @@ public partial class MainWindow : Window
             _scheduleBoardWindowSummaryText = null;
             _scheduleBoardWindowGrid = null;
             _scheduleBoardWindowUndoButton = null;
+            _scheduleBoardWindowDayTabs = null;
             _scheduleBoardWindowMatchCards.Clear();
         };
         RefreshScheduleBoardWindow(preferredDayLabel);
@@ -1650,6 +1658,18 @@ public partial class MainWindow : Window
             Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78))
         });
         titleStack.Children.Add(_scheduleBoardWindowSummaryText!);
+        _scheduleBoardWindowDayTabs = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6
+        };
+        titleStack.Children.Add(new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            Margin = new Avalonia.Thickness(0, 6, 0, 0),
+            Content = _scheduleBoardWindowDayTabs
+        });
         headerGrid.Children.Add(titleStack);
 
         var controls = new StackPanel
@@ -1718,6 +1738,7 @@ public partial class MainWindow : Window
         if (_latestSchedule is null)
         {
             _scheduleBoardWindowSummaryText.Text = "尚未生成赛程。";
+            _scheduleBoardWindowDayTabs?.Children.Clear();
             RenderScheduleBoard(_scheduleBoardWindowGrid, null, _scheduleBoardWindowZoom);
             return;
         }
@@ -1737,7 +1758,60 @@ public partial class MainWindow : Window
         _scheduleBoardWindowDayBox.SelectedItem = selectedDay;
         _scheduleBoardWindowDayBox.SelectionChanged += ScheduleBoardWindowDayBox_SelectionChanged;
         _scheduleBoardWindowSummaryText.Text = BuildScheduleBoardSummary(_latestSchedule, _scheduleBoardWindowZoom);
+        RenderScheduleBoardDayTabs(_scheduleBoardWindowDayTabs, ScheduleBoardKind.SingleEvent, dayLabels, selectedDay);
         RenderScheduleBoardView(_scheduleBoardWindowGrid, boardView, selectedDay, _scheduleBoardWindowZoom);
+    }
+
+    private void RenderScheduleBoardDayTabs(
+        StackPanel? targetPanel,
+        ScheduleBoardKind kind,
+        IReadOnlyList<string> dayLabels,
+        string? selectedDayLabel)
+    {
+        if (targetPanel is null)
+        {
+            return;
+        }
+
+        targetPanel.Children.Clear();
+        if (dayLabels.Count == 0)
+        {
+            return;
+        }
+
+        targetPanel.Children.Add(new TextBlock
+        {
+            Text = "拖到日期切换：",
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Avalonia.Thickness(0, 0, 2, 0)
+        });
+
+        foreach (var dayLabel in dayLabels)
+        {
+            var isSelected = string.Equals(dayLabel, selectedDayLabel, StringComparison.Ordinal);
+            var tab = new Border
+            {
+                Background = new SolidColorBrush(isSelected ? Color.FromRgb(236, 246, 255) : Color.FromRgb(255, 255, 255)),
+                BorderBrush = new SolidColorBrush(isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(203, 213, 225)),
+                BorderThickness = new Avalonia.Thickness(isSelected ? 2 : 1),
+                CornerRadius = new Avalonia.CornerRadius(999),
+                Padding = new Avalonia.Thickness(10, 5),
+                Tag = new ScheduleBoardDayTabTarget(kind, dayLabel),
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Child = new TextBlock
+                {
+                    Text = dayLabel,
+                    FontWeight = isSelected ? FontWeight.Bold : FontWeight.SemiBold,
+                    Foreground = new SolidColorBrush(isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(43, 20, 95))
+                }
+            };
+            ToolTip.SetTip(tab, $"拖动比赛卡片到这里可切换到 {dayLabel}，再拖到具体时间和场地。");
+            DragDrop.SetAllowDrop(tab, true);
+            DragDrop.AddDragOverHandler(tab, ScheduleBoardDayTab_DragOver);
+            DragDrop.AddDropHandler(tab, ScheduleBoardDayTab_Drop);
+            targetPanel.Children.Add(tab);
+        }
     }
 
     private ScheduleBoardView BuildSingleScheduleBoardView()
@@ -1912,7 +1986,7 @@ public partial class MainWindow : Window
         }
         else if (!item.IsLocked)
         {
-            ToolTip.SetTip(card, "拖拽可调整到当前比赛日的空位；右键可移动到其他比赛日。");
+            ToolTip.SetTip(card, "拖拽可调整到空位；拖到窗口顶部日期标签可跨日切换，右键可精确指定比赛日。");
         }
 
         var stack = new StackPanel { Spacing = 3 };
@@ -1978,10 +2052,20 @@ public partial class MainWindow : Window
         }
 
         _scheduleBoardMoveValidationCache.Clear();
+        _scheduleBoardDragSwitchDayLabel = null;
         ClearScheduleBoardDragFeedback();
         var data = new DataTransfer();
         data.Add(DataTransferItem.CreateText(item.DragPayload));
-        await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move);
+        try
+        {
+            await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move);
+        }
+        finally
+        {
+            _scheduleBoardDragSwitchDayLabel = null;
+            _scheduleBoardMoveValidationCache.Clear();
+            ClearScheduleBoardDragFeedback();
+        }
     }
 
     private async Task ShowScheduleBoardMoveDialogAsync(ScheduleBoardKind boardKind, ScheduleBoardItem item)
@@ -2181,6 +2265,68 @@ public partial class MainWindow : Window
         Grid.SetColumn(editor, 1);
         grid.Children.Add(editor);
         return grid;
+    }
+
+    private void ScheduleBoardDayTab_DragOver(object? sender, DragEventArgs e)
+    {
+        var payload = e.DataTransfer.TryGetText();
+        if (sender is not Border { Tag: ScheduleBoardDayTabTarget target }
+            || !IsScheduleBoardDragAllowed(target.Kind, payload))
+        {
+            e.DragEffects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        SwitchScheduleBoardDragDay(target);
+        e.DragEffects = DragDropEffects.Move;
+        e.Handled = true;
+    }
+
+    private void ScheduleBoardDayTab_Drop(object? sender, DragEventArgs e)
+    {
+        var payload = e.DataTransfer.TryGetText();
+        if (sender is Border { Tag: ScheduleBoardDayTabTarget target }
+            && IsScheduleBoardDragAllowed(target.Kind, payload))
+        {
+            SwitchScheduleBoardDragDay(target);
+            SetStatus($"已切换到 {target.DayLabel}；请把比赛卡片拖到具体时间和场地格子后松开。", isWarning: true);
+        }
+
+        e.Handled = true;
+    }
+
+    private void SwitchScheduleBoardDragDay(ScheduleBoardDayTabTarget target)
+    {
+        var selectedDayLabel = target.Kind == ScheduleBoardKind.SingleEvent
+            ? _scheduleBoardWindowDayBox?.SelectedItem?.ToString()
+            : _crossEventBoardWindowDayBox?.SelectedItem?.ToString();
+        var isAlreadySelected = string.Equals(selectedDayLabel, target.DayLabel, StringComparison.Ordinal);
+        if (isAlreadySelected
+            && string.Equals(_scheduleBoardDragSwitchDayLabel, target.DayLabel, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _scheduleBoardDragSwitchDayLabel = target.DayLabel;
+        _scheduleBoardMoveValidationCache.Clear();
+        ClearScheduleBoardDragFeedback();
+        if (!isAlreadySelected)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (target.Kind == ScheduleBoardKind.SingleEvent)
+                {
+                    RefreshScheduleBoardWindow(target.DayLabel);
+                }
+                else
+                {
+                    RefreshCrossEventBoardWindow(target.DayLabel);
+                }
+            }, DispatcherPriority.Input);
+        }
+
+        SetStatus($"已切换到 {target.DayLabel}；继续拖到目标时间和场地后松开。");
     }
 
     private void ScheduleBoardCell_DragOver(object? sender, DragEventArgs e)
@@ -2988,6 +3134,7 @@ public partial class MainWindow : Window
             _crossEventBoardWindowSummaryText = null;
             _crossEventBoardWindowGrid = null;
             _crossEventBoardWindowUndoButton = null;
+            _crossEventBoardWindowDayTabs = null;
         };
         RefreshCrossEventBoardWindow(GetSelectedCrossEventDayLabel());
         _crossEventBoardWindow.Show(this);
@@ -3018,6 +3165,18 @@ public partial class MainWindow : Window
             Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78))
         });
         titleStack.Children.Add(_crossEventBoardWindowSummaryText!);
+        _crossEventBoardWindowDayTabs = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6
+        };
+        titleStack.Children.Add(new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            Margin = new Avalonia.Thickness(0, 6, 0, 0),
+            Content = _crossEventBoardWindowDayTabs
+        });
         headerGrid.Children.Add(titleStack);
 
         var controls = new StackPanel
@@ -3093,6 +3252,7 @@ public partial class MainWindow : Window
             || _crossEventBoardWindowSummaryText is null
             || _crossEventBoardWindowGrid is null)
         {
+            _crossEventBoardWindowDayTabs?.Children.Clear();
             return;
         }
 
@@ -3110,6 +3270,7 @@ public partial class MainWindow : Window
         _crossEventBoardWindowDayBox.SelectedItem = selectedDay;
         _crossEventBoardWindowDayBox.SelectionChanged += CrossEventBoardWindowDayBox_SelectionChanged;
         _crossEventBoardWindowSummaryText.Text = BuildCrossEventBoardSummary(_crossEventScheduleBoard, _crossEventBoardWindowZoom);
+        RenderScheduleBoardDayTabs(_crossEventBoardWindowDayTabs, ScheduleBoardKind.CrossEvent, dayLabels, selectedDay);
         RenderCrossEventScheduleBoard(_crossEventBoardWindowGrid, selectedDay, _crossEventBoardWindowZoom);
     }
 
