@@ -139,6 +139,13 @@ public partial class MainWindow : Window
         MinimumRest
     }
 
+    private enum ScheduleBoardCascadeMoveAction
+    {
+        Cancel,
+        MoveCurrentOnly,
+        CascadeMove
+    }
+
     private sealed record CrossEventCustomAnchor(
         CrossEventCustomAnchorKind Kind,
         string? DayLabel = null)
@@ -2090,7 +2097,7 @@ public partial class MainWindow : Window
             HorizontalContentAlignment = HorizontalAlignment.Center,
             Classes = { "primary" }
         };
-        moveButton.Click += (_, _) =>
+        moveButton.Click += async (_, _) =>
         {
             errorText.Text = "";
             if (string.IsNullOrWhiteSpace(dayBox.SelectedItem?.ToString())
@@ -2109,13 +2116,36 @@ public partial class MainWindow : Window
                 courtBox.SelectedItem!.ToString()!);
             try
             {
+                var preview = BuildScheduleBoardCascadeMovePreview(target, item.DragPayload);
+                var action = preview is { HasPreviewItems: true }
+                    ? await ShowScheduleBoardCascadeMovePreviewDialogAsync(owner, boardKind, preview)
+                    : ScheduleBoardCascadeMoveAction.MoveCurrentOnly;
+                if (action == ScheduleBoardCascadeMoveAction.Cancel)
+                {
+                    return;
+                }
+
                 if (boardKind == ScheduleBoardKind.SingleEvent)
                 {
-                    MoveSingleScheduleBoardItem(item.DragPayload, target);
+                    if (action == ScheduleBoardCascadeMoveAction.CascadeMove)
+                    {
+                        CascadeMoveSingleScheduleBoardItem(item.DragPayload, target);
+                    }
+                    else
+                    {
+                        MoveSingleScheduleBoardItem(item.DragPayload, target);
+                    }
                 }
                 else
                 {
-                    MoveCrossEventScheduleBoardItem(item.DragPayload, target);
+                    if (action == ScheduleBoardCascadeMoveAction.CascadeMove)
+                    {
+                        CascadeMoveCrossEventScheduleBoardItem(item.DragPayload, target);
+                    }
+                    else
+                    {
+                        MoveCrossEventScheduleBoardItem(item.DragPayload, target);
+                    }
                 }
 
                 dialog.Close(true);
@@ -2177,7 +2207,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ScheduleBoardCell_Drop(object? sender, DragEventArgs e)
+    private async void ScheduleBoardCell_Drop(object? sender, DragEventArgs e)
     {
         ClearScheduleBoardDragFeedback();
         if (sender is not Border { Tag: ScheduleBoardDropTarget target })
@@ -2195,19 +2225,329 @@ public partial class MainWindow : Window
 
         try
         {
+            var action = await ConfirmScheduleBoardCascadeMovePreviewAsync(target, payload!);
+            if (action == ScheduleBoardCascadeMoveAction.Cancel)
+            {
+                SetStatus("已取消移动，赛程保持不变。", isWarning: true);
+                return;
+            }
+
             if (target.Kind == ScheduleBoardKind.SingleEvent)
             {
-                MoveSingleScheduleBoardItem(payload!, target);
+                if (action == ScheduleBoardCascadeMoveAction.CascadeMove)
+                {
+                    CascadeMoveSingleScheduleBoardItem(payload!, target);
+                }
+                else
+                {
+                    MoveSingleScheduleBoardItem(payload!, target);
+                }
             }
             else
             {
-                MoveCrossEventScheduleBoardItem(payload!, target);
+                if (action == ScheduleBoardCascadeMoveAction.CascadeMove)
+                {
+                    CascadeMoveCrossEventScheduleBoardItem(payload!, target);
+                }
+                else
+                {
+                    MoveCrossEventScheduleBoardItem(payload!, target);
+                }
             }
         }
         catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
         {
             SetStatus(ex.Message, isError: true);
         }
+    }
+
+    private async Task<ScheduleBoardCascadeMoveAction> ConfirmScheduleBoardCascadeMovePreviewAsync(
+        ScheduleBoardDropTarget target,
+        string payload)
+    {
+        var preview = BuildScheduleBoardCascadeMovePreview(target, payload);
+        if (preview is null || !preview.HasPreviewItems)
+        {
+            return ScheduleBoardCascadeMoveAction.MoveCurrentOnly;
+        }
+
+        var owner = target.Kind == ScheduleBoardKind.SingleEvent
+            ? _scheduleBoardWindow ?? this
+            : _crossEventBoardWindow ?? this;
+        return await ShowScheduleBoardCascadeMovePreviewDialogAsync(owner, target.Kind, preview);
+    }
+
+    private ScheduleBoardCascadeMovePreview? BuildScheduleBoardCascadeMovePreview(
+        ScheduleBoardDropTarget target,
+        string payload)
+    {
+        if (target.Kind == ScheduleBoardKind.SingleEvent)
+        {
+            if (_latestSchedule is null
+                || !ScheduleBoardDrag.TryParseSingleEventPayload(payload, out var matchName))
+            {
+                return null;
+            }
+
+            return ScheduleWorkflow.BuildScheduledMatchCascadeMovePreview(
+                _latestSchedule,
+                matchName,
+                target.DayLabel,
+                target.StartTime,
+                target.Court,
+                _progressState?.Results.Keys.ToHashSet(StringComparer.Ordinal));
+        }
+
+        if (_crossEventScheduleBoard is null)
+        {
+            return null;
+        }
+
+        return _crossEventConflictWorkflow.BuildScheduleItemCascadeMovePreview(
+            _crossEventScheduleBoard,
+            payload,
+            target.DayLabel,
+            target.StartTime,
+            target.Court);
+    }
+
+    private async Task<ScheduleBoardCascadeMoveAction> ShowScheduleBoardCascadeMovePreviewDialogAsync(
+        Window owner,
+        ScheduleBoardKind boardKind,
+        ScheduleBoardCascadeMovePreview preview)
+    {
+        var dialog = new Window
+        {
+            Title = "连锁移动预览",
+            Width = 680,
+            Height = 520,
+            MinWidth = 560,
+            MinHeight = 380,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = true
+        };
+
+        var root = new Grid
+        {
+            RowDefinitions = new RowDefinitions("Auto,*,Auto"),
+            Margin = new Avalonia.Thickness(18)
+        };
+        var header = new StackPanel { Spacing = 8 };
+        header.Children.Add(new TextBlock
+        {
+            Text = "移动前请确认赛程影响",
+            FontSize = 18,
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78)),
+            TextWrapping = TextWrapping.Wrap
+        });
+        header.Children.Add(new TextBlock
+        {
+            Text = $"将“{preview.MatchName}”移动到 {preview.TargetText}；本项目后续依赖 {preview.AffectedMatches.Count} 场，兼项影响 {preview.CrossEventImpacts.Count} 条。你可以只移动当前场次，也可以让程序连锁后移后续场次。",
+            Foreground = new SolidColorBrush(Color.FromRgb(71, 85, 105)),
+            TextWrapping = TextWrapping.Wrap
+        });
+        header.Children.Add(new TextBlock
+        {
+            Text = boardKind == ScheduleBoardKind.SingleEvent
+                ? "单项目依赖来自淘汰树：胜者/负者进入后续轮次。"
+                : "本项目后续依赖按项目内部淘汰树计算；兼项影响只检查已确定选手在其他项目的同日比赛，不展开所有理论晋级链。",
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            TextWrapping = TextWrapping.Wrap
+        });
+        root.Children.Add(header);
+
+        var list = new StackPanel { Spacing = 10 };
+        if (preview.AffectedMatches.Count > 0)
+        {
+            list.Children.Add(CreateScheduleBoardCascadeSectionTitle("本项目后续依赖"));
+        }
+
+        foreach (var item in preview.AffectedMatches.Take(30))
+        {
+            list.Children.Add(CreateScheduleBoardCascadePreviewCard(item));
+        }
+
+        if (preview.AffectedMatches.Count > 30)
+        {
+            list.Children.Add(new TextBlock
+            {
+                Text = $"另有 {preview.AffectedMatches.Count - 30} 场后续比赛未显示，可后续通过赛程安排窗口继续检查。",
+                Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
+
+        if (preview.HasCrossEventImpact)
+        {
+            list.Children.Add(CreateScheduleBoardCascadeSectionTitle("兼项选手跨项目影响"));
+            if (!string.IsNullOrWhiteSpace(preview.CrossEventImpactNote))
+            {
+                list.Children.Add(CreateScheduleBoardCascadeNoteCard(preview.CrossEventImpactNote));
+            }
+
+            foreach (var item in preview.CrossEventImpacts.Take(30))
+            {
+                list.Children.Add(CreateScheduleBoardCrossEventImpactCard(item));
+            }
+
+            if (preview.CrossEventImpacts.Count > 30)
+            {
+                list.Children.Add(new TextBlock
+                {
+                    Text = $"另有 {preview.CrossEventImpacts.Count - 30} 条兼项影响未显示，可在兼项明细中继续查看。",
+                    Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+                    TextWrapping = TextWrapping.Wrap
+                });
+            }
+        }
+
+        var scroll = new ScrollViewer
+        {
+            Content = list,
+            Margin = new Avalonia.Thickness(0, 14, 0, 0),
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
+        };
+        Grid.SetRow(scroll, 1);
+        root.Children.Add(scroll);
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 10,
+            Margin = new Avalonia.Thickness(0, 16, 0, 0)
+        };
+        var cancelButton = new Button
+        {
+            Content = "取消",
+            MinWidth = 90,
+            HorizontalContentAlignment = HorizontalAlignment.Center
+        };
+        cancelButton.Click += (_, _) => dialog.Close(ScheduleBoardCascadeMoveAction.Cancel);
+        var continueButton = new Button
+        {
+            Content = "只移动当前场次",
+            MinWidth = 150,
+            HorizontalContentAlignment = HorizontalAlignment.Center
+        };
+        continueButton.Click += (_, _) => dialog.Close(ScheduleBoardCascadeMoveAction.MoveCurrentOnly);
+        var cascadeButton = new Button
+        {
+            Content = "连锁移动后续场次",
+            MinWidth = 170,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            IsEnabled = preview.AffectedMatches.Count > 0,
+            Classes = { "primary" }
+        };
+        cascadeButton.Click += (_, _) => dialog.Close(ScheduleBoardCascadeMoveAction.CascadeMove);
+        buttons.Children.Add(cancelButton);
+        buttons.Children.Add(continueButton);
+        buttons.Children.Add(cascadeButton);
+        Grid.SetRow(buttons, 2);
+        root.Children.Add(buttons);
+
+        dialog.Content = root;
+        return await dialog.ShowDialog<ScheduleBoardCascadeMoveAction>(owner);
+    }
+
+    private static TextBlock CreateScheduleBoardCascadeSectionTitle(string text)
+    {
+        return new TextBlock
+        {
+            Text = text,
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78)),
+            Margin = new Avalonia.Thickness(0, 4, 0, 0)
+        };
+    }
+
+    private static Border CreateScheduleBoardCascadeNoteCard(string text)
+    {
+        return new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(239, 246, 255)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(147, 197, 253)),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(8),
+            Padding = new Avalonia.Thickness(12),
+            Child = new TextBlock
+            {
+                Text = text,
+                Foreground = new SolidColorBrush(Color.FromRgb(30, 64, 175)),
+                TextWrapping = TextWrapping.Wrap
+            }
+        };
+    }
+
+    private static Border CreateScheduleBoardCascadePreviewCard(ScheduleBoardCascadeMovePreviewItem item)
+    {
+        var stack = new StackPanel { Spacing = 4 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"第 {item.Depth} 层后续 · {item.DayLabel} {item.TimeRange} · {item.Court} · {item.Phase} {item.DisplayMatchName}",
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+            TextWrapping = TextWrapping.Wrap
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{item.DependencyText}；与前序间隔 {item.RestMinutes} 分钟{(item.IsCompleted ? "；该场已有赛果" : "")}",
+            Foreground = new SolidColorBrush(item.RestMinutes < 0 ? Color.FromRgb(185, 28, 28) : Color.FromRgb(120, 83, 0)),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        return new Border
+        {
+            Background = new SolidColorBrush(item.IsCompleted ? Color.FromRgb(241, 245, 249) : Color.FromRgb(255, 251, 235)),
+            BorderBrush = new SolidColorBrush(item.RestMinutes < 0 ? Color.FromRgb(220, 38, 38) : Color.FromRgb(245, 158, 11)),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(8),
+            Padding = new Avalonia.Thickness(12),
+            Child = stack
+        };
+    }
+
+    private static Border CreateScheduleBoardCrossEventImpactCard(ScheduleBoardCrossEventImpactPreviewItem item)
+    {
+        var isSevere = item.Severity == CrossEventConflictSeverity.Severe;
+        var isWarning = item.Severity == CrossEventConflictSeverity.Warning;
+        var borderColor = isSevere
+            ? Color.FromRgb(220, 38, 38)
+            : isWarning ? Color.FromRgb(245, 158, 11) : Color.FromRgb(242, 216, 137);
+        var backgroundColor = isSevere
+            ? Color.FromRgb(254, 242, 242)
+            : isWarning ? Color.FromRgb(255, 251, 235) : Color.FromRgb(255, 248, 230);
+        var label = item.Severity switch
+        {
+            CrossEventConflictSeverity.Severe => "严重",
+            CrossEventConflictSeverity.Warning => "警告",
+            _ => "提醒"
+        };
+        var stack = new StackPanel { Spacing = 4 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{label} · {item.PlayerName} · {item.DayLabel} {item.TimeRange} · {item.Court} · {item.EventName} {item.Phase} {item.MatchName}",
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+            TextWrapping = TextWrapping.Wrap
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{item.Detail}{(item.IsCompleted ? "；该场已有赛果" : "")}",
+            Foreground = new SolidColorBrush(isSevere ? Color.FromRgb(185, 28, 28) : Color.FromRgb(120, 83, 0)),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        return new Border
+        {
+            Background = new SolidColorBrush(backgroundColor),
+            BorderBrush = new SolidColorBrush(borderColor),
+            BorderThickness = new Avalonia.Thickness(isSevere ? 2 : 1),
+            CornerRadius = new Avalonia.CornerRadius(8),
+            Padding = new Avalonia.Thickness(12),
+            Child = stack
+        };
     }
 
     private static bool IsScheduleBoardDragAllowed(ScheduleBoardKind kind, string? payload)
@@ -2371,6 +2711,52 @@ public partial class MainWindow : Window
             isWarning: _latestScheduleConstraintReport is { SevereCount: > 0 } or { WarningCount: > 0 });
     }
 
+    private void CascadeMoveSingleScheduleBoardItem(string payload, ScheduleBoardDropTarget target)
+    {
+        if (_latestSchedule is null
+            || !ScheduleBoardDrag.TryParseSingleEventPayload(payload, out var matchName))
+        {
+            return;
+        }
+
+        var previousSchedule = _latestSchedule;
+        var previousProgressState = _progressState;
+        var previousDayLabel = previousSchedule.Matches
+            .FirstOrDefault(match => string.Equals(match.MatchName, matchName, StringComparison.Ordinal))
+            ?.DayLabel
+            ?? target.DayLabel;
+        var result = ScheduleWorkflow.CascadeMoveScheduledMatch(
+            _latestSchedule,
+            matchName,
+            target.DayLabel,
+            target.StartTime,
+            target.Court,
+            _progressState?.Results.Keys.ToHashSet(StringComparer.Ordinal));
+        _singleScheduleUndoStack.Push(new SingleScheduleUndoSnapshot(
+            previousSchedule,
+            previousProgressState,
+            _progressFilePath,
+            previousDayLabel));
+        _latestSchedule = result.Schedule;
+        if (_progressState is not null)
+        {
+            _progressState = ReplaceProgressSchedule(_progressState, _latestSchedule);
+            UpdateProgressDisplay();
+        }
+
+        ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
+        UpdateScheduleConstraintReport(_latestSchedule);
+        ScheduleSummaryText.Text = $"已连锁调整 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。";
+        RefreshScheduleBoardWindow(target.DayLabel);
+        UpdateScheduleUndoButtons();
+        var movedCount = result.MovedMatches.Count;
+        SetStatus(
+            movedCount > 0
+                ? $"已连锁移动 {movedCount} 场赛程；后续导出会使用调整后的时间和场地。"
+                : "当前赛程已经满足后续依赖，无需移动后续场次。",
+            isWarning: _latestScheduleConstraintReport is { SevereCount: > 0 } or { WarningCount: > 0 });
+    }
+
     private void MoveCrossEventScheduleBoardItem(string payload, ScheduleBoardDropTarget target)
     {
         if (_crossEventScheduleBoard is null)
@@ -2409,6 +2795,41 @@ public partial class MainWindow : Window
         UpdateCrossEventUndoButtons();
         PreviewTabs.SelectedItem = CrossEventPreviewTab;
         SetStatus(BuildCrossEventStatus("已调整多项目赛程", _crossEventScheduleBoard));
+    }
+
+    private void CascadeMoveCrossEventScheduleBoardItem(string payload, ScheduleBoardDropTarget target)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            return;
+        }
+
+        var previousBoard = _crossEventScheduleBoard;
+        var previousDayLabel = previousBoard.Items
+            .FirstOrDefault(item => string.Equals(item.Key, payload, StringComparison.Ordinal))
+            ?.DayLabel
+            ?? target.DayLabel;
+        var result = _crossEventConflictWorkflow.CascadeMoveScheduleItem(
+            _crossEventScheduleBoard,
+            payload,
+            target.DayLabel,
+            target.StartTime,
+            target.Court);
+        _crossEventScheduleUndoStack.Push(new CrossEventScheduleUndoSnapshot(
+            previousBoard,
+            previousDayLabel));
+        _crossEventScheduleBoard = result.Schedule;
+        _crossEventSchedulingOptions = _crossEventScheduleBoard.SchedulingOptions ?? _crossEventSchedulingOptions;
+        RefreshCrossEventScheduleBoard(target.DayLabel);
+        RefreshCrossEventBoardWindow(target.DayLabel);
+        UpdateCrossEventUndoButtons();
+        PreviewTabs.SelectedItem = CrossEventPreviewTab;
+        var movedCount = result.MovedMatches.Count;
+        SetStatus(BuildCrossEventStatus(
+            movedCount > 0
+                ? $"已连锁移动 {movedCount} 场多项目赛程"
+                : "当前多项目赛程已经满足后续依赖，无需移动后续场次",
+            _crossEventScheduleBoard));
     }
 
     private void UndoSingleScheduleMove_Click(object? sender, RoutedEventArgs e)

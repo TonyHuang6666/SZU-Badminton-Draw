@@ -2136,6 +2136,123 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void CrossEventScheduleBoardBuildsCascadeMovePreviewForSameEventDependencies()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-cascade-preview-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "男双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var firstSchedule = new SchedulePlan(
+                [
+                    new ScheduledMatch(
+                        1,
+                        "2026-06-13",
+                        new TimeOnly(14, 0),
+                        new TimeOnly(14, 20),
+                        "B1",
+                        1,
+                        "A组",
+                        "首轮赛",
+                        "A组首轮赛1",
+                        "张三",
+                        "李四",
+                        MatchId: "s1"),
+                    new ScheduledMatch(
+                        2,
+                        "2026-06-13",
+                        new TimeOnly(14, 40),
+                        new TimeOnly(15, 0),
+                        "B1",
+                        1,
+                        "A组",
+                        "决赛",
+                        "A组决赛1",
+                        "A组首轮赛1胜者",
+                        "王五",
+                        MatchId: "s2",
+                        Dependencies: [Dependency("s1", "A组首轮赛1", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
+                ],
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1", "B2"])],
+                    MatchMinutes: 20,
+                    MaxMatchesPerEntrantPerDay: 2));
+            var secondSchedule = new SchedulePlan(
+                [
+                    new ScheduledMatch(
+                        1,
+                        "2026-06-13",
+                        new TimeOnly(14, 45),
+                        new TimeOnly(15, 5),
+                        "B2",
+                        1,
+                        "A组",
+                        "首轮赛",
+                        "男双首轮赛1",
+                        "[张三 钱七]",
+                        "[孙八 周九]",
+                        MatchId: "d1")
+                ],
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1", "B2"])],
+                    MatchMinutes: 20,
+                    MaxMatchesPerEntrantPerDay: 2));
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [
+                        new DrawParticipant("张三", PrimaryName: "张三"),
+                        new DrawParticipant("李四", PrimaryName: "李四"),
+                        new DrawParticipant("王五", PrimaryName: "王五")
+                    ],
+                    firstSchedule));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "男双",
+                    [
+                        new DrawParticipant("[张三 钱七]", PrimaryName: "张三", PartnerName: "钱七"),
+                        new DrawParticipant("[孙八 周九]", PrimaryName: "孙八", PartnerName: "周九")
+                    ],
+                    secondSchedule));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 20);
+            var firstMatchKey = board.Items.Single(item => item.EventName == "男单" && item.MatchName == "A组首轮赛1").Key;
+
+            var preview = workflow.BuildScheduleItemCascadeMovePreview(
+                board,
+                firstMatchKey,
+                "2026-06-13",
+                new TimeOnly(14, 20),
+                "B2");
+
+            Assert.True(preview.HasAffectedMatches);
+            var affected = Assert.Single(preview.AffectedMatches);
+            Assert.Equal("男单", affected.EventName);
+            Assert.Equal("A组决赛1", affected.MatchName);
+            Assert.Equal(1, affected.Depth);
+            Assert.Equal(0, affected.RestMinutes);
+            Assert.DoesNotContain(preview.AffectedMatches, item => item.MatchName == "男双首轮赛1");
+            var crossImpact = Assert.Single(preview.CrossEventImpacts);
+            Assert.Equal(CrossEventConflictSeverity.Warning, crossImpact.Severity);
+            Assert.Equal("张三", crossImpact.PlayerName);
+            Assert.Equal("男双", crossImpact.EventName);
+            Assert.Equal("男双首轮赛1", crossImpact.MatchName);
+            Assert.Equal(5, crossImpact.RestMinutes);
+            Assert.Contains("低于最小休息间隔", crossImpact.Detail);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
     public void ScheduleWorkflowMovesScheduledMatchAndRejectsOccupiedSlot()
     {
         var schedule = new SchedulePlan(
@@ -2373,6 +2490,276 @@ public sealed class DrawWorkflowTests
         Assert.True(validation.CanDrop);
         Assert.Equal(ScheduleBoardMoveValidationSeverity.Warning, validation.Severity);
         Assert.Contains("场次接续风险", validation.Message);
+    }
+
+    [Fact]
+    public void ScheduleWorkflowBuildsCascadeMovePreviewFromDependencyTree()
+    {
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(
+                    1,
+                    "2026-06-13",
+                    new TimeOnly(14, 0),
+                    new TimeOnly(14, 20),
+                    "B1",
+                    1,
+                    "A组",
+                    "128进64",
+                    "A组128进64第1场",
+                    "张三",
+                    "李四",
+                    MatchId: "m1"),
+                new ScheduledMatch(
+                    2,
+                    "2026-06-13",
+                    new TimeOnly(14, 40),
+                    new TimeOnly(15, 0),
+                    "B1",
+                    1,
+                    "A组",
+                    "64进32",
+                    "A组64进32第1场",
+                    "A组128进64第1场胜者",
+                    "王五",
+                    MatchId: "m2",
+                    Dependencies: [Dependency("m1", "A组128进64第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                new ScheduledMatch(
+                    3,
+                    "2026-06-13",
+                    new TimeOnly(15, 20),
+                    new TimeOnly(15, 40),
+                    "B1",
+                    1,
+                    "A组",
+                    "32进16",
+                    "A组32进16第1场",
+                    "A组64进32第1场胜者",
+                    "赵六",
+                    MatchId: "m3",
+                    Dependencies: [Dependency("m2", "A组64进32第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1", "B2"])],
+                MatchMinutes: 20,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        var preview = ScheduleWorkflow.BuildScheduledMatchCascadeMovePreview(
+            schedule,
+            "A组128进64第1场",
+            "2026-06-13",
+            new TimeOnly(14, 20),
+            "B2");
+
+        Assert.True(preview.HasAffectedMatches);
+        Assert.Equal("2026-06-13 14:20-14:40 · B2", preview.TargetText);
+        Assert.Equal(new[] { "A组64进32第1场", "A组32进16第1场" }, preview.AffectedMatches.Select(item => item.MatchName));
+        Assert.Equal(new[] { 1, 2 }, preview.AffectedMatches.Select(item => item.Depth));
+        Assert.Equal(0, preview.AffectedMatches[0].RestMinutes);
+        Assert.Equal(20, preview.AffectedMatches[1].RestMinutes);
+        Assert.Contains("胜者", preview.AffectedMatches[0].DependencyText);
+    }
+
+    [Fact]
+    public void ScheduleWorkflowCascadeMovesDependentMatchesToNearestLegalSlots()
+    {
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 20), "B1", 1, "A组", "128进64", "A组128进64第1场", "张三", "李四", MatchId: "m1"),
+                new ScheduledMatch(
+                    2,
+                    "2026-06-13",
+                    new TimeOnly(14, 40),
+                    new TimeOnly(15, 0),
+                    "B1",
+                    1,
+                    "A组",
+                    "64进32",
+                    "A组64进32第1场",
+                    "A组128进64第1场胜者",
+                    "王五",
+                    MatchId: "m2",
+                    Dependencies: [Dependency("m1", "A组128进64第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                new ScheduledMatch(
+                    3,
+                    "2026-06-13",
+                    new TimeOnly(15, 20),
+                    new TimeOnly(15, 40),
+                    "B1",
+                    1,
+                    "A组",
+                    "32进16",
+                    "A组32进16第1场",
+                    "A组64进32第1场胜者",
+                    "赵六",
+                    MatchId: "m3",
+                    Dependencies: [Dependency("m2", "A组64进32第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(17, 0), ["B1", "B2"])],
+                MatchMinutes: 20,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        var result = ScheduleWorkflow.CascadeMoveScheduledMatch(
+            schedule,
+            "A组128进64第1场",
+            "2026-06-13",
+            new TimeOnly(14, 20),
+            "B2");
+
+        Assert.Equal(3, result.MovedMatches.Count);
+        Assert.Equal(new TimeOnly(14, 20), result.Schedule.Matches.Single(match => match.MatchName == "A组128进64第1场").StartTime);
+        Assert.Equal(new TimeOnly(15, 0), result.Schedule.Matches.Single(match => match.MatchName == "A组64进32第1场").StartTime);
+        Assert.Equal(new TimeOnly(15, 40), result.Schedule.Matches.Single(match => match.MatchName == "A组32进16第1场").StartTime);
+        Assert.Empty(ScheduleDependencyGraph.Build(result.Schedule).FindOrderViolations());
+        Assert.DoesNotContain(
+            new ScheduleConstraintAnalyzer().Analyze(result.Schedule).Issues,
+            issue => issue.Severity == ScheduleConstraintSeverity.Severe);
+    }
+
+    [Fact]
+    public void ScheduleWorkflowCascadeMoveRejectsCompletedDependentMatch()
+    {
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 20), "B1", 1, "A组", "128进64", "A组128进64第1场", "张三", "李四", MatchId: "m1"),
+                new ScheduledMatch(
+                    2,
+                    "2026-06-13",
+                    new TimeOnly(14, 40),
+                    new TimeOnly(15, 0),
+                    "B1",
+                    1,
+                    "A组",
+                    "64进32",
+                    "A组64进32第1场",
+                    "A组128进64第1场胜者",
+                    "王五",
+                    MatchId: "m2",
+                    Dependencies: [Dependency("m1", "A组128进64第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(17, 0), ["B1", "B2"])],
+                MatchMinutes: 20,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        var exception = Assert.Throws<DrawValidationException>(() => ScheduleWorkflow.CascadeMoveScheduledMatch(
+            schedule,
+            "A组128进64第1场",
+            "2026-06-13",
+            new TimeOnly(14, 20),
+            "B2",
+            new HashSet<string>(["A组64进32第1场"], StringComparer.Ordinal)));
+
+        Assert.Contains("已有赛果", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CrossEventScheduleBoardCascadeMoveRespectsOtherEventPlayerRest()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-cascade-move-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "男双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var singlesSchedule = new SchedulePlan(
+                [
+                    new ScheduledMatch(
+                        1,
+                        "2026-06-13",
+                        new TimeOnly(14, 0),
+                        new TimeOnly(14, 20),
+                        "B1",
+                        1,
+                        "A组",
+                        "128进64",
+                        "A组128进64第1场",
+                        "张三",
+                        "李四",
+                        MatchId: "s1"),
+                    new ScheduledMatch(
+                        2,
+                        "2026-06-13",
+                        new TimeOnly(14, 40),
+                        new TimeOnly(15, 0),
+                        "B1",
+                        1,
+                        "A组",
+                        "64进32",
+                        "A组64进32第1场",
+                        "A组128进64第1场胜者",
+                        "王五",
+                        MatchId: "s2",
+                        Dependencies: [Dependency("s1", "A组128进64第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)])
+                ],
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(17, 0), ["B1", "B2"])],
+                    MatchMinutes: 20,
+                    MaxMatchesPerEntrantPerDay: 2));
+            var doublesSchedule = new SchedulePlan(
+                [
+                    new ScheduledMatch(
+                        1,
+                        "2026-06-13",
+                        new TimeOnly(15, 0),
+                        new TimeOnly(15, 20),
+                        "B2",
+                        1,
+                        "A组",
+                        "首轮赛",
+                        "男双首轮赛1",
+                        "[王五 赵六]",
+                        "[钱七 孙八]",
+                        MatchId: "d1")
+                ],
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(17, 0), ["B1", "B2"])],
+                    MatchMinutes: 20,
+                    MaxMatchesPerEntrantPerDay: 2));
+            var store = new TournamentProgressStore();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [
+                        new DrawParticipant("张三", PrimaryName: "张三"),
+                        new DrawParticipant("李四", PrimaryName: "李四"),
+                        new DrawParticipant("王五", PrimaryName: "王五")
+                    ],
+                    singlesSchedule));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "男双",
+                    [
+                        new DrawParticipant("[王五 赵六]", PrimaryName: "王五", PartnerName: "赵六"),
+                        new DrawParticipant("[钱七 孙八]", PrimaryName: "钱七", PartnerName: "孙八")
+                    ],
+                    doublesSchedule));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 20);
+            var firstMatchKey = board.Items.Single(item => item.EventName == "男单" && item.MatchName == "A组128进64第1场").Key;
+
+            var result = workflow.CascadeMoveScheduleItem(
+                board,
+                firstMatchKey,
+                "2026-06-13",
+                new TimeOnly(14, 20),
+                "B2");
+
+            var adjustedDependent = result.Schedule.Items.Single(item => item.EventName == "男单" && item.MatchName == "A组64进32第1场");
+            Assert.Equal(new TimeOnly(15, 40), adjustedDependent.StartTime);
+            Assert.Equal(2, result.MovedMatches.Count);
+            Assert.Equal(0, result.Schedule.Report.SevereCount);
+            Assert.Equal(0, result.Schedule.Report.WarningCount);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
     }
 
     [Fact]

@@ -228,6 +228,25 @@ public sealed class ScheduleWorkflow
         string court,
         IReadOnlySet<string>? lockedMatchNames = null)
     {
+        return MoveScheduledMatchCore(
+            schedule,
+            matchName,
+            dayLabel,
+            startTime,
+            court,
+            lockedMatchNames,
+            ensureDependencyOrder: true);
+    }
+
+    private static SchedulePlan MoveScheduledMatchCore(
+        SchedulePlan schedule,
+        string matchName,
+        string dayLabel,
+        TimeOnly startTime,
+        string court,
+        IReadOnlySet<string>? lockedMatchNames,
+        bool ensureDependencyOrder)
+    {
         var match = schedule.Matches.FirstOrDefault(item => string.Equals(item.MatchName, matchName, StringComparison.Ordinal))
             ?? throw new DrawValidationException("找不到需要调整的比赛。");
         if (lockedMatchNames?.Contains(match.MatchName) == true)
@@ -270,7 +289,11 @@ public sealed class ScheduleWorkflow
                 : item)
             .ToList();
         var moved = schedule with { Matches = NormalizeScheduledMatchOrders(matches) };
-        ScheduleDependencyGraph.Build(moved).EnsureDependencyOrder();
+        if (ensureDependencyOrder)
+        {
+            ScheduleDependencyGraph.Build(moved).EnsureDependencyOrder();
+        }
+
         return moved;
     }
 
@@ -284,16 +307,36 @@ public sealed class ScheduleWorkflow
     {
         try
         {
-            var moved = MoveScheduledMatch(schedule, matchName, dayLabel, startTime, court, lockedMatchNames);
+            var moved = MoveScheduledMatchCore(
+                schedule,
+                matchName,
+                dayLabel,
+                startTime,
+                court,
+                lockedMatchNames,
+                ensureDependencyOrder: false);
             var targetText = $"目标：{dayLabel} {startTime:HH:mm} · {court}";
+            var fixableOrderViolations = FindFixableCascadeOrderViolations(moved, matchName);
             var newIssues = FindNewRelevantMoveIssues(schedule, moved, matchName);
             var blockingIssue = newIssues.FirstOrDefault(issue =>
-                issue.Severity == ScheduleConstraintSeverity.Severe);
+                issue.Severity == ScheduleConstraintSeverity.Severe
+                && !IsFixableCascadeOrderIssue(issue, fixableOrderViolations));
             if (blockingIssue is not null)
             {
                 return ScheduleBoardMoveValidationResult.Blocked(
                     $"{targetText} 不可放置：{blockingIssue.Message}",
                     BuildAffectedMatches(matchName, blockingIssue));
+            }
+
+            if (fixableOrderViolations.Count > 0)
+            {
+                return ScheduleBoardMoveValidationResult.Warning(
+                    $"{targetText} 可放置，但会影响 {fixableOrderViolations.Count} 条后续依赖；可选择连锁移动后续场次自动修复。",
+                    fixableOrderViolations
+                        .Select(violation => violation.Edge.Dependent.MatchName)
+                        .Prepend(matchName)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToList());
             }
 
             var warningIssue = newIssues.FirstOrDefault(issue =>
@@ -311,6 +354,136 @@ public sealed class ScheduleWorkflow
         {
             return ScheduleBoardMoveValidationResult.Blocked(ex.Message, [matchName]);
         }
+    }
+
+    public static ScheduleBoardCascadeMovePreview BuildScheduledMatchCascadeMovePreview(
+        SchedulePlan schedule,
+        string matchName,
+        string dayLabel,
+        TimeOnly startTime,
+        string court,
+        IReadOnlySet<string>? lockedMatchNames = null)
+    {
+        var moved = MoveScheduledMatchCore(
+            schedule,
+            matchName,
+            dayLabel,
+            startTime,
+            court,
+            lockedMatchNames,
+            ensureDependencyOrder: false);
+        return BuildCascadeMovePreviewFromSchedule(moved, matchName, lockedMatchNames);
+    }
+
+    public static ScheduleBoardCascadeMovePreview BuildCascadeMovePreviewFromSchedule(
+        SchedulePlan schedule,
+        string matchName,
+        IReadOnlySet<string>? completedMatchNames = null,
+        string eventName = "")
+    {
+        var movedMatch = schedule.Matches.FirstOrDefault(match => string.Equals(match.MatchName, matchName, StringComparison.Ordinal))
+            ?? throw new DrawValidationException("找不到需要预览的比赛。");
+        var graph = ScheduleDependencyGraph.Build(schedule);
+        var affected = BuildCascadePreviewItems(graph, movedMatch, completedMatchNames, eventName);
+        return new ScheduleBoardCascadeMovePreview(
+            movedMatch.MatchName,
+            movedMatch.DayLabel,
+            movedMatch.StartTime,
+            movedMatch.EndTime,
+            movedMatch.Court,
+            affected);
+    }
+
+    public static ScheduleBoardCascadeMoveResult<SchedulePlan> CascadeMoveScheduledMatch(
+        SchedulePlan schedule,
+        string matchName,
+        string dayLabel,
+        TimeOnly startTime,
+        string court,
+        IReadOnlySet<string>? lockedMatchNames = null,
+        string eventName = "")
+    {
+        var originalByName = schedule.Matches.ToDictionary(match => match.MatchName, StringComparer.Ordinal);
+        var working = MoveScheduledMatchCore(
+            schedule,
+            matchName,
+            dayLabel,
+            startTime,
+            court,
+            lockedMatchNames,
+            ensureDependencyOrder: false);
+        var root = working.Matches.FirstOrDefault(match => string.Equals(match.MatchName, matchName, StringComparison.Ordinal))
+            ?? throw new DrawValidationException("找不到需要连锁移动的比赛。");
+        var movedItems = new List<ScheduleBoardCascadeMovedItem>();
+        AddMovedItemIfChanged(
+            movedItems,
+            originalByName,
+            root,
+            depth: 0,
+            eventName,
+            "当前场次移动到裁判长选择的位置");
+
+        var rules = ScheduleConstraintRules.For(working.Settings.ConstraintProfile);
+        var nodes = BuildCascadeDependencyNodes(ScheduleDependencyGraph.Build(working), root.MatchId);
+        foreach (var node in nodes)
+        {
+            var current = working.Matches.FirstOrDefault(match => string.Equals(match.MatchId, node.Edge.Dependent.MatchId, StringComparison.Ordinal));
+            if (current is null)
+            {
+                continue;
+            }
+
+            if (lockedMatchNames?.Contains(current.MatchName) == true)
+            {
+                throw new DrawValidationException($"无法连锁移动：后续场次“{current.MatchName}”已有赛果，不能自动调整。");
+            }
+
+            var minimumStart = FindMinimumDependencyStart(working, current, rules);
+            var dayNumbers = BuildScheduleDayNumberLookup(working.Settings, working.Matches);
+            var currentStart = BuildComparableMinute(current.DayLabel, current.StartTime, dayNumbers);
+            var minimumAllowedStart = Math.Max(currentStart, minimumStart);
+            if (currentStart >= minimumAllowedStart
+                && IsSchedulePlacementAvailable(working, current.MatchName, current.DayLabel, current.StartTime, current.Court))
+            {
+                continue;
+            }
+
+            var placement = FindEarliestCascadePlacement(working, current, minimumAllowedStart)
+                ?? throw new DrawValidationException($"无法连锁移动：找不到“{current.MatchName}”满足依赖顺序、休息间隔和场地空位的后续位置。");
+            var before = current;
+            working = ApplyScheduledMatchPlacement(working, current.MatchName, placement);
+            var after = working.Matches.First(match => string.Equals(match.MatchName, current.MatchName, StringComparison.Ordinal));
+            movedItems.Add(new ScheduleBoardCascadeMovedItem(
+                node.Depth,
+                eventName,
+                after.MatchName,
+                before.DayLabel,
+                before.StartTime,
+                before.EndTime,
+                before.Court,
+                after.DayLabel,
+                after.StartTime,
+                after.EndTime,
+                after.Court,
+                $"连锁后移以满足 {node.Edge.Source.MatchName} 的后续依赖"));
+        }
+
+        ScheduleDependencyGraph.Build(working).EnsureDependencyOrder();
+        var severeIssue = new ScheduleConstraintAnalyzer()
+            .Analyze(working)
+            .Issues
+            .FirstOrDefault(issue =>
+                issue.Severity == ScheduleConstraintSeverity.Severe
+                && movedItems.Any(item => IsRelevantMoveIssue(issue, item.MatchName)));
+        if (severeIssue is not null)
+        {
+            throw new DrawValidationException($"无法连锁移动：{severeIssue.Message}");
+        }
+
+        return new ScheduleBoardCascadeMoveResult<SchedulePlan>(
+            working,
+            movedItems,
+            movedItems.Count == 0 ? ["当前位置已经满足连锁依赖，无需移动后续场次。"] : []);
     }
 
     public static ScheduleSettings BuildSettings(ScheduleWorkflowRequest request)
@@ -711,6 +884,364 @@ public sealed class ScheduleWorkflow
             .ToList();
     }
 
+    private static IReadOnlyList<ScheduleDependencyOrderViolation> FindFixableCascadeOrderViolations(
+        SchedulePlan schedule,
+        string matchName)
+    {
+        var root = schedule.Matches.FirstOrDefault(match => string.Equals(match.MatchName, matchName, StringComparison.Ordinal));
+        if (root is null)
+        {
+            return [];
+        }
+
+        var graph = ScheduleDependencyGraph.Build(schedule);
+        var cascadeMatchIds = BuildCascadeMatchIdSet(graph, root.MatchId);
+        return graph.FindOrderViolations()
+            .Where(violation => cascadeMatchIds.Contains(violation.Edge.Source.MatchId)
+                                && cascadeMatchIds.Contains(violation.Edge.Dependent.MatchId))
+            .ToList();
+    }
+
+    private static bool IsFixableCascadeOrderIssue(
+        ScheduleConstraintIssue issue,
+        IReadOnlyList<ScheduleDependencyOrderViolation> fixableOrderViolations)
+    {
+        return issue.Type == ScheduleConstraintIssueType.DependencyOrder
+               && issue.Scope == ScheduleConstraintIssueScope.DirectDependency
+               && fixableOrderViolations.Any(violation =>
+                   string.Equals(violation.Edge.Dependent.MatchName, issue.MatchName, StringComparison.Ordinal));
+    }
+
+    private static HashSet<string> BuildCascadeMatchIdSet(ScheduleDependencyGraph graph, string rootMatchId)
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal) { rootMatchId };
+        var queue = new Queue<string>();
+        queue.Enqueue(rootMatchId);
+        var edgesBySource = graph.Edges
+            .GroupBy(edge => edge.Source.MatchId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
+
+        while (queue.Count > 0)
+        {
+            var sourceMatchId = queue.Dequeue();
+            if (!edgesBySource.TryGetValue(sourceMatchId, out var edges))
+            {
+                continue;
+            }
+
+            foreach (var edge in edges)
+            {
+                if (result.Add(edge.Dependent.MatchId))
+                {
+                    queue.Enqueue(edge.Dependent.MatchId);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyList<CascadeDependencyNode> BuildCascadeDependencyNodes(
+        ScheduleDependencyGraph graph,
+        string rootMatchId)
+    {
+        var edgesBySource = graph.Edges
+            .GroupBy(edge => edge.Source.MatchId, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(edge => edge.Dependent.DayLabel, StringComparer.Ordinal)
+                    .ThenBy(edge => edge.Dependent.StartTime)
+                    .ThenBy(edge => edge.Dependent.Court, StringComparer.Ordinal)
+                    .ThenBy(edge => edge.Dependent.MatchName, StringComparer.Ordinal)
+                    .ToList(),
+                StringComparer.Ordinal);
+        var result = new List<CascadeDependencyNode>();
+        var visited = new HashSet<string>(StringComparer.Ordinal) { rootMatchId };
+        var queue = new Queue<(string MatchId, int Depth)>();
+        queue.Enqueue((rootMatchId, 0));
+
+        while (queue.Count > 0)
+        {
+            var (sourceMatchId, depth) = queue.Dequeue();
+            if (!edgesBySource.TryGetValue(sourceMatchId, out var edges))
+            {
+                continue;
+            }
+
+            foreach (var edge in edges)
+            {
+                if (!visited.Add(edge.Dependent.MatchId))
+                {
+                    continue;
+                }
+
+                var nextDepth = depth + 1;
+                result.Add(new CascadeDependencyNode(nextDepth, edge));
+                queue.Enqueue((edge.Dependent.MatchId, nextDepth));
+            }
+        }
+
+        return result
+            .OrderBy(node => node.Depth)
+            .ThenBy(node => node.Edge.Dependent.DayLabel, StringComparer.Ordinal)
+            .ThenBy(node => node.Edge.Dependent.StartTime)
+            .ThenBy(node => node.Edge.Dependent.Court, StringComparer.Ordinal)
+            .ThenBy(node => node.Edge.Dependent.MatchName, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static int FindMinimumDependencyStart(
+        SchedulePlan schedule,
+        ScheduledMatch dependent,
+        ScheduleConstraintRules rules)
+    {
+        var matchesById = schedule.Matches
+            .GroupBy(match => match.MatchId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        var dayNumbers = BuildScheduleDayNumberLookup(schedule.Settings, schedule.Matches);
+        var requiredRest = IsKeyCascadeMatch(dependent)
+            ? rules.KeyMatchMinimumRestMinutes
+            : rules.MinimumRestMinutes;
+        var minimumStart = int.MinValue;
+        foreach (var dependency in dependent.Dependencies)
+        {
+            if (!matchesById.TryGetValue(dependency.SourceMatchId, out var source))
+            {
+                continue;
+            }
+
+            var sourceEnd = BuildComparableMinute(source.DayLabel, source.EndTime, dayNumbers);
+            minimumStart = Math.Max(minimumStart, sourceEnd + requiredRest);
+        }
+
+        return minimumStart == int.MinValue
+            ? BuildComparableMinute(dependent.DayLabel, dependent.StartTime, dayNumbers)
+            : minimumStart;
+    }
+
+    private static SchedulePlacement? FindEarliestCascadePlacement(
+        SchedulePlan schedule,
+        ScheduledMatch match,
+        int minimumComparableStart)
+    {
+        var dayNumbers = BuildScheduleDayNumberLookup(schedule.Settings, schedule.Matches);
+        var slotMinutes = NormalizeSlotMinutes(schedule.Matches.Select(item => item.DurationMinutes).ToList());
+        foreach (var day in schedule.Settings.Days.OrderBy(day => day.Date))
+        {
+            foreach (var slot in BuildTimeSlots(day.DayStart, day.DayEnd, slotMinutes))
+            {
+                var endTime = slot.AddMinutes(match.DurationMinutes);
+                if (endTime > day.DayEnd
+                    || BuildComparableMinute(day.DayLabel, slot, dayNumbers) < minimumComparableStart)
+                {
+                    continue;
+                }
+
+                foreach (var candidateCourt in day.Courts)
+                {
+                    if (IsSchedulePlacementAvailable(schedule, match.MatchName, day.DayLabel, slot, candidateCourt))
+                    {
+                        return new SchedulePlacement(day.DayLabel, slot, endTime, candidateCourt);
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsSchedulePlacementAvailable(
+        SchedulePlan schedule,
+        string matchName,
+        string dayLabel,
+        TimeOnly startTime,
+        string court)
+    {
+        var match = schedule.Matches.FirstOrDefault(item => string.Equals(item.MatchName, matchName, StringComparison.Ordinal));
+        if (match is null)
+        {
+            return false;
+        }
+
+        var day = schedule.Settings.Days.FirstOrDefault(item => string.Equals(item.DayLabel, dayLabel, StringComparison.Ordinal));
+        if (day is null || !day.Courts.Contains(court, StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var endTime = startTime.AddMinutes(match.DurationMinutes);
+        if (startTime < day.DayStart || endTime > day.DayEnd)
+        {
+            return false;
+        }
+
+        return !schedule.Matches.Any(other =>
+            !string.Equals(other.MatchName, matchName, StringComparison.Ordinal)
+            && string.Equals(other.DayLabel, dayLabel, StringComparison.Ordinal)
+            && string.Equals(other.Court, court, StringComparison.OrdinalIgnoreCase)
+            && HasTimeOverlap(startTime, endTime, other.StartTime, other.EndTime));
+    }
+
+    private static SchedulePlan ApplyScheduledMatchPlacement(
+        SchedulePlan schedule,
+        string matchName,
+        SchedulePlacement placement)
+    {
+        var matches = schedule.Matches
+            .Select(match => string.Equals(match.MatchName, matchName, StringComparison.Ordinal)
+                ? match with
+                {
+                    DayLabel = placement.DayLabel,
+                    StartTime = placement.StartTime,
+                    EndTime = placement.EndTime,
+                    Court = placement.Court
+                }
+                : match)
+            .ToList();
+        return schedule with { Matches = NormalizeScheduledMatchOrders(matches) };
+    }
+
+    private static void AddMovedItemIfChanged(
+        ICollection<ScheduleBoardCascadeMovedItem> movedItems,
+        IReadOnlyDictionary<string, ScheduledMatch> originalByName,
+        ScheduledMatch after,
+        int depth,
+        string eventName,
+        string reason)
+    {
+        if (!originalByName.TryGetValue(after.MatchName, out var before)
+            || (string.Equals(before.DayLabel, after.DayLabel, StringComparison.Ordinal)
+                && before.StartTime == after.StartTime
+                && before.EndTime == after.EndTime
+                && string.Equals(before.Court, after.Court, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        movedItems.Add(new ScheduleBoardCascadeMovedItem(
+            depth,
+            eventName,
+            after.MatchName,
+            before.DayLabel,
+            before.StartTime,
+            before.EndTime,
+            before.Court,
+            after.DayLabel,
+            after.StartTime,
+            after.EndTime,
+            after.Court,
+            reason));
+    }
+
+    private static IReadOnlyDictionary<string, int> BuildScheduleDayNumberLookup(
+        ScheduleSettings settings,
+        IReadOnlyList<ScheduledMatch> matches)
+    {
+        var result = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var day in settings.Days)
+        {
+            result[day.DayLabel] = day.Date.DayNumber;
+        }
+
+        var fallback = result.Count == 0 ? 1_000_000 : result.Values.Max() + 1;
+        foreach (var dayLabel in matches
+                     .Select(match => match.DayLabel)
+                     .Where(dayLabel => !result.ContainsKey(dayLabel))
+                     .Distinct(StringComparer.Ordinal)
+                     .OrderBy(dayLabel => dayLabel, StringComparer.Ordinal))
+        {
+            result[dayLabel] = DateOnly.TryParse(dayLabel, out var date)
+                ? date.DayNumber
+                : fallback++;
+        }
+
+        return result;
+    }
+
+    private static int BuildComparableMinute(
+        string dayLabel,
+        TimeOnly time,
+        IReadOnlyDictionary<string, int> dayNumbers)
+    {
+        var dayNumber = dayNumbers.TryGetValue(dayLabel, out var value) ? value : 0;
+        return (dayNumber * 24 * 60) + (time.Hour * 60) + time.Minute;
+    }
+
+    private static bool IsKeyCascadeMatch(ScheduledMatch match)
+    {
+        var text = $"{match.Phase} {match.MatchName}";
+        return text.Contains("决赛", StringComparison.Ordinal)
+               || text.Contains("半决赛", StringComparison.Ordinal)
+               || text.Contains("4进2", StringComparison.Ordinal)
+               || text.Contains("3/4", StringComparison.Ordinal)
+               || text.Contains("3-4", StringComparison.Ordinal)
+               || text.Contains("铜牌", StringComparison.Ordinal);
+    }
+
+    private static IReadOnlyList<ScheduleBoardCascadeMovePreviewItem> BuildCascadePreviewItems(
+        ScheduleDependencyGraph graph,
+        ScheduledMatch movedMatch,
+        IReadOnlySet<string>? completedMatchNames,
+        string eventName)
+    {
+        var edgesBySource = graph.Edges
+            .GroupBy(edge => edge.Source.MatchId, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(edge => edge.Dependent.DayLabel, StringComparer.Ordinal)
+                    .ThenBy(edge => edge.Dependent.StartTime)
+                    .ThenBy(edge => edge.Dependent.Court, StringComparer.Ordinal)
+                    .ThenBy(edge => edge.Dependent.MatchName, StringComparer.Ordinal)
+                    .ToList(),
+                StringComparer.Ordinal);
+        var result = new List<ScheduleBoardCascadeMovePreviewItem>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var queue = new Queue<(string MatchId, int Depth)>();
+        visited.Add(movedMatch.MatchId);
+        queue.Enqueue((movedMatch.MatchId, 0));
+
+        while (queue.Count > 0)
+        {
+            var (sourceMatchId, depth) = queue.Dequeue();
+            if (!edgesBySource.TryGetValue(sourceMatchId, out var edges))
+            {
+                continue;
+            }
+
+            foreach (var edge in edges)
+            {
+                if (!visited.Add(edge.Dependent.MatchId))
+                {
+                    continue;
+                }
+
+                var nextDepth = depth + 1;
+                var outcome = ScheduleDependencyGraph.FormatOutcome(edge.Dependency.Outcome);
+                result.Add(new ScheduleBoardCascadeMovePreviewItem(
+                    nextDepth,
+                    eventName,
+                    edge.Dependent.MatchName,
+                    edge.Dependent.DayLabel,
+                    edge.Dependent.StartTime,
+                    edge.Dependent.EndTime,
+                    edge.Dependent.Court,
+                    edge.Dependent.Phase,
+                    $"依赖 {edge.Source.MatchName} 的{outcome}",
+                    graph.GetRestMinutes(edge),
+                    completedMatchNames?.Contains(edge.Dependent.MatchName) == true));
+                queue.Enqueue((edge.Dependent.MatchId, nextDepth));
+            }
+        }
+
+        return result
+            .OrderBy(item => item.Depth)
+            .ThenBy(item => item.DayLabel, StringComparer.Ordinal)
+            .ThenBy(item => item.StartTime)
+            .ThenBy(item => item.Court, StringComparer.Ordinal)
+            .ThenBy(item => item.MatchName, StringComparer.Ordinal)
+            .ToList();
+    }
+
     private static bool IsRelevantMoveIssue(ScheduleConstraintIssue issue, string matchName)
     {
         return string.Equals(issue.MatchName, matchName, StringComparison.Ordinal)
@@ -773,6 +1304,16 @@ public sealed class ScheduleWorkflow
 
         public List<int> Durations { get; } = [];
     }
+
+    private sealed record CascadeDependencyNode(
+        int Depth,
+        ScheduleDependencyEdge Edge);
+
+    private sealed record SchedulePlacement(
+        string DayLabel,
+        TimeOnly StartTime,
+        TimeOnly EndTime,
+        string Court);
 }
 
 public sealed record ScheduleWorkflowRequest(

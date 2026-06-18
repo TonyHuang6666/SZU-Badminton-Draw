@@ -120,6 +120,99 @@ public sealed record ScheduleBoardMoveValidationResult(
     }
 }
 
+public sealed record ScheduleBoardCascadeMovePreview(
+    string MatchName,
+    string DayLabel,
+    TimeOnly StartTime,
+    TimeOnly EndTime,
+    string Court,
+    IReadOnlyList<ScheduleBoardCascadeMovePreviewItem>? AffectedMatches = null,
+    IReadOnlyList<ScheduleBoardCrossEventImpactPreviewItem>? CrossEventImpacts = null,
+    string CrossEventImpactNote = "")
+{
+    public IReadOnlyList<ScheduleBoardCascadeMovePreviewItem> AffectedMatches { get; init; } =
+        AffectedMatches ?? Array.Empty<ScheduleBoardCascadeMovePreviewItem>();
+
+    public IReadOnlyList<ScheduleBoardCrossEventImpactPreviewItem> CrossEventImpacts { get; init; } =
+        CrossEventImpacts ?? Array.Empty<ScheduleBoardCrossEventImpactPreviewItem>();
+
+    public bool HasAffectedMatches => AffectedMatches.Count > 0;
+
+    public bool HasCrossEventImpact => CrossEventImpacts.Count > 0 || !string.IsNullOrWhiteSpace(CrossEventImpactNote);
+
+    public bool HasPreviewItems => HasAffectedMatches || HasCrossEventImpact;
+
+    public string TargetText => $"{DayLabel} {StartTime:HH:mm}-{EndTime:HH:mm} · {Court}";
+}
+
+public sealed record ScheduleBoardCascadeMovePreviewItem(
+    int Depth,
+    string EventName,
+    string MatchName,
+    string DayLabel,
+    TimeOnly StartTime,
+    TimeOnly EndTime,
+    string Court,
+    string Phase,
+    string DependencyText,
+    int RestMinutes,
+    bool IsCompleted = false)
+{
+    public string TimeRange => $"{StartTime:HH:mm}-{EndTime:HH:mm}";
+
+    public string DisplayMatchName => string.IsNullOrWhiteSpace(EventName)
+        ? MatchName
+        : $"{EventName} · {MatchName}";
+}
+
+public sealed record ScheduleBoardCrossEventImpactPreviewItem(
+    CrossEventConflictSeverity Severity,
+    string PlayerName,
+    string EventName,
+    string MatchName,
+    string DayLabel,
+    TimeOnly StartTime,
+    TimeOnly EndTime,
+    string Court,
+    string Phase,
+    int? RestMinutes,
+    string Detail,
+    bool IsCompleted = false)
+{
+    public string TimeRange => $"{StartTime:HH:mm}-{EndTime:HH:mm}";
+}
+
+public sealed record ScheduleBoardCascadeMovedItem(
+    int Depth,
+    string EventName,
+    string MatchName,
+    string FromDayLabel,
+    TimeOnly FromStartTime,
+    TimeOnly FromEndTime,
+    string FromCourt,
+    string ToDayLabel,
+    TimeOnly ToStartTime,
+    TimeOnly ToEndTime,
+    string ToCourt,
+    string Reason)
+{
+    public string FromText => $"{FromDayLabel} {FromStartTime:HH:mm}-{FromEndTime:HH:mm} · {FromCourt}";
+
+    public string ToText => $"{ToDayLabel} {ToStartTime:HH:mm}-{ToEndTime:HH:mm} · {ToCourt}";
+}
+
+public sealed record ScheduleBoardCascadeMoveResult<TSchedule>(
+    TSchedule Schedule,
+    IReadOnlyList<ScheduleBoardCascadeMovedItem>? MovedMatches = null,
+    IReadOnlyList<string>? Messages = null)
+{
+    public IReadOnlyList<ScheduleBoardCascadeMovedItem> MovedMatches { get; init; } =
+        MovedMatches ?? Array.Empty<ScheduleBoardCascadeMovedItem>();
+
+    public IReadOnlyList<string> Messages { get; init; } =
+        Messages ?? Array.Empty<string>();
+}
+
 public static class ScheduleBoardDrag
 {
     public const string SingleEventPrefix = "schedule:";
