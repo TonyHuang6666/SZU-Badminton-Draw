@@ -112,11 +112,11 @@ artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
 GitHub CLI 示例：
 
 ```bash
-gh release create v4.2.0 \
-  artifacts/release/SZU-Badminton-Draw_Avalonia_macOS_osx-arm64_v4.2.0.dmg \
-  artifacts/release/SZU-Badminton-Draw_Avalonia_Windows_win-x64_v4.2.0.exe \
-  --title "Release 4.2.0" \
-  --notes-file /tmp/szu-badminton-release-4.2.0.md
+gh release create v4.3.0 \
+  artifacts/release/SZU-Badminton-Draw_Avalonia_macOS_osx-arm64_v4.3.0.dmg \
+  artifacts/release/SZU-Badminton-Draw_Avalonia_Windows_win-x64_v4.3.0.exe \
+  --title "Release 4.3.0" \
+  --notes-file /tmp/szu-badminton-release-4.3.0.md
 ```
 
 ## 示例名单
