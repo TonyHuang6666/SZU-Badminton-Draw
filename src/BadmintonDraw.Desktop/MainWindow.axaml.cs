@@ -460,6 +460,21 @@ public partial class MainWindow : Window
         TryGenerateSchedule();
     }
 
+    private void ScheduleAutoStrategyBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (!_uiReady || _latestResult is null)
+        {
+            return;
+        }
+
+        TryGenerateSchedule();
+    }
+
+    private void ScheduleTimingBoundaryBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        UpdateScheduleTimingSplitVisibility();
+    }
+
     private void AddScheduleDay_Click(object? sender, RoutedEventArgs e)
     {
         try
@@ -3567,7 +3582,8 @@ public partial class MainWindow : Window
             boundary > 0 ? boundary : null,
             boundary > 0 ? ParsePositiveInt(BeforeBoundaryMatchMinutesBox.Text, "分界线前每场分钟") : null,
             boundary > 0 ? ParsePositiveInt(GetSelectedComboBoxText(BeforeBoundaryMaxMatchesBox), "分界线前每日最多场") : null,
-            GetScheduleConstraintProfile());
+            GetScheduleConstraintProfile(),
+            GetScheduleAutoSchedulingStrategy());
     }
 
     private void AddCurrentScheduleDay(bool showStatus = true)
@@ -4436,9 +4452,20 @@ public partial class MainWindow : Window
 
     private void UpdateScheduleTimingSplitVisibility()
     {
+        if (ScheduleTimingSplitPanel is null
+            || BeforeBoundarySettingsPanel is null
+            || ScheduleDefaultTimingLabel is null
+            || ScheduleMaxMatchesLabel is null)
+        {
+            return;
+        }
+
         var showTimingSplit = ShouldShowScheduleTimingSplit();
+        var useTimingSplit = showTimingSplit && GetSelectedComboBoxTagInt(ScheduleTimingBoundaryBox) > 0;
         ScheduleTimingSplitPanel.IsVisible = showTimingSplit;
-        ScheduleDefaultTimingLabel.Text = showTimingSplit ? "分界线后设置" : "统一赛程设置";
+        BeforeBoundarySettingsPanel.IsVisible = useTimingSplit;
+        ScheduleDefaultTimingLabel.Text = useTimingSplit ? "分界线后设置（关键轮次）" : "统一赛程设置";
+        ScheduleMaxMatchesLabel.Text = useTimingSplit ? "本段最多场/日" : "每日最多场";
     }
 
     private bool ShouldShowScheduleTimingSplit()
@@ -5174,6 +5201,9 @@ public partial class MainWindow : Window
         }
 
         SelectComboBoxTag(ScheduleConstraintProfileBox, settings.ConstraintProfile.ToString());
+        ScheduleAutoStrategyBox.SelectionChanged -= ScheduleAutoStrategyBox_SelectionChanged;
+        SelectComboBoxTag(ScheduleAutoStrategyBox, settings.AutoSchedulingStrategy.ToString());
+        ScheduleAutoStrategyBox.SelectionChanged += ScheduleAutoStrategyBox_SelectionChanged;
     }
 
     private static void SelectComboBoxText(ComboBox comboBox, string value)
@@ -5566,6 +5596,17 @@ public partial class MainWindow : Window
         }
 
         return ScheduleConstraintProfile.Campus;
+    }
+
+    private ScheduleAutoSchedulingStrategy GetScheduleAutoSchedulingStrategy()
+    {
+        if (ScheduleAutoStrategyBox.SelectedItem is ComboBoxItem item
+            && Enum.TryParse<ScheduleAutoSchedulingStrategy>(item.Tag?.ToString(), out var strategy))
+        {
+            return strategy;
+        }
+
+        return ScheduleAutoSchedulingStrategy.BalancedRelaxed;
     }
 
     private static int ParsePositiveInt(string? value, string fieldName)

@@ -469,6 +469,10 @@ public sealed class CrossEventConflictWorkflow
             outputDirectory,
             BuildMergedPackageFolderName(dayLabels));
         var outputPaths = new List<string>();
+        var auditPath = Path.Combine(packageDirectory, "多项目排程检查报告.xlsx");
+        _writer.WriteScheduleAudit(auditPath, board);
+        outputPaths.Add(auditPath);
+
         foreach (var dayLabel in dayLabels)
         {
             var recordPath = Path.Combine(packageDirectory, BuildDefaultMergedMatchRecordFileName(dayLabel));
@@ -486,6 +490,14 @@ public sealed class CrossEventConflictWorkflow
                 WorkflowExportFormat.A4Pdf,
                 schedule,
                 dayLabel));
+
+            var scoreSheetPath = Path.Combine(packageDirectory, BuildDefaultMergedScoreSheetFileName(dayLabel));
+            _scheduleWorkflow.ExportIndividualScoreSheetPdf(
+                scoreSheetPath,
+                schedule,
+                "多项目合并赛程",
+                dayLabel);
+            outputPaths.Add(scoreSheetPath);
         }
 
         return new CrossEventMergedMaterialsExportResult(packageDirectory, outputPaths, schedule, dayLabels);
@@ -561,6 +573,11 @@ public sealed class CrossEventConflictWorkflow
     private static string BuildDefaultMergedDailyScheduleFileName(string dayLabel)
     {
         return $"{WorkflowFileNames.Sanitize(BuildDayFileNameStem(dayLabel, "合并赛程安排表"))}.xlsx";
+    }
+
+    private static string BuildDefaultMergedScoreSheetFileName(string dayLabel)
+    {
+        return $"{WorkflowFileNames.Sanitize(BuildDayFileNameStem(dayLabel, "合并单场比赛计分表"))}.pdf";
     }
 
     private static string BuildMergedPackageFolderName(IReadOnlyList<string> dayLabels)

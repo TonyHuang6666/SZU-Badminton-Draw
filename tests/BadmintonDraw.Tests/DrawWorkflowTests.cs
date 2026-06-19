@@ -549,6 +549,38 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void ScheduleServiceDoesNotAddBoundaryDailyLimitsOnSameDay()
+    {
+        var participants = CreateParticipants(8);
+        var result = new DrawService().Generate(
+            participants,
+            CreateSettings(
+                groupCount: 1,
+                mode: CompetitionMode.SinglesKnockout,
+                knockoutGoal: KnockoutGoal.Champion));
+
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 14), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1"]),
+                    new ScheduleDaySettings(new DateOnly(2026, 6, 15), new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1"])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 1,
+                KnockoutTimingBoundaryEntrants: 4,
+                BeforeBoundaryTiming: new ScheduleTimingSettings(MatchMinutes: 20, MaxMatchesPerEntrantPerDay: 1)));
+
+        Assert.True(schedule.IsComplete);
+        Assert.All(
+            schedule.Matches.Where(match => match.Phase == "半决赛"),
+            match => Assert.NotEqual("2026-06-13", match.DayLabel));
+        Assert.Contains(schedule.Matches, match => match.Phase == "半决赛" && match.DayLabel == "2026-06-14");
+        Assert.Contains(schedule.Matches, match => match.Phase == "决赛" && match.DayLabel == "2026-06-15");
+    }
+
+    [Fact]
     public void ScheduleServiceClearsEarlierKnockoutStagesBeforeAdvancingDeeply()
     {
         var participants = CreateParticipants(159);
@@ -1190,6 +1222,48 @@ public sealed class DrawWorkflowTests
         Assert.Equal(3, settings.BeforeBoundaryTiming.MaxMatchesPerEntrantPerDay);
         Assert.Equal(["B1", "B2"], settings.Days[0].Courts);
         Assert.Equal(["C1", "C2"], settings.Days[1].Courts);
+    }
+
+    [Fact]
+    public void SingleEventAutoSchedulingStrategySpreadsLoadWhenBalancedRelaxed()
+    {
+        var participants = CreateParticipants(32);
+        var result = new DrawService().Generate(
+            participants,
+            CreateSettings(
+                groupCount: 1,
+                mode: CompetitionMode.SinglesKnockout,
+                knockoutGoal: KnockoutGoal.Champion));
+        var days = new[]
+        {
+            new ScheduleDayWorkflowRequest(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), "运动广场东馆羽毛球场", "B1"),
+            new ScheduleDayWorkflowRequest(new DateOnly(2026, 6, 14), new TimeOnly(14, 0), new TimeOnly(18, 0), "运动广场东馆羽毛球场", "B1"),
+            new ScheduleDayWorkflowRequest(new DateOnly(2026, 6, 15), new TimeOnly(14, 0), new TimeOnly(18, 0), "运动广场东馆羽毛球场", "B1")
+        };
+        var compact = new ScheduleService().Generate(
+            result,
+            ScheduleWorkflow.BuildSettings(
+                days,
+                matchMinutes: 20,
+                maxMatchesPerEntrantPerDay: 10,
+                autoSchedulingStrategy: ScheduleAutoSchedulingStrategy.Compact));
+        var balanced = new ScheduleService().Generate(
+            result,
+            ScheduleWorkflow.BuildSettings(
+                days,
+                matchMinutes: 20,
+                maxMatchesPerEntrantPerDay: 10,
+                autoSchedulingStrategy: ScheduleAutoSchedulingStrategy.BalancedRelaxed));
+
+        var compactFirstDay = compact.Matches.Count(match => match.DayLabel == "2026-06-13");
+        var balancedFirstDay = balanced.Matches.Count(match => match.DayLabel == "2026-06-13");
+        var compactLastDay = compact.Matches.Count(match => match.DayLabel == "2026-06-15");
+        var balancedLastDay = balanced.Matches.Count(match => match.DayLabel == "2026-06-15");
+
+        Assert.True(compact.IsComplete);
+        Assert.True(balanced.IsComplete);
+        Assert.True(balancedFirstDay < compactFirstDay);
+        Assert.True(balancedLastDay > compactLastDay);
     }
 
     [Fact]
@@ -2839,15 +2913,17 @@ public sealed class DrawWorkflowTests
 
             Assert.Equal(0, board.Report.SevereCount);
             Assert.Equal(["2026-06-13"], result.DayLabels);
-            Assert.Equal(3, result.OutputPaths.Count);
+            Assert.Equal(5, result.OutputPaths.Count);
             Assert.NotEqual(outputDirectory, result.OutputDirectory);
             Assert.True(Directory.Exists(result.OutputDirectory));
             Assert.All(result.OutputPaths, path => Assert.StartsWith(result.OutputDirectory, path, StringComparison.Ordinal));
             Assert.Contains(result.Schedule.Matches, match => match.MatchName == "男单 · 第1场");
             Assert.Contains(result.Schedule.Matches, match => match.MatchName == "混双 · 第1场");
             Assert.All(result.OutputPaths, path => Assert.True(File.Exists(path), path));
+            Assert.Contains(result.OutputPaths, path => path.EndsWith("多项目排程检查报告.xlsx", StringComparison.Ordinal));
             Assert.Contains(result.OutputPaths, path => path.EndsWith("合并赛程记录表.xlsx", StringComparison.Ordinal));
             Assert.Contains(result.OutputPaths, path => path.EndsWith("合并赛程安排表.pdf", StringComparison.Ordinal));
+            Assert.Contains(result.OutputPaths, path => path.EndsWith("合并单场比赛计分表.pdf", StringComparison.Ordinal));
         }
         finally
         {

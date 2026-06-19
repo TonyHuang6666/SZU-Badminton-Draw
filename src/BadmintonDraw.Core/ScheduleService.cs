@@ -633,6 +633,8 @@ public sealed class ScheduleService
         var remaining = matches.ToDictionary(match => match.Id);
         var scheduledById = new Dictionary<int, ScheduledAssignment>();
         var scheduled = new List<ScheduledMatch>(matches.Count);
+        var dayLoadTargets = BuildDayLoadTargets(matches, settings);
+        var scheduledMinutesByDay = settings.Days.ToDictionary(day => day.DayLabel, _ => 0, StringComparer.Ordinal);
         var order = 1;
 
         foreach (var day in settings.Days.OrderBy(day => day.Date))
@@ -667,7 +669,13 @@ public sealed class ScheduleService
                             currentStart,
                             remaining.Values,
                             scheduledById,
-                            dailyAssignments))
+                            dailyAssignments)
+                            && IsWithinDayLoadTarget(
+                                day,
+                                candidate.Timing,
+                                scheduledMinutesByDay,
+                                dayLoadTargets,
+                                settings.MaximumMatchMinutes))
                         .OrderBy(candidate => GetSchedulingStageRank(candidate.Match))
                         .ThenBy(candidate => GetRestSortKey(candidate.Match, currentStart, dailyAssignments))
                         .ThenBy(candidate => candidate.Match.Id)
@@ -707,6 +715,7 @@ public sealed class ScheduleService
                         candidate.Timing.Bucket);
                     scheduledById[candidate.Match.Id] = assignment;
                     dailyAssignments.Add(assignment);
+                    scheduledMinutesByDay[day.DayLabel] = scheduledMinutesByDay.GetValueOrDefault(day.DayLabel) + candidate.Timing.MatchMinutes;
                     remaining.Remove(candidate.Match.Id);
                     courtAvailableAt[court] = slotEnd;
                 }
@@ -727,6 +736,99 @@ public sealed class ScheduleService
             scheduled,
             settings,
             BuildUnscheduledPreviews(remaining.Values, scheduledById.Keys.ToHashSet(), scheduled.Count));
+    }
+
+    private static IReadOnlyDictionary<string, double> BuildDayLoadTargets(
+        IReadOnlyList<UnscheduledMatch> matches,
+        ScheduleSettings settings)
+    {
+        var orderedDays = settings.Days.OrderBy(day => day.Date).ToList();
+        var capacities = orderedDays.ToDictionary(
+            day => day.DayLabel,
+            day => Math.Max(0, (day.DayEnd - day.DayStart).TotalMinutes) * Math.Max(1, day.Courts.Count),
+            StringComparer.Ordinal);
+        if (settings.AutoSchedulingStrategy == ScheduleAutoSchedulingStrategy.Compact || orderedDays.Count <= 1)
+        {
+            return capacities;
+        }
+
+        var totalMinutes = matches.Sum(match => ResolveTiming(match, settings).MatchMinutes);
+        var totalCapacity = Math.Max(1d, capacities.Values.Sum());
+        var totalUtilization = totalMinutes / totalCapacity;
+        var targets = new Dictionary<string, double>(StringComparer.Ordinal);
+
+        if (settings.AutoSchedulingStrategy == ScheduleAutoSchedulingStrategy.FinalsDayFriendly)
+        {
+            var lastDay = orderedDays.Last().DayLabel;
+            var regularUtilization = Math.Clamp(totalUtilization * 0.95, 0.25, 0.70);
+            foreach (var day in orderedDays)
+            {
+                targets[day.DayLabel] = string.Equals(day.DayLabel, lastDay, StringComparison.Ordinal)
+                    ? capacities[day.DayLabel]
+                    : capacities[day.DayLabel] * regularUtilization;
+            }
+        }
+        else
+        {
+            var balancedUtilization = Math.Clamp(totalUtilization * 1.15, 0.35, 0.85);
+            foreach (var day in orderedDays)
+            {
+                targets[day.DayLabel] = capacities[day.DayLabel] * balancedUtilization;
+            }
+        }
+
+        EnsureTotalTargetCapacity(orderedDays, capacities, targets, totalMinutes);
+        return targets;
+    }
+
+    private static void EnsureTotalTargetCapacity(
+        IReadOnlyList<ScheduleDaySettings> orderedDays,
+        IReadOnlyDictionary<string, double> capacities,
+        IDictionary<string, double> targets,
+        double totalMinutes)
+    {
+        var deficit = totalMinutes - targets.Values.Sum();
+        if (deficit <= 0)
+        {
+            return;
+        }
+
+        foreach (var day in orderedDays.Reverse())
+        {
+            var current = targets[day.DayLabel];
+            var capacity = capacities[day.DayLabel];
+            var room = Math.Max(0, capacity - current);
+            if (room <= 0)
+            {
+                continue;
+            }
+
+            var added = Math.Min(room, deficit);
+            targets[day.DayLabel] = current + added;
+            deficit -= added;
+            if (deficit <= 0)
+            {
+                return;
+            }
+        }
+    }
+
+    private static bool IsWithinDayLoadTarget(
+        ScheduleDaySettings day,
+        ResolvedScheduleTiming timing,
+        IReadOnlyDictionary<string, int> scheduledMinutesByDay,
+        IReadOnlyDictionary<string, double> dayLoadTargets,
+        int maximumMatchMinutes)
+    {
+        var capacity = Math.Max(0, (day.DayEnd - day.DayStart).TotalMinutes) * Math.Max(1, day.Courts.Count);
+        var target = dayLoadTargets.TryGetValue(day.DayLabel, out var value) ? value : capacity;
+        if (target >= capacity)
+        {
+            return true;
+        }
+
+        var scheduledMinutes = scheduledMinutesByDay.TryGetValue(day.DayLabel, out var minutes) ? minutes : 0;
+        return scheduledMinutes + timing.MatchMinutes <= target + maximumMatchMinutes;
     }
 
     private static IReadOnlyList<UnscheduledMatchPreview> BuildUnscheduledPreviews(
@@ -791,7 +893,11 @@ public sealed class ScheduleService
             .Where(assignment => assignment.TimingBucket == timing.Bucket)
             .Select(assignment => assignment.EntrantPaths)
             .ToList();
-        return !WouldExceedDailyLimit(match, sameTimingBucketMatches, timing.MaxMatchesPerEntrantPerDay);
+        var allTimingBucketMatches = dailyAssignments
+            .Select(assignment => assignment.EntrantPaths)
+            .ToList();
+        return !WouldExceedDailyLimit(match, allTimingBucketMatches, timing.MaxMatchesPerEntrantPerDayAcrossDay)
+               && !WouldExceedDailyLimit(match, sameTimingBucketMatches, timing.MaxMatchesPerEntrantPerDay);
     }
 
     private static bool IsDependencyCompleted(
@@ -812,13 +918,17 @@ public sealed class ScheduleService
             return new ResolvedScheduleTiming(
                 ScheduleTimingBucket.BeforeBoundary,
                 timing.MatchMinutes,
-                timing.MaxMatchesPerEntrantPerDay);
+                timing.MaxMatchesPerEntrantPerDay,
+                Math.Max(timing.MaxMatchesPerEntrantPerDay, settings.MaxMatchesPerEntrantPerDay));
         }
 
         return new ResolvedScheduleTiming(
             ScheduleTimingBucket.Default,
             settings.MatchMinutes,
-            settings.MaxMatchesPerEntrantPerDay);
+            settings.MaxMatchesPerEntrantPerDay,
+            settings.HasKnockoutTimingSplit
+                ? Math.Max(settings.MaxMatchesPerEntrantPerDay, settings.BeforeBoundaryTiming!.MaxMatchesPerEntrantPerDay)
+                : settings.MaxMatchesPerEntrantPerDay);
     }
 
     private static bool IsBeforeBoundaryTiming(UnscheduledMatch match, ScheduleSettings settings)
@@ -1289,7 +1399,8 @@ public sealed class ScheduleService
     private readonly record struct ResolvedScheduleTiming(
         ScheduleTimingBucket Bucket,
         int MatchMinutes,
-        int MaxMatchesPerEntrantPerDay);
+        int MaxMatchesPerEntrantPerDay,
+        int MaxMatchesPerEntrantPerDayAcrossDay);
 
     private enum ScheduleTimingBucket
     {

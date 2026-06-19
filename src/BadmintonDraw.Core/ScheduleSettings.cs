@@ -2,6 +2,13 @@ using System.Text.Json.Serialization;
 
 namespace BadmintonDraw.Core;
 
+public enum ScheduleAutoSchedulingStrategy
+{
+    Compact = 0,
+    BalancedRelaxed = 1,
+    FinalsDayFriendly = 2
+}
+
 [method: JsonConstructor]
 public sealed record ScheduleSettings(
     IReadOnlyList<ScheduleDaySettings> Days,
@@ -11,6 +18,8 @@ public sealed record ScheduleSettings(
     ScheduleTimingSettings? BeforeBoundaryTiming = null)
 {
     public ScheduleConstraintProfile ConstraintProfile { get; init; } = ScheduleConstraintProfile.Campus;
+
+    public ScheduleAutoSchedulingStrategy AutoSchedulingStrategy { get; init; } = ScheduleAutoSchedulingStrategy.Compact;
 
     public bool HasKnockoutTimingSplit => KnockoutTimingBoundaryEntrants is > 0 && BeforeBoundaryTiming is not null;
 
@@ -32,7 +41,8 @@ public sealed record ScheduleSettings(
         int MaxMatchesPerEntrantPerDay = 2,
         int? KnockoutTimingBoundaryEntrants = null,
         ScheduleTimingSettings? BeforeBoundaryTiming = null,
-        ScheduleConstraintProfile constraintProfile = ScheduleConstraintProfile.Campus)
+        ScheduleConstraintProfile constraintProfile = ScheduleConstraintProfile.Campus,
+        ScheduleAutoSchedulingStrategy autoSchedulingStrategy = ScheduleAutoSchedulingStrategy.Compact)
         : this(
             [new ScheduleDaySettings(StartDate ?? DateOnly.FromDateTime(DateTime.Today), DayStart, DayEnd, Courts)],
             MatchMinutes,
@@ -41,6 +51,7 @@ public sealed record ScheduleSettings(
             BeforeBoundaryTiming)
     {
         ConstraintProfile = constraintProfile;
+        AutoSchedulingStrategy = autoSchedulingStrategy;
     }
 
     public IReadOnlyList<string> Courts => Days.FirstOrDefault()?.Courts ?? [];

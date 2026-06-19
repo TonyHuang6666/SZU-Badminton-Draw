@@ -441,29 +441,33 @@
                                     <StackPanel x:Name="ScheduleTimingSplitPanel" IsVisible="False">
                                         <TextBlock Classes="field-label" Text="淘汰赛赛程分界线" />
                                         <TextBlock Classes="field-label" Text="分界线" />
-                                        <ComboBox x:Name="ScheduleTimingBoundaryBox" SelectedIndex="1">
+                                        <ComboBox x:Name="ScheduleTimingBoundaryBox"
+                                                  SelectedIndex="1"
+                                                  SelectionChanged="ScheduleTimingBoundaryBox_SelectionChanged">
                                             <ComboBoxItem Content="不使用" Tag="0" />
                                             <ComboBoxItem Content="8强" Tag="8" />
                                             <ComboBoxItem Content="16强" Tag="16" />
                                             <ComboBoxItem Content="32强" Tag="32" />
                                         </ComboBox>
 
-                                        <TextBlock Classes="field-label" Text="分界线前设置" Margin="0,10,0,0" />
-                                        <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
-                                            <StackPanel>
-                                                <TextBlock Classes="field-label" Text="每场分钟" />
-                                                <TextBox x:Name="BeforeBoundaryMatchMinutesBox" Text="20" />
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="1">
-                                                <TextBlock Classes="field-label" Text="每日最多场" />
-                                                <ComboBox x:Name="BeforeBoundaryMaxMatchesBox" SelectedIndex="2">
-                                                    <ComboBoxItem Content="1" />
-                                                    <ComboBoxItem Content="2" />
-                                                    <ComboBoxItem Content="3" />
-                                                    <ComboBoxItem Content="4" />
-                                                </ComboBox>
-                                            </StackPanel>
-                                        </Grid>
+                                        <StackPanel x:Name="BeforeBoundarySettingsPanel" IsVisible="False">
+                                            <TextBlock Classes="field-label" Text="分界线前设置（短赛制）" Margin="0,10,0,0" />
+                                            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                                <StackPanel>
+                                                    <TextBlock Classes="field-label" Text="每场分钟" />
+                                                    <TextBox x:Name="BeforeBoundaryMatchMinutesBox" Text="20" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock Classes="field-label" Text="本段最多场/日" />
+                                                    <ComboBox x:Name="BeforeBoundaryMaxMatchesBox" SelectedIndex="2">
+                                                        <ComboBoxItem Content="1" />
+                                                        <ComboBoxItem Content="2" />
+                                                        <ComboBoxItem Content="3" />
+                                                        <ComboBoxItem Content="4" />
+                                                    </ComboBox>
+                                                </StackPanel>
+                                            </Grid>
+                                        </StackPanel>
                                     </StackPanel>
 
                                     <TextBlock x:Name="ScheduleDefaultTimingLabel"
@@ -475,7 +479,9 @@
                                             <TextBox x:Name="ScheduleMatchMinutesBox" Text="30" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1">
-                                            <TextBlock Classes="field-label" Text="每日最多场" />
+                                            <TextBlock x:Name="ScheduleMaxMatchesLabel"
+                                                       Classes="field-label"
+                                                       Text="每日最多场" />
                                             <ComboBox x:Name="ScheduleMaxMatchesBox" SelectedIndex="1">
                                                 <ComboBoxItem Content="1" />
                                                 <ComboBoxItem Content="2" />
@@ -484,6 +490,19 @@
                                             </ComboBox>
                                         </StackPanel>
                                     </Grid>
+
+                                    <TextBlock Classes="field-label" Text="自动编排策略" />
+                                    <ComboBox x:Name="ScheduleAutoStrategyBox"
+                                              SelectedIndex="1"
+                                              SelectionChanged="ScheduleAutoStrategyBox_SelectionChanged">
+                                        <ComboBoxItem Content="紧凑完成" Tag="Compact" />
+                                        <ComboBoxItem Content="均衡宽松（推荐）" Tag="BalancedRelaxed" />
+                                        <ComboBoxItem Content="决赛日友好" Tag="FinalsDayFriendly" />
+                                    </ComboBox>
+                                    <TextBlock Text="策略会影响单项目生成时每日负载和重要场次位置；切换后会按当前抽签结果重新生成赛程。"
+                                               Foreground="#64748B"
+                                               TextWrapping="Wrap"
+                                               Margin="0,6,0,0" />
 
                                     <TextBlock Classes="field-label" Text="高级约束提醒" />
                                     <ComboBox x:Name="ScheduleConstraintProfileBox" SelectedIndex="0">

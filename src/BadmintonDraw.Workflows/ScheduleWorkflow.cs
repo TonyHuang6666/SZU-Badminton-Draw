@@ -511,7 +511,8 @@ public sealed class ScheduleWorkflow
         int? knockoutTimingBoundaryEntrants = null,
         int? beforeBoundaryMatchMinutes = null,
         int? beforeBoundaryMaxMatchesPerEntrantPerDay = null,
-        ScheduleConstraintProfile constraintProfile = ScheduleConstraintProfile.Campus)
+        ScheduleConstraintProfile constraintProfile = ScheduleConstraintProfile.Campus,
+        ScheduleAutoSchedulingStrategy autoSchedulingStrategy = ScheduleAutoSchedulingStrategy.Compact)
     {
         if (days.Count == 0)
         {
@@ -556,7 +557,8 @@ public sealed class ScheduleWorkflow
             knockoutTimingBoundaryEntrants,
             beforeBoundaryTiming)
         {
-            ConstraintProfile = constraintProfile
+            ConstraintProfile = constraintProfile,
+            AutoSchedulingStrategy = autoSchedulingStrategy
         };
     }
 
@@ -789,11 +791,22 @@ public sealed class ScheduleWorkflow
 
         if (!settings.HasKnockoutTimingSplit)
         {
-            return $"每日上限{settings.MaxMatchesPerEntrantPerDay}场；{BuildCapacity(settings.MatchMinutes)}";
+            return $"{BuildScheduleStrategyText(settings.AutoSchedulingStrategy)}；每日上限{settings.MaxMatchesPerEntrantPerDay}场；{BuildCapacity(settings.MatchMinutes)}";
         }
 
-        return $"分界线前每日上限{settings.BeforeBoundaryTiming!.MaxMatchesPerEntrantPerDay}场、每场{settings.BeforeBoundaryTiming.MatchMinutes}分钟：{BuildCapacity(settings.BeforeBoundaryTiming.MatchMinutes)}；"
+        return $"{BuildScheduleStrategyText(settings.AutoSchedulingStrategy)}；"
+            + $"分界线前每日上限{settings.BeforeBoundaryTiming!.MaxMatchesPerEntrantPerDay}场、每场{settings.BeforeBoundaryTiming.MatchMinutes}分钟：{BuildCapacity(settings.BeforeBoundaryTiming.MatchMinutes)}；"
             + $"分界线后每日上限{settings.MaxMatchesPerEntrantPerDay}场、每场{settings.MatchMinutes}分钟：{BuildCapacity(settings.MatchMinutes)}";
+    }
+
+    public static string BuildScheduleStrategyText(ScheduleAutoSchedulingStrategy strategy)
+    {
+        return strategy switch
+        {
+            ScheduleAutoSchedulingStrategy.Compact => "紧凑完成",
+            ScheduleAutoSchedulingStrategy.FinalsDayFriendly => "决赛日友好",
+            _ => "均衡宽松"
+        };
     }
 
     public static string? GetNextMatchRecordDayLabel(SchedulePlan plan, MatchRecordImportResult importResult)
