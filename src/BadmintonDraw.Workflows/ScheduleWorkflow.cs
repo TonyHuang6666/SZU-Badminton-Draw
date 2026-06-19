@@ -512,7 +512,8 @@ public sealed class ScheduleWorkflow
         int? beforeBoundaryMatchMinutes = null,
         int? beforeBoundaryMaxMatchesPerEntrantPerDay = null,
         ScheduleConstraintProfile constraintProfile = ScheduleConstraintProfile.Campus,
-        ScheduleAutoSchedulingStrategy autoSchedulingStrategy = ScheduleAutoSchedulingStrategy.Compact)
+        ScheduleAutoSchedulingStrategy autoSchedulingStrategy = ScheduleAutoSchedulingStrategy.Compact,
+        int? refereeCount = null)
     {
         if (days.Count == 0)
         {
@@ -555,7 +556,8 @@ public sealed class ScheduleWorkflow
             matchMinutes,
             maxMatchesPerEntrantPerDay,
             knockoutTimingBoundaryEntrants,
-            beforeBoundaryTiming)
+            beforeBoundaryTiming,
+            refereeCount)
         {
             ConstraintProfile = constraintProfile,
             AutoSchedulingStrategy = autoSchedulingStrategy
@@ -785,7 +787,11 @@ public sealed class ScheduleWorkflow
             {
                 var minutes = (day.DayEnd - day.DayStart).TotalMinutes;
                 var slots = Math.Max(0, (int)Math.Floor(minutes / minutesPerMatch));
-                return $"{day.DayLabel} {day.Courts.Count}片/{slots * day.Courts.Count}场";
+                var concurrentLimit = GetEffectiveConcurrentMatchLimit(day, settings.RefereeCount);
+                var refereeText = settings.RefereeCount is > 0
+                    ? $"{settings.RefereeCount.Value}名裁判/"
+                    : "";
+                return $"{day.DayLabel} {day.Courts.Count}片/{refereeText}{slots * concurrentLimit}场";
             }));
         }
 
@@ -797,6 +803,14 @@ public sealed class ScheduleWorkflow
         return $"{BuildScheduleStrategyText(settings.AutoSchedulingStrategy)}；"
             + $"分界线前每日上限{settings.BeforeBoundaryTiming!.MaxMatchesPerEntrantPerDay}场、每场{settings.BeforeBoundaryTiming.MatchMinutes}分钟：{BuildCapacity(settings.BeforeBoundaryTiming.MatchMinutes)}；"
             + $"分界线后每日上限{settings.MaxMatchesPerEntrantPerDay}场、每场{settings.MatchMinutes}分钟：{BuildCapacity(settings.MatchMinutes)}";
+    }
+
+    private static int GetEffectiveConcurrentMatchLimit(ScheduleDaySettings day, int? refereeCount)
+    {
+        var courtCount = Math.Max(1, day.Courts.Count);
+        return refereeCount is > 0
+            ? Math.Max(1, Math.Min(courtCount, refereeCount.Value))
+            : courtCount;
     }
 
     public static string BuildScheduleStrategyText(ScheduleAutoSchedulingStrategy strategy)

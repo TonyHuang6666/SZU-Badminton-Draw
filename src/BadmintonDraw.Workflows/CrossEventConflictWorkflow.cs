@@ -168,6 +168,11 @@ public sealed class CrossEventConflictWorkflow
             throw new DrawValidationException("目标时间和场地已有比赛，请选择空位后再调整。");
         }
 
+        if (WouldExceedRefereeCapacity(board, itemKey, dayLabel, startTime, endTime, board.SchedulingOptions?.RefereeCount))
+        {
+            throw new DrawValidationException("目标时间段已达到裁判人数可承载的同时比赛上限。");
+        }
+
         var sources = board.Sources
             .Select(source => MoveMatchInSource(source, itemKey, dayLabel, startTime, endTime, court))
             .ToList();
@@ -310,7 +315,7 @@ public sealed class CrossEventConflictWorkflow
                 entry => new GlobalSchedulePlacement(entry.Match.DayLabel, entry.Match.StartTime, entry.Match.EndTime, entry.Match.Court),
                 StringComparer.Ordinal);
         var targetPlacement = BuildTargetGlobalPlacement(board, rootEntry, dayLabel, startTime, court);
-        if (!IsGlobalPlacementValid(board, rootEntry, targetPlacement, placements, entryLookup, dayNumbers))
+        if (!IsGlobalPlacementValid(board, rootEntry, targetPlacement, placements, entryLookup, dayNumbers, board.SchedulingOptions?.RefereeCount))
         {
             throw new DrawValidationException("无法连锁移动：当前场次目标位置不满足场地、依赖或兼项休息约束。");
         }
@@ -760,7 +765,7 @@ public sealed class CrossEventConflictWorkflow
 
         var capacityByDay = orderedDays.ToDictionary(
             day => day.DayLabel,
-            CalculateDayCapacityMinutes,
+            day => CalculateDayCapacityMinutes(day, null),
             StringComparer.Ordinal);
         var totalMinutes = Math.Max(1, board.Items.Sum(item => item.DurationMinutes));
         var targets = BuildDefaultDayLoadTargets(orderedDays, capacityByDay, totalMinutes, strategy);
@@ -1331,7 +1336,7 @@ public sealed class CrossEventConflictWorkflow
             .ToDictionary(pair => pair.DayLabel, pair => pair.Index, StringComparer.Ordinal);
         var dayCapacity = orderedDays.ToDictionary(
             day => day.DayLabel,
-            CalculateDayCapacityMinutes,
+            day => CalculateDayCapacityMinutes(day, options.RefereeCount),
             StringComparer.Ordinal);
         var loadTargets = BuildResolvedDayLoadTargets(orderedDays, dayCapacity, entries, options);
         var waveTargets = BuildResolvedStageWaveTargets(orderedDays, options);
@@ -1406,10 +1411,47 @@ public sealed class CrossEventConflictWorkflow
             .ToList();
     }
 
-    private static int CalculateDayCapacityMinutes(CrossEventScheduleBoardDay day)
+    private static int CalculateDayCapacityMinutes(CrossEventScheduleBoardDay day, int? refereeCount)
     {
         var availableMinutes = Math.Max(0, (int)(day.EndTime - day.StartTime).TotalMinutes);
-        return Math.Max(1, availableMinutes * Math.Max(1, day.Courts.Count));
+        return Math.Max(1, availableMinutes * GetConcurrentMatchLimit(day, refereeCount));
+    }
+
+    private static int GetConcurrentMatchLimit(CrossEventScheduleBoardDay day, int? refereeCount)
+    {
+        var courtCount = Math.Max(1, day.Courts.Count);
+        return refereeCount is > 0
+            ? Math.Max(1, Math.Min(courtCount, refereeCount.Value))
+            : courtCount;
+    }
+
+    private static bool WouldExceedRefereeCapacity(
+        CrossEventScheduleBoard board,
+        string itemKey,
+        string dayLabel,
+        TimeOnly startTime,
+        TimeOnly endTime,
+        int? refereeCount,
+        IReadOnlyDictionary<string, GlobalSchedulePlacement>? placements = null)
+    {
+        var day = board.Days.FirstOrDefault(candidate => string.Equals(candidate.DayLabel, dayLabel, StringComparison.Ordinal));
+        if (day is null)
+        {
+            return false;
+        }
+
+        var concurrentLimit = GetConcurrentMatchLimit(day, refereeCount);
+        var overlappingMatches = placements is null
+            ? board.Items.Count(item =>
+                !string.Equals(item.Key, itemKey, StringComparison.Ordinal)
+                && string.Equals(item.DayLabel, dayLabel, StringComparison.Ordinal)
+                && TimeRangesOverlap(startTime, endTime, item.StartTime, item.EndTime))
+            : placements.Count(pair =>
+                !string.Equals(pair.Key, itemKey, StringComparison.Ordinal)
+                && string.Equals(pair.Value.DayLabel, dayLabel, StringComparison.Ordinal)
+                && TimeRangesOverlap(startTime, endTime, pair.Value.StartTime, pair.Value.EndTime));
+
+        return overlappingMatches >= concurrentLimit;
     }
 
     private static int FindDesiredStageDayIndex(GlobalScheduleEntry entry, GlobalSchedulingContext context)
@@ -1557,7 +1599,7 @@ public sealed class CrossEventConflictWorkflow
                 foreach (var court in day.Courts)
                 {
                     var placement = new GlobalSchedulePlacement(day.DayLabel, slot, endTime, court);
-                    if (!IsGlobalPlacementValid(board, entry, placement, placements, entryLookup, dayNumbers))
+                    if (!IsGlobalPlacementValid(board, entry, placement, placements, entryLookup, dayNumbers, schedulingContext.Options.RefereeCount))
                     {
                         continue;
                     }
@@ -1581,8 +1623,14 @@ public sealed class CrossEventConflictWorkflow
         GlobalSchedulePlacement placement,
         IReadOnlyDictionary<string, GlobalSchedulePlacement> placements,
         IReadOnlyDictionary<string, GlobalScheduleEntry> entryLookup,
-        IReadOnlyDictionary<string, int> dayNumbers)
+        IReadOnlyDictionary<string, int> dayNumbers,
+        int? refereeCount)
     {
+        if (WouldExceedRefereeCapacity(board, entry.Key, placement.DayLabel, placement.StartTime, placement.EndTime, refereeCount, placements))
+        {
+            return false;
+        }
+
         var startMinute = BuildComparableMinute(placement.DayLabel, placement.StartTime, dayNumbers);
         var endMinute = BuildComparableMinute(placement.DayLabel, placement.EndTime, dayNumbers);
         foreach (var dependencyKey in entry.DependencyKeys)
@@ -1962,7 +2010,7 @@ public sealed class CrossEventConflictWorkflow
                 foreach (var court in day.Courts)
                 {
                     var placement = new GlobalSchedulePlacement(day.DayLabel, slot, endTime, court);
-                    if (IsGlobalPlacementValid(board, entry, placement, placements, entryLookup, dayNumbers))
+                    if (IsGlobalPlacementValid(board, entry, placement, placements, entryLookup, dayNumbers, board.SchedulingOptions?.RefereeCount))
                     {
                         return placement;
                     }
@@ -2280,7 +2328,11 @@ public sealed class CrossEventConflictWorkflow
             .Select(match => match.DurationMinutes)
             .DefaultIfEmpty(20)
             .Min();
-        return new ScheduleSettings(days, matchMinutes, MaxMatchesPerEntrantPerDay: 2);
+        return new ScheduleSettings(
+            days,
+            matchMinutes,
+            MaxMatchesPerEntrantPerDay: 2,
+            RefereeCount: board.SchedulingOptions?.RefereeCount);
     }
 
     private static string BuildMergedMatchName(

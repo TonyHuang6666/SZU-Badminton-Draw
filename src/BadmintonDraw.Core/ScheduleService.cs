@@ -669,13 +669,15 @@ public sealed class ScheduleService
                             currentStart,
                             remaining.Values,
                             scheduledById,
-                            dailyAssignments)
+                            dailyAssignments,
+                            settings)
                             && IsWithinDayLoadTarget(
                                 day,
                                 candidate.Timing,
                                 scheduledMinutesByDay,
                                 dayLoadTargets,
-                                settings.MaximumMatchMinutes))
+                                settings.MaximumMatchMinutes,
+                                settings.RefereeCount))
                         .OrderBy(candidate => GetSchedulingStageRank(candidate.Match))
                         .ThenBy(candidate => GetRestSortKey(candidate.Match, currentStart, dailyAssignments))
                         .ThenBy(candidate => candidate.Match.Id)
@@ -745,7 +747,7 @@ public sealed class ScheduleService
         var orderedDays = settings.Days.OrderBy(day => day.Date).ToList();
         var capacities = orderedDays.ToDictionary(
             day => day.DayLabel,
-            day => Math.Max(0, (day.DayEnd - day.DayStart).TotalMinutes) * Math.Max(1, day.Courts.Count),
+            day => (double)CalculateDayCapacityMinutes(day, settings.RefereeCount),
             StringComparer.Ordinal);
         if (settings.AutoSchedulingStrategy == ScheduleAutoSchedulingStrategy.Compact || orderedDays.Count <= 1)
         {
@@ -818,9 +820,10 @@ public sealed class ScheduleService
         ResolvedScheduleTiming timing,
         IReadOnlyDictionary<string, int> scheduledMinutesByDay,
         IReadOnlyDictionary<string, double> dayLoadTargets,
-        int maximumMatchMinutes)
+        int maximumMatchMinutes,
+        int? refereeCount)
     {
-        var capacity = Math.Max(0, (day.DayEnd - day.DayStart).TotalMinutes) * Math.Max(1, day.Courts.Count);
+        var capacity = CalculateDayCapacityMinutes(day, refereeCount);
         var target = dayLoadTargets.TryGetValue(day.DayLabel, out var value) ? value : capacity;
         if (target >= capacity)
         {
@@ -861,7 +864,8 @@ public sealed class ScheduleService
         TimeOnly start,
         IEnumerable<UnscheduledMatch> remaining,
         IReadOnlyDictionary<int, ScheduledAssignment> scheduledById,
-        IReadOnlyList<ScheduledAssignment> dailyAssignments)
+        IReadOnlyList<ScheduledAssignment> dailyAssignments,
+        ScheduleSettings settings)
     {
         if ((day.DayEnd - start).TotalMinutes < timing.MatchMinutes)
         {
@@ -869,6 +873,10 @@ public sealed class ScheduleService
         }
 
         var end = start.AddMinutes(timing.MatchMinutes);
+        if (WouldExceedRefereeCapacity(day, start, end, dailyAssignments, settings.RefereeCount))
+        {
+            return false;
+        }
 
         if (match.IsChampionshipFinal && remaining.Any(item => item.Id != match.Id && item.IsPlacementPlayoff))
         {
@@ -1054,6 +1062,36 @@ public sealed class ScheduleService
             .Min();
         var next = nextCourtTime < nextMatchEnd ? nextCourtTime : nextMatchEnd;
         return next > current ? next : day.DayEnd;
+    }
+
+    private static int CalculateDayCapacityMinutes(ScheduleDaySettings day, int? refereeCount)
+    {
+        var availableMinutes = Math.Max(0, (int)(day.DayEnd - day.DayStart).TotalMinutes);
+        return Math.Max(1, availableMinutes * GetConcurrentMatchLimit(day, refereeCount));
+    }
+
+    private static int GetConcurrentMatchLimit(ScheduleDaySettings day, int? refereeCount)
+    {
+        var courtCount = Math.Max(1, day.Courts.Count);
+        if (refereeCount is not > 0)
+        {
+            return courtCount;
+        }
+
+        return Math.Max(1, Math.Min(courtCount, refereeCount.Value));
+    }
+
+    private static bool WouldExceedRefereeCapacity(
+        ScheduleDaySettings day,
+        TimeOnly start,
+        TimeOnly end,
+        IReadOnlyList<ScheduledAssignment> dailyAssignments,
+        int? refereeCount)
+    {
+        var concurrentLimit = GetConcurrentMatchLimit(day, refereeCount);
+        var overlappingMatches = dailyAssignments.Count(assignment =>
+            assignment.StartTime < end && start < assignment.EndTime);
+        return overlappingMatches >= concurrentLimit;
     }
 
     private static bool HasCompatibleEntrantOverlap(
@@ -1274,6 +1312,11 @@ public sealed class ScheduleService
         if (settings.MaxMatchesPerEntrantPerDay <= 0)
         {
             throw new DrawValidationException("单名选手每日最多场次必须大于 0。");
+        }
+
+        if (settings.RefereeCount is <= 0)
+        {
+            throw new DrawValidationException("裁判人数必须是大于 0 的整数。");
         }
 
         if (settings.HasKnockoutTimingSplit)

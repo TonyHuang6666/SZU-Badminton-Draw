@@ -124,8 +124,11 @@ public sealed class ScheduleExcelWriter
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
 
         sheet.Range(1, 1, 1, lastColumn).Merge().Value = "比赛赛程明细表";
+        var refereeSummary = plan.Settings.RefereeCount is > 0
+            ? $"，裁判人数 {plan.Settings.RefereeCount.Value} 人"
+            : "，裁判人数按场地数";
         sheet.Range(2, 1, 2, lastColumn).Merge().Value =
-            $"共 {plan.Matches.Count} 场，{plan.DayCount} 个比赛日，单名选手每日最多 {plan.Settings.MaxMatchesPerEntrantPerDay} 场。";
+            $"共 {plan.Matches.Count} 场，{plan.DayCount} 个比赛日，单名选手每日最多 {plan.Settings.MaxMatchesPerEntrantPerDay} 场{refereeSummary}。";
 
         var headers = new[] { "序号", "比赛日", "时间", "场地", "组别", "阶段", "场次", "选手/队伍A", "选手/队伍B", "备注" };
         for (var column = 1; column <= headers.Length; column++)
@@ -719,7 +722,8 @@ public sealed class ScheduleExcelWriter
         {
             ("赛程日数量", plan.Settings.Days.Count.ToString()),
             ("生成场次数", plan.Matches.Count.ToString()),
-            ("预计比赛日", $"{plan.DayCount} 个")
+            ("预计比赛日", $"{plan.DayCount} 个"),
+            ("裁判人数", plan.Settings.RefereeCount is > 0 ? $"{plan.Settings.RefereeCount.Value} 人" : "按场地数")
         };
         if (plan.Settings.HasKnockoutTimingSplit)
         {

@@ -71,7 +71,8 @@ public sealed record CrossEventSchedulingOptions(
     IReadOnlyList<CrossEventDayLoadTarget> DayLoadTargets,
     bool SynchronizeStageWaves,
     IReadOnlyList<CrossEventStageWaveTarget> StageWaveTargets,
-    IReadOnlyList<CrossEventFinalDayRule> FinalDayRules)
+    IReadOnlyList<CrossEventFinalDayRule> FinalDayRules,
+    int? RefereeCount = null)
 {
     public static CrossEventSchedulingOptions Empty(CrossEventSchedulingStrategy strategy)
     {

@@ -15,7 +15,8 @@ public sealed record ScheduleSettings(
     int MatchMinutes,
     int MaxMatchesPerEntrantPerDay = 2,
     int? KnockoutTimingBoundaryEntrants = null,
-    ScheduleTimingSettings? BeforeBoundaryTiming = null)
+    ScheduleTimingSettings? BeforeBoundaryTiming = null,
+    int? RefereeCount = null)
 {
     public ScheduleConstraintProfile ConstraintProfile { get; init; } = ScheduleConstraintProfile.Campus;
 
@@ -41,6 +42,7 @@ public sealed record ScheduleSettings(
         int MaxMatchesPerEntrantPerDay = 2,
         int? KnockoutTimingBoundaryEntrants = null,
         ScheduleTimingSettings? BeforeBoundaryTiming = null,
+        int? RefereeCount = null,
         ScheduleConstraintProfile constraintProfile = ScheduleConstraintProfile.Campus,
         ScheduleAutoSchedulingStrategy autoSchedulingStrategy = ScheduleAutoSchedulingStrategy.Compact)
         : this(
@@ -48,7 +50,8 @@ public sealed record ScheduleSettings(
             MatchMinutes,
             MaxMatchesPerEntrantPerDay,
             KnockoutTimingBoundaryEntrants,
-            BeforeBoundaryTiming)
+            BeforeBoundaryTiming,
+            RefereeCount)
     {
         ConstraintProfile = constraintProfile;
         AutoSchedulingStrategy = autoSchedulingStrategy;

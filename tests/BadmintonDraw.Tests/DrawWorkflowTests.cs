@@ -1267,6 +1267,40 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void SingleEventScheduleRespectsRefereeCountWhenCourtsAreAbundant()
+    {
+        var participants = CreateParticipants(16);
+        var result = new DrawService().Generate(
+            participants,
+            CreateSettings(
+                groupCount: 1,
+                mode: CompetitionMode.SinglesKnockout,
+                knockoutGoal: KnockoutGoal.Champion));
+        var schedule = new ScheduleService().Generate(
+            result,
+            ScheduleWorkflow.BuildSettings(
+                [
+                    new ScheduleDayWorkflowRequest(
+                        new DateOnly(2026, 6, 13),
+                        new TimeOnly(14, 0),
+                        new TimeOnly(18, 0),
+                        "运动广场东馆羽毛球场",
+                        "B1-B8")
+                ],
+                matchMinutes: 20,
+                maxMatchesPerEntrantPerDay: 10,
+                autoSchedulingStrategy: ScheduleAutoSchedulingStrategy.Compact,
+                refereeCount: 2));
+
+        Assert.True(schedule.IsComplete);
+        Assert.All(
+            schedule.Matches
+                .GroupBy(match => (match.DayLabel, match.StartTime))
+                .Select(group => group.Count()),
+            count => Assert.True(count <= 2));
+    }
+
+    [Fact]
     public void ScheduleConstraintAnalyzerUsesFormalRestProfileForKeyMatches()
     {
         var schedule = new SchedulePlan(
@@ -1964,6 +1998,70 @@ public sealed class DrawWorkflowTests
             Assert.True(adjusted.MovedCount > 0);
             Assert.Equal(0, adjusted.RemainingBlockingConflictItemCount);
             Assert.Empty(adjusted.Messages);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void CrossEventAutoAdjustRespectsRefereeCountWhenCourtsAreAbundant()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-referees-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "男双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var store = new TournamentProgressStore();
+            var day = new ScheduleDaySettings(
+                new DateOnly(2026, 6, 13),
+                new TimeOnly(14, 0),
+                new TimeOnly(16, 0),
+                ["B1", "B2", "B3", "B4"]);
+            var scheduleSettings = new ScheduleSettings([day], MatchMinutes: 20, MaxMatchesPerEntrantPerDay: 10);
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    CreateLooseParticipants("单", 4),
+                    new SchedulePlan(
+                        [
+                            new ScheduledMatch(1, day.DayLabel, new TimeOnly(14, 0), new TimeOnly(14, 20), "B1", 1, "A组", "首轮赛", "男单1", "单选手1", "单选手2"),
+                            new ScheduledMatch(2, day.DayLabel, new TimeOnly(14, 0), new TimeOnly(14, 20), "B2", 1, "A组", "首轮赛", "男单2", "单选手3", "单选手4")
+                        ],
+                        scheduleSettings)));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "男双",
+                    CreateLooseParticipants("双", 4),
+                    new SchedulePlan(
+                        [
+                            new ScheduledMatch(1, day.DayLabel, new TimeOnly(14, 0), new TimeOnly(14, 20), "B3", 1, "A组", "首轮赛", "男双1", "双选手1", "双选手2"),
+                            new ScheduledMatch(2, day.DayLabel, new TimeOnly(14, 0), new TimeOnly(14, 20), "B4", 1, "A组", "首轮赛", "男双2", "双选手3", "双选手4")
+                        ],
+                        scheduleSettings)));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 0);
+            var options = workflow.CreateSchedulingOptions(board, CrossEventSchedulingStrategy.BalancedRelaxed) with
+            {
+                RefereeCount = 1
+            };
+            var adjusted = workflow.AutoAdjustScheduleBoard(board, options).Board;
+
+            Assert.Equal(1, adjusted.SchedulingOptions!.RefereeCount);
+            foreach (var item in adjusted.Items)
+            {
+                var overlapping = adjusted.Items.Count(other =>
+                    string.Equals(other.DayLabel, item.DayLabel, StringComparison.Ordinal)
+                    && other.StartTime < item.EndTime
+                    && item.StartTime < other.EndTime);
+                Assert.True(overlapping <= 1);
+            }
         }
         finally
         {

@@ -490,6 +490,23 @@
                                             </ComboBox>
                                         </StackPanel>
                                     </Grid>
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <StackPanel>
+                                            <TextBlock Classes="field-label" Text="裁判人数" />
+                                            <TextBox x:Name="ScheduleRefereeCountBox"
+                                                     Watermark="留空则按场地数"
+                                                     Text="" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="人"
+                                                   Foreground="#64748B"
+                                                   VerticalAlignment="Bottom"
+                                                   Margin="0,0,0,10" />
+                                    </Grid>
+                                    <TextBlock Text="默认每场比赛需要 1 名裁判；填写后每个时间段最多安排 min(场地数, 裁判人数) 场。"
+                                               Foreground="#64748B"
+                                               TextWrapping="Wrap"
+                                               Margin="0,4,0,0" />
 
                                     <TextBlock Classes="field-label" Text="自动编排策略" />
                                     <ComboBox x:Name="ScheduleAutoStrategyBox"
@@ -570,6 +587,22 @@
                                                            Foreground="#64748B"
                                                            VerticalAlignment="Center" />
                                             </Grid>
+                                            <Grid ColumnDefinitions="*,74,44" ColumnSpacing="8">
+                                                <TextBlock Text="裁判人数"
+                                                           Foreground="#64748B"
+                                                           VerticalAlignment="Center" />
+                                                <TextBox x:Name="CrossEventRefereeCountBox"
+                                                         Grid.Column="1"
+                                                         Watermark="按场地"
+                                                         LostFocus="CrossEventRefereeCountBox_LostFocus" />
+                                                <TextBlock Grid.Column="2"
+                                                           Text="人"
+                                                           Foreground="#64748B"
+                                                           VerticalAlignment="Center" />
+                                            </Grid>
+                                            <TextBlock Text="默认每场比赛需要 1 名裁判；填写后每个时间段最多安排 min(场地数, 裁判人数) 场。"
+                                                       Foreground="#64748B"
+                                                       TextWrapping="Wrap" />
                                             <TextBlock Text="自动编排策略"
                                                        Foreground="#64748B"
                                                        FontWeight="SemiBold" />

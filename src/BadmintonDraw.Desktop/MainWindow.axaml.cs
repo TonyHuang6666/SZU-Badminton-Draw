@@ -144,7 +144,8 @@ public partial class MainWindow : Window
         DayLoad,
         StageWave,
         StageWaveEnabled,
-        MinimumRest
+        MinimumRest,
+        RefereeCount
     }
 
     private enum ScheduleBoardCascadeMoveAction
@@ -168,6 +169,7 @@ public partial class MainWindow : Window
                 CrossEventCustomAnchorKind.StageWave when !string.IsNullOrWhiteSpace(DayLabel) => $"{DayLabel} 阶段推进",
                 CrossEventCustomAnchorKind.StageWaveEnabled => "阶段波次推进",
                 CrossEventCustomAnchorKind.MinimumRest => "最小休息间隔",
+                CrossEventCustomAnchorKind.RefereeCount => "裁判人数",
                 CrossEventCustomAnchorKind.Recommended => "推荐分布",
                 _ => "当前参数"
             };
@@ -986,6 +988,30 @@ public partial class MainWindow : Window
             GetCrossEventSchedulingStrategy(),
             new CrossEventCustomAnchor(CrossEventCustomAnchorKind.MinimumRest),
             "最小休息间隔已变化并重新编排",
+            rollbackOnFailure: true);
+    }
+
+    private void CrossEventRefereeCountBox_LostFocus(object? sender, RoutedEventArgs e)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _ = GetCrossEventRefereeCount();
+        }
+        catch (DrawValidationException ex)
+        {
+            SetStatus(ex.Message, isError: true);
+            return;
+        }
+
+        RunCrossEventScheduling(
+            GetCrossEventSchedulingStrategy(),
+            new CrossEventCustomAnchor(CrossEventCustomAnchorKind.RefereeCount),
+            "裁判人数已变化并重新编排",
             rollbackOnFailure: true);
     }
 
@@ -3583,7 +3609,8 @@ public partial class MainWindow : Window
             boundary > 0 ? ParsePositiveInt(BeforeBoundaryMatchMinutesBox.Text, "分界线前每场分钟") : null,
             boundary > 0 ? ParsePositiveInt(GetSelectedComboBoxText(BeforeBoundaryMaxMatchesBox), "分界线前每日最多场") : null,
             GetScheduleConstraintProfile(),
-            GetScheduleAutoSchedulingStrategy());
+            GetScheduleAutoSchedulingStrategy(),
+            ParseOptionalPositiveInt(ScheduleRefereeCountBox.Text, "裁判人数"));
     }
 
     private void AddCurrentScheduleDay(bool showStatus = true)
@@ -3751,6 +3778,19 @@ public partial class MainWindow : Window
         return minutes;
     }
 
+    private int? GetCrossEventRefereeCount()
+    {
+        return ParseOptionalPositiveInt(CrossEventRefereeCountBox.Text, "裁判人数");
+    }
+
+    private CrossEventSchedulingOptions ApplyCrossEventRefereeCount(CrossEventSchedulingOptions options)
+    {
+        return options with
+        {
+            RefereeCount = GetCrossEventRefereeCount()
+        };
+    }
+
     private CrossEventSchedulingStrategy GetCrossEventSchedulingStrategy()
     {
         if (CrossEventSchedulingStrategyBox.SelectedItem is ComboBoxItem item
@@ -3800,6 +3840,7 @@ public partial class MainWindow : Window
             var options = strategy == CrossEventSchedulingStrategy.Custom
                 ? BuildAnchoredCustomSchedulingOptions(baseBoard, anchor)
                 : _crossEventConflictWorkflow.CreateSchedulingOptions(baseBoard, strategy);
+            options = ApplyCrossEventRefereeCount(options);
             var result = _crossEventConflictWorkflow.AutoAdjustScheduleBoard(baseBoard, options);
             if (version != _crossEventSchedulingVersion)
             {
@@ -4039,7 +4080,7 @@ public partial class MainWindow : Window
 
         var capacityByDay = orderedDays.ToDictionary(
             day => day.DayLabel,
-            day => Math.Max(1, (int)Math.Round((day.EndTime - day.StartTime).TotalMinutes) * Math.Max(1, day.Courts.Count)),
+            day => Math.Max(1, (int)Math.Round((day.EndTime - day.StartTime).TotalMinutes) * GetEffectiveCrossEventConcurrentMatchLimit(day)),
             StringComparer.Ordinal);
         var recommendedMinutes = orderedDays.Sum(day =>
             capacityByDay[day.DayLabel] * (recommendation.DayLoadTargets.FirstOrDefault(target => target.DayLabel == day.DayLabel)?.TargetUtilization ?? 0.6));
@@ -4071,6 +4112,15 @@ public partial class MainWindow : Window
         }
 
         return result;
+    }
+
+    private int GetEffectiveCrossEventConcurrentMatchLimit(CrossEventScheduleBoardDay day)
+    {
+        var courtCount = Math.Max(1, day.Courts.Count);
+        var refereeCount = GetCrossEventRefereeCount();
+        return refereeCount is > 0
+            ? Math.Max(1, Math.Min(courtCount, refereeCount.Value))
+            : courtCount;
     }
 
     private static IReadOnlyDictionary<string, double> AllocateTargetMinutes(
@@ -5185,6 +5235,7 @@ public partial class MainWindow : Window
 
         ScheduleMatchMinutesBox.Text = settings.MatchMinutes.ToString();
         SelectComboBoxText(ScheduleMaxMatchesBox, settings.MaxMatchesPerEntrantPerDay.ToString());
+        ScheduleRefereeCountBox.Text = settings.RefereeCount?.ToString() ?? "";
         if (settings.HasKnockoutTimingSplit)
         {
             SelectComboBoxTag(
@@ -5297,9 +5348,13 @@ public partial class MainWindow : Window
         bool includeZoom = true)
     {
         var zoomText = includeZoom ? $"；缩放 {Math.Round(zoom * 100)}%" : "";
+        var refereeCount = board.SchedulingOptions?.RefereeCount;
+        var refereeText = refereeCount is > 0
+            ? $"，裁判 {refereeCount.Value} 人"
+            : "";
         return $"项目 {board.Sources.Count}，场次 {board.Items.Count}，兼项 {board.MultiEventPlayerCount}；"
                + $"严重 {board.Report.SevereCount}，间隔 {board.Report.WarningCount}，同日 {board.Report.NoticeCount}，"
-               + $"冲突卡 {board.BlockingConflictItemCount}{zoomText}{changedText}";
+               + $"冲突卡 {board.BlockingConflictItemCount}{refereeText}{zoomText}{changedText}";
     }
 
     private void RenderCrossEventScheduleBoard(string? dayLabel)
@@ -5375,8 +5430,12 @@ public partial class MainWindow : Window
 
     private static string BuildCrossEventStatus(string prefix, CrossEventScheduleBoard board)
     {
+        var refereeCount = board.SchedulingOptions?.RefereeCount;
+        var refereeText = refereeCount is > 0
+            ? $"裁判 {refereeCount.Value} 人，"
+            : "";
         return $"{prefix}：兼项选手 {board.MultiEventPlayerCount} 人，严重 {board.Report.SevereCount} 条，间隔过短 {board.Report.WarningCount} 条，"
-               + $"同日提醒 {board.Report.NoticeCount} 条，冲突卡片 {board.BlockingConflictItemCount} 张。";
+               + $"同日提醒 {board.Report.NoticeCount} 条，{refereeText}冲突卡片 {board.BlockingConflictItemCount} 张。";
     }
 
     private CompetitionMode GetCompetitionMode()
@@ -5617,6 +5676,16 @@ public partial class MainWindow : Window
         }
 
         return result;
+    }
+
+    private static int? ParseOptionalPositiveInt(string? value, string fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return ParsePositiveInt(value, fieldName);
     }
 
     private static bool IsHandledWorkflowException(Exception ex)
