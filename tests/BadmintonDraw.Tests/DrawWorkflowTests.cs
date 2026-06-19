@@ -1267,6 +1267,83 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void SingleEventBalancedRelaxedSpreadsMatchesWithinEachDayWhenCapacityIsAbundant()
+    {
+        var participants = CreateParticipants(159);
+        var result = new DrawService().Generate(
+            participants,
+            CreateSettings(
+                groupCount: 8,
+                mode: CompetitionMode.SinglesKnockout,
+                knockoutGoal: KnockoutGoal.Champion,
+                placementPlayoff: PlacementPlayoff.ThirdToEighth));
+        var courts = Enumerable.Range(1, 8)
+            .Select(index => $"B{index}")
+            .Concat(Enumerable.Range(1, 8).Select(index => $"C{index}"))
+            .ToList();
+        var days = new[]
+            {
+                new DateOnly(2026, 6, 16),
+                new DateOnly(2026, 6, 17),
+                new DateOnly(2026, 6, 18),
+                new DateOnly(2026, 6, 22)
+            }
+            .Select(day => new ScheduleDaySettings(
+                day,
+                new TimeOnly(14, 0),
+                new TimeOnly(18, 0),
+                courts))
+            .ToList();
+
+        var schedule = new ScheduleService().Generate(
+            result,
+            new ScheduleSettings(
+                days,
+                MatchMinutes: 20,
+                MaxMatchesPerEntrantPerDay: 3,
+                RefereeCount: 12)
+            {
+                AutoSchedulingStrategy = ScheduleAutoSchedulingStrategy.BalancedRelaxed
+            });
+
+        Assert.True(schedule.IsComplete);
+        Assert.Empty(ScheduleDependencyGraph.Build(schedule).FindOrderViolations());
+        Assert.All(
+            schedule.Matches
+                .GroupBy(match => (match.DayLabel, match.StartTime))
+                .Select(group => group.Count()),
+            count => Assert.True(count <= 12));
+        var firstDayWaveCounts = schedule.Matches
+            .Where(match => match.DayLabel == "2026-06-16")
+            .GroupBy(match => match.StartTime)
+            .Select(group => group.Count())
+            .ToList();
+        Assert.True(firstDayWaveCounts.Count <= 6);
+        Assert.True(firstDayWaveCounts.Max() >= 10);
+        var firstDayWaves = schedule.Matches
+            .Where(match => match.DayLabel == "2026-06-16")
+            .GroupBy(match => match.StartTime)
+            .OrderBy(group => group.Key)
+            .Select(group => new
+            {
+                Start = group.Key,
+                End = group.Max(match => match.EndTime),
+                DurationMinutes = group.Max(match => match.DurationMinutes)
+            })
+            .ToList();
+        var gaps = firstDayWaves
+            .Zip(firstDayWaves.Skip(1))
+            .Select(pair => new
+            {
+                GapMinutes = (int)(pair.Second.Start - pair.First.End).TotalMinutes,
+                pair.First.DurationMinutes
+            })
+            .ToList();
+        Assert.Contains(gaps, gap => gap.GapMinutes > 0);
+        Assert.All(gaps, gap => Assert.True(gap.GapMinutes <= gap.DurationMinutes));
+    }
+
+    [Fact]
     public void SingleEventScheduleRespectsRefereeCountWhenCourtsAreAbundant()
     {
         var participants = CreateParticipants(16);
@@ -1755,6 +1832,48 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void CrossEventConflictDetectorFlagsCrossEventDailyLoadOverLimit()
+    {
+        var firstSource = CreateCrossEventSource(
+            "男单",
+            Enumerable.Range(1, 4)
+                .Select(index => CreateCrossEventMatch(
+                    index,
+                    $"男单{index}",
+                    "张三",
+                    $"男单对手{index}",
+                    new TimeOnly(14, 0).AddMinutes((index - 1) * 20),
+                    new TimeOnly(14, 20).AddMinutes((index - 1) * 20),
+                    "B1",
+                    ["张三"],
+                    [$"男单对手{index}"]))
+                .ToArray());
+        var secondSource = CreateCrossEventSource(
+            "男双",
+            Enumerable.Range(1, 3)
+                .Select(index => CreateCrossEventMatch(
+                    index,
+                    $"男双{index}",
+                    "张三",
+                    $"男双对手{index}",
+                    new TimeOnly(16, 0).AddMinutes((index - 1) * 20),
+                    new TimeOnly(16, 20).AddMinutes((index - 1) * 20),
+                    "B2",
+                    ["张三"],
+                    [$"男双对手{index}"]))
+                .ToArray());
+
+        var report = new CrossEventConflictDetector().Analyze([firstSource, secondSource], minimumRestMinutes: 0);
+
+        Assert.Equal(1, report.WarningCount);
+        Assert.Contains(report.Issues, issue =>
+            issue.Severity == CrossEventConflictSeverity.Warning
+            && issue.PlayerName == "张三"
+            && issue.Detail.Contains("跨项目累计 7 场", StringComparison.Ordinal)
+            && issue.Detail.Contains("每日最多 6 场", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void CrossEventConflictWorkflowExportsProgressReportWorkbook()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-{Guid.NewGuid():N}");
@@ -2062,6 +2181,94 @@ public sealed class DrawWorkflowTests
                     && item.StartTime < other.EndTime);
                 Assert.True(overlapping <= 1);
             }
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void CrossEventAutoAdjustLimitsCrossEventPlayerToSixMatchesPerDay()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-daily-load-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "男双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var store = new TournamentProgressStore();
+            var days = new[]
+            {
+                new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2"]),
+                new ScheduleDaySettings(new DateOnly(2026, 6, 14), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2"])
+            };
+            var scheduleSettings = new ScheduleSettings(days, MatchMinutes: 20, MaxMatchesPerEntrantPerDay: 10);
+            var sharedPlayer = new DrawParticipant("张三", PrimaryName: "张三", PrimaryStudentId: "20260001");
+            var firstOpponents = Enumerable.Range(1, 4)
+                .Select(index => new DrawParticipant($"男单对手{index}", PrimaryName: $"男单对手{index}", PrimaryStudentId: $"2026010{index}"))
+                .ToList();
+            var secondOpponents = Enumerable.Range(1, 3)
+                .Select(index => new DrawParticipant($"男双对手{index}", PrimaryName: $"男双对手{index}", PrimaryStudentId: $"2026020{index}"))
+                .ToList();
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [sharedPlayer, .. firstOpponents],
+                    new SchedulePlan(
+                        Enumerable.Range(1, 4)
+                            .Select(index => new ScheduledMatch(
+                                index,
+                                "2026-06-13",
+                                new TimeOnly(14, 0).AddMinutes((index - 1) * 20),
+                                new TimeOnly(14, 20).AddMinutes((index - 1) * 20),
+                                "B1",
+                                1,
+                                "A组",
+                                "首轮赛",
+                                $"男单{index}",
+                                "张三",
+                                $"男单对手{index}"))
+                            .ToList(),
+                        scheduleSettings)));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "男双",
+                    [sharedPlayer, .. secondOpponents],
+                    new SchedulePlan(
+                        Enumerable.Range(1, 3)
+                            .Select(index => new ScheduledMatch(
+                                index,
+                                "2026-06-13",
+                                new TimeOnly(16, 0).AddMinutes((index - 1) * 20),
+                                new TimeOnly(16, 20).AddMinutes((index - 1) * 20),
+                                "B2",
+                                1,
+                                "A组",
+                                "首轮赛",
+                                $"男双{index}",
+                                "张三",
+                                $"男双对手{index}"))
+                            .ToList(),
+                        scheduleSettings)));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 0);
+            var adjusted = workflow.AutoAdjustScheduleBoard(
+                board,
+                workflow.CreateSchedulingOptions(board, CrossEventSchedulingStrategy.Compact)).Board;
+            var dailyCounts = adjusted.Items
+                .Where(item => item.SideAPlayerIdentities
+                    .Concat(item.SideBPlayerIdentities)
+                    .Any(player => player.IdentityKey == "student:20260001"))
+                .GroupBy(item => item.DayLabel, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+
+            Assert.All(dailyCounts.Values, count => Assert.True(count <= CrossEventScheduleRules.MaxPlayerMatchesPerDay));
+            Assert.Contains("2026-06-14", dailyCounts.Keys);
         }
         finally
         {

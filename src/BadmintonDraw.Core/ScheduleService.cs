@@ -729,7 +729,7 @@ public sealed class ScheduleService
 
                 if (remaining.Count == 0)
                 {
-                    return new SchedulePlan(scheduled, settings);
+                    return BuildFinalSchedulePlan(scheduled, settings);
                 }
             }
         }
@@ -738,6 +738,385 @@ public sealed class ScheduleService
             scheduled,
             settings,
             BuildUnscheduledPreviews(remaining.Values, scheduledById.Keys.ToHashSet(), scheduled.Count));
+    }
+
+    private static SchedulePlan BuildFinalSchedulePlan(
+        IReadOnlyList<ScheduledMatch> scheduled,
+        ScheduleSettings settings)
+    {
+        var plan = new SchedulePlan(scheduled, settings);
+        if (settings.AutoSchedulingStrategy == ScheduleAutoSchedulingStrategy.Compact)
+        {
+            return plan;
+        }
+
+        return TrySpreadMatchesWithinDays(plan, out var spreadPlan)
+            ? spreadPlan
+            : plan;
+    }
+
+    private static bool TrySpreadMatchesWithinDays(
+        SchedulePlan plan,
+        out SchedulePlan spreadPlan)
+    {
+        var spreadMatches = new List<ScheduledMatch>(plan.Matches.Count);
+        var handledDayLabels = new HashSet<string>(StringComparer.Ordinal);
+        var orderedDays = plan.Settings.Days
+            .OrderBy(day => day.Date)
+            .ToList();
+
+        foreach (var day in orderedDays)
+        {
+            var dayMatches = plan.Matches
+                .Where(match => string.Equals(match.DayLabel, day.DayLabel, StringComparison.Ordinal))
+                .OrderBy(match => match.StartTime)
+                .ThenBy(match => GetCourtSortIndex(day, match.Court))
+                .ThenBy(match => match.Order)
+                .ToList();
+            handledDayLabels.Add(day.DayLabel);
+
+            if (dayMatches.Count <= 1)
+            {
+                spreadMatches.AddRange(dayMatches);
+                continue;
+            }
+
+            if (!TrySpreadDayMatches(dayMatches, day, plan, out var spreadDayMatches))
+            {
+                spreadPlan = plan;
+                return false;
+            }
+
+            spreadMatches.AddRange(spreadDayMatches);
+        }
+
+        spreadMatches.AddRange(plan.Matches
+            .Where(match => !handledDayLabels.Contains(match.DayLabel))
+            .OrderBy(match => match.DayLabel, StringComparer.Ordinal)
+            .ThenBy(match => match.StartTime)
+            .ThenBy(match => match.Order));
+
+        var dayOrder = orderedDays
+            .Select((day, index) => (day.DayLabel, Index: index))
+            .ToDictionary(item => item.DayLabel, item => item.Index, StringComparer.Ordinal);
+        var reordered = spreadMatches
+            .OrderBy(match => dayOrder.TryGetValue(match.DayLabel, out var index) ? index : int.MaxValue)
+            .ThenBy(match => match.StartTime)
+            .ThenBy(match =>
+            {
+                var day = orderedDays.FirstOrDefault(item => string.Equals(item.DayLabel, match.DayLabel, StringComparison.Ordinal));
+                return day is null ? int.MaxValue : GetCourtSortIndex(day, match.Court);
+            })
+            .ThenBy(match => match.Order)
+            .Select((match, index) => match with { Order = index + 1 })
+            .ToList();
+
+        spreadPlan = plan with { Matches = reordered };
+        if (ScheduleDependencyGraph.Build(spreadPlan).FindOrderViolations().Count > 0)
+        {
+            spreadPlan = plan;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TrySpreadDayMatches(
+        IReadOnlyList<ScheduledMatch> matches,
+        ScheduleDaySettings day,
+        SchedulePlan originalPlan,
+        out IReadOnlyList<ScheduledMatch> spreadMatches)
+    {
+        spreadMatches = matches;
+        var slotStarts = BuildSpreadSlotStarts(day, originalPlan.Settings.MinimumMatchMinutes);
+        if (slotStarts.Count == 0)
+        {
+            return false;
+        }
+
+        var sameDayMatchIds = matches
+            .Where(match => !string.IsNullOrWhiteSpace(match.MatchId))
+            .Select(match => match.MatchId)
+            .ToHashSet(StringComparer.Ordinal);
+        var waves = BuildSpreadWaves(matches, day);
+        var placed = new List<ScheduledMatch>(matches.Count);
+        var placedByMatchId = new Dictionary<string, ScheduledMatch>(StringComparer.Ordinal);
+
+        for (var waveIndex = 0; waveIndex < waves.Count; waveIndex++)
+        {
+            var wave = waves[waveIndex];
+            var idealSlotIndex = CalculateIdealSpreadSlotIndex(waveIndex, waves.Count, slotStarts.Count);
+            var earliestStart = slotStarts[idealSlotIndex];
+            if (placed.Count > 0)
+            {
+                earliestStart = LimitSpreadGapByPreviousWave(earliestStart, placed);
+            }
+
+            foreach (var match in wave)
+            {
+                foreach (var dependency in match.Dependencies.Where(dependency => sameDayMatchIds.Contains(dependency.SourceMatchId)))
+                {
+                    if (!placedByMatchId.TryGetValue(dependency.SourceMatchId, out var source))
+                    {
+                        spreadMatches = matches;
+                        return false;
+                    }
+
+                    if (source.EndTime > earliestStart)
+                    {
+                        earliestStart = source.EndTime;
+                    }
+                }
+            }
+
+            var startIndex = FindFirstSpreadSlotIndex(slotStarts, earliestStart);
+            if (!TryPlaceSpreadWave(
+                wave,
+                day,
+                slotStarts,
+                startIndex,
+                originalPlan.Settings.RefereeCount,
+                placed,
+                out var placedWave))
+            {
+                spreadMatches = matches;
+                return false;
+            }
+
+            foreach (var placedMatch in placedWave)
+            {
+                placed.Add(placedMatch);
+                if (!string.IsNullOrWhiteSpace(placedMatch.MatchId))
+                {
+                    placedByMatchId[placedMatch.MatchId] = placedMatch;
+                }
+            }
+        }
+
+        spreadMatches = placed
+            .OrderBy(match => match.StartTime)
+            .ThenBy(match => GetCourtSortIndex(day, match.Court))
+            .ThenBy(match => match.Order)
+            .ToList();
+        return true;
+    }
+
+    private static TimeOnly LimitSpreadGapByPreviousWave(
+        TimeOnly desiredStart,
+        IReadOnlyList<ScheduledMatch> placed)
+    {
+        var previousWaveStart = placed.Max(match => match.StartTime);
+        var previousWaveMatches = placed
+            .Where(match => match.StartTime == previousWaveStart)
+            .ToList();
+        var previousWaveEnd = previousWaveMatches.Max(match => match.EndTime);
+        var previousWaveDuration = previousWaveMatches.Max(match => match.DurationMinutes);
+        var latestSoftStart = previousWaveEnd.AddMinutes(previousWaveDuration);
+        return desiredStart > latestSoftStart ? latestSoftStart : desiredStart;
+    }
+
+    private static IReadOnlyList<IReadOnlyList<ScheduledMatch>> BuildSpreadWaves(
+        IReadOnlyList<ScheduledMatch> matches,
+        ScheduleDaySettings day)
+    {
+        return matches
+            .GroupBy(match => match.StartTime)
+            .OrderBy(group => group.Key)
+            .Select(group => (IReadOnlyList<ScheduledMatch>)group
+                .OrderBy(match => GetCourtSortIndex(day, match.Court))
+                .ThenBy(match => match.Order)
+                .ToList())
+            .ToList();
+    }
+
+    private static bool TryPlaceSpreadWave(
+        IReadOnlyList<ScheduledMatch> wave,
+        ScheduleDaySettings day,
+        IReadOnlyList<TimeOnly> slotStarts,
+        int startIndex,
+        int? refereeCount,
+        IReadOnlyList<ScheduledMatch> placed,
+        out IReadOnlyList<ScheduledMatch> placedWave)
+    {
+        for (var slotIndex = startIndex; slotIndex < slotStarts.Count; slotIndex++)
+        {
+            var start = slotStarts[slotIndex];
+            if (wave.Any(match => start.AddMinutes(match.DurationMinutes) > day.DayEnd))
+            {
+                continue;
+            }
+
+            if (WouldExceedSpreadConcurrency(day, start, wave, placed, refereeCount))
+            {
+                continue;
+            }
+
+            if (HasSpreadPlayerOverlap(wave, start, placed))
+            {
+                continue;
+            }
+
+            var proposed = new List<ScheduledMatch>(wave.Count);
+            foreach (var match in wave)
+            {
+                var end = start.AddMinutes(match.DurationMinutes);
+                var court = FindSpreadWaveCourt(match, start, end, day, placed, proposed);
+                if (court is null)
+                {
+                    proposed.Clear();
+                    break;
+                }
+
+                proposed.Add(match with
+                {
+                    StartTime = start,
+                    EndTime = end,
+                    Court = court!
+                });
+            }
+
+            if (proposed.Count == wave.Count)
+            {
+                placedWave = proposed;
+                return true;
+            }
+        }
+
+        placedWave = wave;
+        return false;
+    }
+
+    private static string? FindSpreadWaveCourt(
+        ScheduledMatch match,
+        TimeOnly start,
+        TimeOnly end,
+        ScheduleDaySettings day,
+        IReadOnlyList<ScheduledMatch> placed,
+        IReadOnlyList<ScheduledMatch> proposed)
+    {
+        var courtPreference = day.Courts
+            .OrderBy(court => string.Equals(court, match.Court, StringComparison.Ordinal) ? 0 : 1)
+            .ThenBy(court => GetCourtSortIndex(day, court));
+
+        foreach (var court in courtPreference)
+        {
+            if (proposed.Any(candidate => string.Equals(candidate.Court, court, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            if (placed.Any(candidate =>
+                string.Equals(candidate.Court, court, StringComparison.Ordinal)
+                && candidate.StartTime < end
+                && start < candidate.EndTime))
+            {
+                continue;
+            }
+
+            return court;
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<TimeOnly> BuildSpreadSlotStarts(
+        ScheduleDaySettings day,
+        int slotMinutes)
+    {
+        var result = new List<TimeOnly>();
+        var cursor = day.DayStart;
+        var step = Math.Max(1, slotMinutes);
+        while (cursor < day.DayEnd)
+        {
+            result.Add(cursor);
+            cursor = cursor.AddMinutes(step);
+        }
+
+        return result;
+    }
+
+    private static int CalculateIdealSpreadSlotIndex(int matchIndex, int matchCount, int slotCount)
+    {
+        if (slotCount <= 1 || matchCount <= 1)
+        {
+            return 0;
+        }
+
+        var ideal = (int)Math.Round(matchIndex * (slotCount - 1d) / (matchCount - 1d), MidpointRounding.AwayFromZero);
+        return Math.Clamp(ideal, 0, slotCount - 1);
+    }
+
+    private static int FindFirstSpreadSlotIndex(
+        IReadOnlyList<TimeOnly> slotStarts,
+        TimeOnly earliestStart)
+    {
+        for (var index = 0; index < slotStarts.Count; index++)
+        {
+            if (slotStarts[index] >= earliestStart)
+            {
+                return index;
+            }
+        }
+
+        return slotStarts.Count;
+    }
+
+    private static bool WouldExceedSpreadConcurrency(
+        ScheduleDaySettings day,
+        TimeOnly start,
+        IReadOnlyList<ScheduledMatch> wave,
+        IReadOnlyList<ScheduledMatch> placed,
+        int? refereeCount)
+    {
+        var hardLimit = GetConcurrentMatchLimit(day, refereeCount);
+        var overlappingMatches = placed.Count(match => match.EndTime > start);
+        return overlappingMatches + wave.Count > hardLimit;
+    }
+
+    private static bool HasSpreadPlayerOverlap(
+        IReadOnlyList<ScheduledMatch> wave,
+        TimeOnly start,
+        IReadOnlyList<ScheduledMatch> placed)
+    {
+        foreach (var match in wave)
+        {
+            var end = start.AddMinutes(match.DurationMinutes);
+            var playerKeys = GetScheduledPlayerKeys(match).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (playerKeys.Count == 0)
+            {
+                continue;
+            }
+
+            if (placed
+                .Where(candidate => candidate.StartTime < end && start < candidate.EndTime)
+                .Any(candidate => GetScheduledPlayerKeys(candidate).Any(playerKeys.Contains)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<string> GetScheduledPlayerKeys(ScheduledMatch match)
+    {
+        return match.SideAPlayerIdentities
+            .Concat(match.SideBPlayerIdentities)
+            .Select(identity => identity.IdentityKey)
+            .Where(key => !string.IsNullOrWhiteSpace(key));
+    }
+
+    private static int GetCourtSortIndex(ScheduleDaySettings day, string court)
+    {
+        for (var index = 0; index < day.Courts.Count; index++)
+        {
+            if (string.Equals(day.Courts[index], court, StringComparison.Ordinal))
+            {
+                return index;
+            }
+        }
+
+        return int.MaxValue;
     }
 
     private static IReadOnlyDictionary<string, double> BuildDayLoadTargets(

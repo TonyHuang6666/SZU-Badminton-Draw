@@ -112,7 +112,7 @@ public sealed record CrossEventPlayerScheduleAppearance(
         : ConflictSeverity is CrossEventConflictSeverity.Severe
             ? "严重冲突"
             : ConflictSeverity is CrossEventConflictSeverity.Warning
-                ? "间隔过短"
+                ? "警告"
                 : "可用";
 }
 

@@ -7,6 +7,11 @@ public enum CrossEventConflictSeverity
     Notice = 3
 }
 
+public static class CrossEventScheduleRules
+{
+    public const int MaxPlayerMatchesPerDay = 6;
+}
+
 public sealed record CrossEventScheduleSource(
     string SourceId,
     string EventName,

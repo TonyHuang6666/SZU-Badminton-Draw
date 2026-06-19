@@ -173,6 +173,13 @@ public sealed class CrossEventConflictWorkflow
             throw new DrawValidationException("目标时间段已达到裁判人数可承载的同时比赛上限。");
         }
 
+        var dailyLimitOverages = FindPlayerDailyLimitOverages(board, item, dayLabel);
+        if (dailyLimitOverages.Count > 0)
+        {
+            throw new DrawValidationException(
+                $"目标比赛日会超过跨项目选手每日最多 {CrossEventScheduleRules.MaxPlayerMatchesPerDay} 场的规则上限：{string.Join("；", dailyLimitOverages)}。");
+        }
+
         var sources = board.Sources
             .Select(source => MoveMatchInSource(source, itemKey, dayLabel, startTime, endTime, court))
             .ToList();
@@ -335,7 +342,7 @@ public sealed class CrossEventConflictWorkflow
                 entryLookup,
                 dayNumbers,
                 minimumStart)
-                ?? throw new DrawValidationException($"无法连锁移动：找不到“{entry.Source.EventName} · {entry.Match.MatchName}”满足依赖、场地和兼项休息约束的后续位置。");
+                ?? throw new DrawValidationException($"无法连锁移动：找不到“{entry.Source.EventName} · {entry.Match.MatchName}”满足依赖、场地、每日上限和兼项休息约束的后续位置。");
             placements[entry.Key] = placement;
         }
 
@@ -407,7 +414,7 @@ public sealed class CrossEventConflictWorkflow
                     entry.Match.StartTime,
                     entry.Match.EndTime,
                     entry.Match.Court);
-                messages.Add($"{entry.Source.EventName} {entry.Match.MatchName} 未找到满足依赖、场地和休息约束的全局位置，已保留原位置。");
+                messages.Add($"{entry.Source.EventName} {entry.Match.MatchName} 未找到满足依赖、场地、裁判人数、每日上限和休息约束的全局位置，已保留原位置。");
                 continue;
             }
 
@@ -1454,6 +1461,63 @@ public sealed class CrossEventConflictWorkflow
         return overlappingMatches >= concurrentLimit;
     }
 
+    private static IReadOnlyList<string> FindPlayerDailyLimitOverages(
+        CrossEventScheduleBoard board,
+        CrossEventScheduleBoardItem item,
+        string dayLabel)
+    {
+        var players = GetScheduleBoardItemPlayers(item)
+            .GroupBy(player => player.IdentityKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+        if (players.Count == 0)
+        {
+            return [];
+        }
+
+        var result = new List<string>();
+        foreach (var player in players)
+        {
+            var count = 1 + board.Items.Count(other =>
+                !string.Equals(other.Key, item.Key, StringComparison.Ordinal)
+                && string.Equals(other.DayLabel, dayLabel, StringComparison.Ordinal)
+                && GetScheduleBoardItemPlayers(other).Any(otherPlayer =>
+                    string.Equals(otherPlayer.IdentityKey, player.IdentityKey, StringComparison.OrdinalIgnoreCase)));
+            if (count > CrossEventScheduleRules.MaxPlayerMatchesPerDay)
+            {
+                result.Add($"{player.DisplayName} 当天 {count} 场");
+            }
+        }
+
+        return result;
+    }
+
+    private static bool WouldExceedPlayerDailyMatchLimit(
+        GlobalScheduleEntry entry,
+        string dayLabel,
+        IReadOnlyDictionary<string, GlobalSchedulePlacement> placements,
+        IReadOnlyDictionary<string, GlobalScheduleEntry> entryLookup)
+    {
+        if (entry.PlayerKeys.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var playerKey in entry.PlayerKeys)
+        {
+            var count = 1 + placements.Count(pair =>
+                string.Equals(pair.Value.DayLabel, dayLabel, StringComparison.Ordinal)
+                && entryLookup.TryGetValue(pair.Key, out var existingEntry)
+                && existingEntry.PlayerKeys.Contains(playerKey, StringComparer.OrdinalIgnoreCase));
+            if (count > CrossEventScheduleRules.MaxPlayerMatchesPerDay)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static int FindDesiredStageDayIndex(GlobalScheduleEntry entry, GlobalSchedulingContext context)
     {
         var progress = EstimateStageProgress(entry);
@@ -1627,6 +1691,11 @@ public sealed class CrossEventConflictWorkflow
         int? refereeCount)
     {
         if (WouldExceedRefereeCapacity(board, entry.Key, placement.DayLabel, placement.StartTime, placement.EndTime, refereeCount, placements))
+        {
+            return false;
+        }
+
+        if (WouldExceedPlayerDailyMatchLimit(entry, placement.DayLabel, placements, entryLookup))
         {
             return false;
         }
@@ -2052,7 +2121,7 @@ public sealed class CrossEventConflictWorkflow
                 placement.Court,
                 cascadeEntry.Depth == 0
                     ? "当前场次移动到裁判长选择的位置"
-                    : "连锁后移以满足本项目淘汰树依赖、场地和兼项休息约束"));
+                    : "连锁后移以满足本项目淘汰树依赖、场地、每日上限和兼项休息约束"));
         }
 
         return result;

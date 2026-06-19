@@ -821,7 +821,7 @@ public partial class MainWindow : Window
                 minimumRestMinutes);
             SetStatus(
                 $"多项目排程检查报告已导出：{result.OutputPath}。"
-                + $"严重 {result.Report.SevereCount} 条，间隔过短 {result.Report.WarningCount} 条，"
+                + $"严重 {result.Report.SevereCount} 条，警告 {result.Report.WarningCount} 条，"
                 + $"同日提醒 {result.Report.NoticeCount} 条。");
         }
         catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
@@ -1059,7 +1059,7 @@ public partial class MainWindow : Window
             var result = _crossEventConflictWorkflow.ExportScheduleBoardReport(_crossEventScheduleBoard, outputPath);
             SetStatus(
                 $"当前多项目排程检查报告已导出：{result.OutputPath}。"
-                + $"严重 {result.Report.SevereCount} 条，间隔过短 {result.Report.WarningCount} 条，"
+                + $"严重 {result.Report.SevereCount} 条，警告 {result.Report.WarningCount} 条，"
                 + $"同日提醒 {result.Report.NoticeCount} 条。");
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or DrawValidationException)
@@ -1251,7 +1251,7 @@ public partial class MainWindow : Window
         });
         detailStack.Children.Add(new TextBlock
         {
-            Text = $"共 {entry.MatchCount} 场，未完成 {entry.PendingMatchCount} 场；严重 {entry.SevereIssueCount} 条，间隔过短 {entry.WarningIssueCount} 条；最短休息 {FormatRestMinutes(entry.ShortestRestMinutes)}。",
+            Text = $"共 {entry.MatchCount} 场，未完成 {entry.PendingMatchCount} 场；严重 {entry.SevereIssueCount} 条，警告 {entry.WarningIssueCount} 条；最短休息 {FormatRestMinutes(entry.ShortestRestMinutes)}。",
             Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
             TextWrapping = TextWrapping.Wrap
         });
@@ -3405,7 +3405,7 @@ public partial class MainWindow : Window
                 entry,
                 index + 1,
                 $"{index + 1}. {entry.PlayerName} · {entry.EventCount} 项 · {entry.MatchCount} 场",
-                $"{string.Join("、", entry.EventNames)}\n未完成 {entry.PendingMatchCount} 场；严重 {entry.SevereIssueCount} 条，间隔过短 {entry.WarningIssueCount} 条；最短休息 {FormatRestMinutes(entry.ShortestRestMinutes)}"))
+                $"{string.Join("、", entry.EventNames)}\n未完成 {entry.PendingMatchCount} 场；严重 {entry.SevereIssueCount} 条，警告 {entry.WarningIssueCount} 条；最短休息 {FormatRestMinutes(entry.ShortestRestMinutes)}"))
             .ToList();
     }
 
@@ -5353,7 +5353,7 @@ public partial class MainWindow : Window
             ? $"，裁判 {refereeCount.Value} 人"
             : "";
         return $"项目 {board.Sources.Count}，场次 {board.Items.Count}，兼项 {board.MultiEventPlayerCount}；"
-               + $"严重 {board.Report.SevereCount}，间隔 {board.Report.WarningCount}，同日 {board.Report.NoticeCount}，"
+               + $"严重 {board.Report.SevereCount}，警告 {board.Report.WarningCount}，同日 {board.Report.NoticeCount}，"
                + $"冲突卡 {board.BlockingConflictItemCount}{refereeText}{zoomText}{changedText}";
     }
 
@@ -5434,7 +5434,7 @@ public partial class MainWindow : Window
         var refereeText = refereeCount is > 0
             ? $"裁判 {refereeCount.Value} 人，"
             : "";
-        return $"{prefix}：兼项选手 {board.MultiEventPlayerCount} 人，严重 {board.Report.SevereCount} 条，间隔过短 {board.Report.WarningCount} 条，"
+        return $"{prefix}：兼项选手 {board.MultiEventPlayerCount} 人，严重 {board.Report.SevereCount} 条，警告 {board.Report.WarningCount} 条，"
                + $"同日提醒 {board.Report.NoticeCount} 条，{refereeText}冲突卡片 {board.BlockingConflictItemCount} 张。";
     }
 

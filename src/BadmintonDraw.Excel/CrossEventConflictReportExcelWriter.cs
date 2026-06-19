@@ -34,7 +34,7 @@ public sealed class CrossEventConflictReportExcelWriter
         }
 
         WriteIssuesSheet(workbook, "严重冲突", report.Issues.Where(issue => issue.Severity == CrossEventConflictSeverity.Severe));
-        WriteIssuesSheet(workbook, "间隔过短", report.Issues.Where(issue => issue.Severity == CrossEventConflictSeverity.Warning));
+        WriteIssuesSheet(workbook, "警告", report.Issues.Where(issue => issue.Severity == CrossEventConflictSeverity.Warning));
         WriteIssuesSheet(workbook, "同日提醒", report.Issues.Where(issue => issue.Severity == CrossEventConflictSeverity.Notice));
         WriteIssuesSheet(workbook, "全部检查明细", report.Issues);
         WriteSourcesSheet(workbook, report);
@@ -78,7 +78,7 @@ public sealed class CrossEventConflictReportExcelWriter
             ("兼项选手", board is null ? "未加载工作台" : multiEventPlayers.ToString()),
             ("冲突卡片", board is null ? "未加载工作台" : blockingCards.ToString()),
             ("严重冲突", report.SevereCount.ToString()),
-            ("间隔过短", report.WarningCount.ToString()),
+            ("警告", report.WarningCount.ToString()),
             ("同日提醒", report.NoticeCount.ToString()),
             ("导出判断", exportReadiness),
             ("调整状态", board is null
@@ -98,7 +98,7 @@ public sealed class CrossEventConflictReportExcelWriter
 
         var noteRow = rows.Count + 5;
         sheet.Cell(noteRow, 1).Value = report.HasIssues
-            ? "说明：严重冲突表示同一选手同时间段跨项目参赛；间隔过短表示两场之间少于设定休息时间；同日提醒用于裁判长人工确认体能和现场调度。"
+            ? "说明：严重冲突表示同一选手同时间段跨项目参赛；警告包含休息间隔不足或跨项目同日累计场次超量；同日提醒用于裁判长人工确认体能和现场调度。"
             : "未发现跨项目选手冲突。";
         sheet.Range(noteRow, 1, noteRow, 4).Merge();
         sheet.Cell(noteRow, 1).Style.Alignment.WrapText = true;
@@ -231,7 +231,7 @@ public sealed class CrossEventConflictReportExcelWriter
             sheet.Cell(row, 1).Value = FormatSeverity(issue.Severity);
             sheet.Cell(row, 2).Value = issue.PlayerName;
             sheet.Cell(row, 3).Value = issue.DayLabel;
-            sheet.Cell(row, 4).Value = issue.RestMinutes.HasValue ? issue.RestMinutes.Value.ToString() : "重叠";
+            sheet.Cell(row, 4).Value = FormatRestMinutes(issue);
             sheet.Cell(row, 5).Value = issue.Detail;
             WriteMatchCells(sheet, row, 6, issue.FirstMatch);
             WriteMatchCells(sheet, row, 13, issue.SecondMatch);
@@ -293,9 +293,22 @@ public sealed class CrossEventConflictReportExcelWriter
         return severity switch
         {
             CrossEventConflictSeverity.Severe => "严重冲突",
-            CrossEventConflictSeverity.Warning => "间隔过短",
+            CrossEventConflictSeverity.Warning => "警告",
             _ => "同日提醒"
         };
+    }
+
+    private static string FormatRestMinutes(CrossEventConflictIssue issue)
+    {
+        if (issue.RestMinutes.HasValue)
+        {
+            return issue.RestMinutes.Value.ToString();
+        }
+
+        return issue.Detail.Contains("每日最多", StringComparison.Ordinal)
+            || issue.Detail.Contains("累计", StringComparison.Ordinal)
+            ? "超量"
+            : "重叠";
     }
 
     private static string FormatEventKind(EventKind eventKind)

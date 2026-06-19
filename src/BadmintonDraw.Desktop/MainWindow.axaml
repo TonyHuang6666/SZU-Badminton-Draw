@@ -571,7 +571,7 @@
                                             <TextBlock Text="多项目赛程工作台"
                                                        FontWeight="SemiBold"
                                                        Foreground="#243B63" />
-                                            <TextBlock Text="严重冲突和间隔过短会在总表中标红。已完成场次不会被拖动，避免和已导入赛果不一致。"
+                                            <TextBlock Text="严重冲突和警告会在总表中标红。已完成场次不会被拖动，避免和已导入赛果不一致。"
                                                        Foreground="#64748B"
                                                        TextWrapping="Wrap" />
                                             <Grid ColumnDefinitions="*,74,44" ColumnSpacing="8">
@@ -666,7 +666,7 @@
                                             CornerRadius="8"
                                             Padding="12"
                                             Margin="0,8,0,0">
-                                        <TextBlock Text="严重冲突表示同一选手同时间段跨项目比赛；间隔过短表示低于最小休息间隔；同日提醒用于裁判长人工确认体能和现场调度。"
+                                        <TextBlock Text="严重冲突表示同一选手同时间段跨项目比赛；警告包含低于最小休息间隔或跨项目同日累计超量；同日提醒用于裁判长人工确认体能和现场调度。"
                                                    Foreground="#7B5600"
                                                    TextWrapping="Wrap" />
                                     </Border>

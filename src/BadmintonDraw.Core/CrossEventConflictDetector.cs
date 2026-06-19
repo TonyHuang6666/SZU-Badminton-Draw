@@ -39,6 +39,10 @@ public sealed class CrossEventConflictDetector
                 .ThenBy(appearance => appearance.EventName, StringComparer.Ordinal)
                 .ThenBy(appearance => appearance.MatchOrder)
                 .ToList();
+            issues.AddRange(BuildDailyLoadIssues(
+                playerGroup.First().PlayerName,
+                playerGroup.Key,
+                playerAppearances));
 
             for (var firstIndex = 0; firstIndex < playerAppearances.Count; firstIndex++)
             {
@@ -198,5 +202,49 @@ public sealed class CrossEventConflictDetector
             CrossEventConflictSeverity.Warning => 1,
             _ => 2
         };
+    }
+
+    private static IEnumerable<CrossEventConflictIssue> BuildDailyLoadIssues(
+        string playerName,
+        string normalizedPlayerName,
+        IReadOnlyList<CrossEventPlayerAppearance> playerAppearances)
+    {
+        var eventCount = playerAppearances
+            .Select(appearance => appearance.EventName)
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+        if (eventCount < 2)
+        {
+            yield break;
+        }
+
+        foreach (var dayGroup in playerAppearances.GroupBy(appearance => appearance.DayLabel, StringComparer.Ordinal))
+        {
+            var dayAppearances = dayGroup
+                .OrderBy(appearance => appearance.StartTime)
+                .ThenBy(appearance => appearance.EventName, StringComparer.Ordinal)
+                .ThenBy(appearance => appearance.MatchOrder)
+                .ToList();
+            if (dayAppearances.Count <= CrossEventScheduleRules.MaxPlayerMatchesPerDay)
+            {
+                continue;
+            }
+
+            var anchor = dayAppearances[0];
+            var detail =
+                $"同一选手在 {dayGroup.Key} 跨项目累计 {dayAppearances.Count} 场，超过规则要求的每日最多 {CrossEventScheduleRules.MaxPlayerMatchesPerDay} 场。";
+            foreach (var extra in dayAppearances.Skip(CrossEventScheduleRules.MaxPlayerMatchesPerDay))
+            {
+                yield return new CrossEventConflictIssue(
+                    CrossEventConflictSeverity.Warning,
+                    playerName,
+                    normalizedPlayerName,
+                    dayGroup.Key,
+                    null,
+                    anchor,
+                    extra,
+                    detail);
+            }
+        }
     }
 }
