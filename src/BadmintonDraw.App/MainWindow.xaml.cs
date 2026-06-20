@@ -466,7 +466,7 @@ public partial class MainWindow : Window
             SetStatus(
                 $"多项目排程检查报告已导出：{result.OutputPath}。"
                 + $"严重 {result.Report.SevereCount} 条，间隔过短 {result.Report.WarningCount} 条，"
-                + $"同日提醒 {result.Report.NoticeCount} 条。");
+                + $"同日/负荷推演提醒 {result.Report.NoticeCount} 条。");
         }
         catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
         {
@@ -582,7 +582,7 @@ public partial class MainWindow : Window
             SetStatus(
                 $"当前多项目排程检查报告已导出：{result.OutputPath}。"
                 + $"严重 {result.Report.SevereCount} 条，间隔过短 {result.Report.WarningCount} 条，"
-                + $"同日提醒 {result.Report.NoticeCount} 条。");
+                + $"同日/负荷推演提醒 {result.Report.NoticeCount} 条。");
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or DrawValidationException)
         {
@@ -2589,7 +2589,7 @@ public partial class MainWindow : Window
     {
         var zoomText = includeZoom ? $"；缩放 {Math.Round(zoom * 100)}%" : "";
         return $"项目 {board.Sources.Count}，场次 {board.Items.Count}，兼项 {board.MultiEventPlayerCount}；"
-               + $"严重 {board.Report.SevereCount}，间隔 {board.Report.WarningCount}，同日 {board.Report.NoticeCount}，"
+               + $"严重 {board.Report.SevereCount}，间隔 {board.Report.WarningCount}，提醒/推演 {board.Report.NoticeCount}，"
                + $"冲突卡 {board.BlockingConflictItemCount}{zoomText}{changedText}";
     }
 
@@ -2668,7 +2668,7 @@ public partial class MainWindow : Window
     private static string BuildCrossEventStatus(string prefix, CrossEventScheduleBoard board)
     {
         return $"{prefix}：兼项选手 {board.MultiEventPlayerCount} 人，严重 {board.Report.SevereCount} 条，间隔过短 {board.Report.WarningCount} 条，"
-               + $"同日提醒 {board.Report.NoticeCount} 条，冲突卡片 {board.BlockingConflictItemCount} 张。";
+               + $"同日/负荷推演提醒 {board.Report.NoticeCount} 条，冲突卡片 {board.BlockingConflictItemCount} 张。";
     }
 
     private ExportFormat GetExportFormat()

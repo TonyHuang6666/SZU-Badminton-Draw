@@ -666,7 +666,7 @@
                                             CornerRadius="8"
                                             Padding="12"
                                             Margin="0,8,0,0">
-                                        <TextBlock Text="严重冲突表示同一选手同时间段跨项目比赛；警告包含低于最小休息间隔或跨项目同日累计超量；同日提醒用于裁判长人工确认体能和现场调度。"
+                                        <TextBlock Text="严重冲突表示同一选手同时间段跨项目比赛；警告包含低于最小休息间隔或已确定跨项目同日累计超量；同日/负荷推演提醒用于裁判长人工确认体能和现场调度。"
                                                    Foreground="#7B5600"
                                                    TextWrapping="Wrap" />
                                     </Border>
@@ -951,6 +951,12 @@
                                                     Width="88"
                                                     Content="打开窗口"
                                                     Click="OpenCrossEventBoardWindow_Click" />
+                                            <Button x:Name="CrossEventReminderButton"
+                                                    Classes="secondary"
+                                                    Width="96"
+                                                    Content="查看提醒"
+                                                    IsEnabled="False"
+                                                    Click="ShowCrossEventConflictDetails_Click" />
                                             <Button x:Name="CrossEventUndoButton"
                                                     Classes="secondary"
                                                     Width="112"

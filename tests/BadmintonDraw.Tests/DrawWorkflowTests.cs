@@ -1742,6 +1742,143 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void ScheduleConstraintAnalyzerReportsProbabilisticLoadForPlacementPlayoffs()
+    {
+        var player = new CrossEventPlayerIdentity("张三", "20260001");
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(
+                    1,
+                    "2026-06-13",
+                    new TimeOnly(14, 0),
+                    new TimeOnly(14, 20),
+                    "B1",
+                    1,
+                    "A组",
+                    "16进8",
+                    "A组16进8第1场",
+                    "张三",
+                    "李四",
+                    MatchId: "m1",
+                    SideAPlayerIdentities: [player]),
+                new ScheduledMatch(
+                    2,
+                    "2026-06-13",
+                    new TimeOnly(14, 40),
+                    new TimeOnly(15, 0),
+                    "B1",
+                    1,
+                    "A组",
+                    "8进4",
+                    "A组8进4第1场",
+                    "A组16进8第1场胜者",
+                    "王五",
+                    MatchId: "m2",
+                    Dependencies: [Dependency("m1", "A组16进8第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                new ScheduledMatch(
+                    3,
+                    "2026-06-13",
+                    new TimeOnly(15, 20),
+                    new TimeOnly(15, 40),
+                    "B1",
+                    1,
+                    "A组",
+                    "半决赛",
+                    "A组半决赛第1场",
+                    "A组8进4第1场胜者",
+                    "赵六",
+                    MatchId: "m3",
+                    Dependencies: [Dependency("m2", "A组8进4第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                new ScheduledMatch(
+                    4,
+                    "2026-06-13",
+                    new TimeOnly(16, 0),
+                    new TimeOnly(16, 20),
+                    "B1",
+                    1,
+                    "A组",
+                    "决赛",
+                    "A组决赛第1场",
+                    "A组半决赛第1场胜者",
+                    "钱七",
+                    MatchId: "m4",
+                    Dependencies: [Dependency("m3", "A组半决赛第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                new ScheduledMatch(
+                    5,
+                    "2026-06-13",
+                    new TimeOnly(16, 0),
+                    new TimeOnly(16, 20),
+                    "B2",
+                    1,
+                    "A组",
+                    "3/4名赛",
+                    "A组3/4名赛",
+                    "A组半决赛第1场负者",
+                    "孙八",
+                    MatchId: "m5",
+                    Dependencies: [Dependency("m3", "A组半决赛第1场", ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA)]),
+                new ScheduledMatch(
+                    6,
+                    "2026-06-13",
+                    new TimeOnly(15, 20),
+                    new TimeOnly(15, 40),
+                    "B3",
+                    1,
+                    "A组",
+                    "5-8名半决赛",
+                    "A组5-8名半决赛第1场",
+                    "A组8进4第1场负者",
+                    "周九",
+                    MatchId: "m6",
+                    Dependencies: [Dependency("m2", "A组8进4第1场", ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA)]),
+                new ScheduledMatch(
+                    7,
+                    "2026-06-13",
+                    new TimeOnly(16, 0),
+                    new TimeOnly(16, 20),
+                    "B3",
+                    1,
+                    "A组",
+                    "5/6名赛",
+                    "A组5/6名赛",
+                    "A组5-8名半决赛第1场胜者",
+                    "吴十",
+                    MatchId: "m7",
+                    Dependencies: [Dependency("m6", "A组5-8名半决赛第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                new ScheduledMatch(
+                    8,
+                    "2026-06-13",
+                    new TimeOnly(16, 0),
+                    new TimeOnly(16, 20),
+                    "B4",
+                    1,
+                    "A组",
+                    "7/8名赛",
+                    "A组7/8名赛",
+                    "A组5-8名半决赛第1场负者",
+                    "郑一",
+                    MatchId: "m8",
+                    Dependencies: [Dependency("m6", "A组5-8名半决赛第1场", ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA)])
+            ],
+            new ScheduleSettings(
+                [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), ["B1", "B2", "B3", "B4"])],
+                MatchMinutes: 20,
+                MaxMatchesPerEntrantPerDay: 4));
+
+        var report = new ScheduleConstraintAnalyzer().Analyze(schedule);
+
+        var issue = Assert.Single(report.Issues, issue =>
+            issue.Type == ScheduleConstraintIssueType.DailyLoad
+            && issue.PlayerName == "张三（20260001）");
+        Assert.Equal(ScheduleConstraintIssueScope.Speculative, issue.Scope);
+        Assert.Equal(ScheduleConstraintSeverity.Notice, issue.Severity);
+        Assert.Contains("最高可能 4/4 场", issue.Message);
+        Assert.Contains("概率约 50%", issue.Message);
+        Assert.Contains("1场 50%", issue.Message);
+        Assert.Contains("4场 50%", issue.Message);
+    }
+
+    [Fact]
     public void CrossEventConflictDetectorClassifiesSeverity()
     {
         var firstSource = CreateCrossEventSource(
@@ -1871,6 +2008,97 @@ public sealed class DrawWorkflowTests
             && issue.PlayerName == "张三"
             && issue.Detail.Contains("跨项目累计 7 场", StringComparison.Ordinal)
             && issue.Detail.Contains("每日最多 6 场", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CrossEventScheduleBoardReportsProbabilisticCrossEventDailyLoad()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-load-forecast-{Guid.NewGuid():N}");
+        var firstProgressPath = Path.Combine(directory, "男单.szbd");
+        var secondProgressPath = Path.Combine(directory, "男双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var store = new TournamentProgressStore();
+            var sharedPlayer = new DrawParticipant("张三", PrimaryName: "张三", PrimaryStudentId: "20260001");
+            store.Create(
+                firstProgressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [sharedPlayer, new DrawParticipant("李四", PrimaryName: "李四", PrimaryStudentId: "20260002")],
+                    CreateTop16PlacementSchedule("男单", "张三", "20260001", new TimeOnly(14, 0), "B")));
+            store.Create(
+                secondProgressPath,
+                CreateManualProgressSnapshot(
+                    "男双",
+                    [sharedPlayer, new DrawParticipant("王五", PrimaryName: "王五", PrimaryStudentId: "20260003")],
+                    CreateTop8PlacementSchedule("男双", "张三", "20260001", new TimeOnly(17, 0), "C")));
+
+            var board = new CrossEventConflictWorkflow().LoadScheduleBoard([firstProgressPath, secondProgressPath], minimumRestMinutes: 20);
+
+            var issue = Assert.Single(board.Report.Issues, issue =>
+                issue.Severity == CrossEventConflictSeverity.Notice
+                && issue.PlayerName == "张三（20260001）"
+                && issue.Detail.StartsWith("负荷推演", StringComparison.Ordinal));
+            Assert.Contains("最高可能 7/6 场", issue.Detail);
+            Assert.Contains("概率约 50%", issue.Detail);
+            Assert.Contains("4场 50%", issue.Detail);
+            Assert.Contains("7场 50%", issue.Detail);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+
+        static SchedulePlan CreateTop16PlacementSchedule(
+            string eventName,
+            string playerName,
+            string studentId,
+            TimeOnly startTime,
+            string courtPrefix)
+        {
+            var player = new CrossEventPlayerIdentity(playerName, studentId);
+            return new SchedulePlan(
+                [
+                    new ScheduledMatch(1, "2026-06-13", startTime, startTime.AddMinutes(20), $"{courtPrefix}1", 1, "A组", "16进8", $"{eventName}16进8第1场", playerName, "李四", MatchId: "top16-m1", SideAPlayerIdentities: [player]),
+                    new ScheduledMatch(2, "2026-06-13", startTime.AddMinutes(40), startTime.AddMinutes(60), $"{courtPrefix}1", 1, "A组", "8进4", $"{eventName}8进4第1场", $"{eventName}16进8第1场胜者", "王五", MatchId: "top16-m2", Dependencies: [Dependency("top16-m1", $"{eventName}16进8第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                    new ScheduledMatch(3, "2026-06-13", startTime.AddMinutes(80), startTime.AddMinutes(100), $"{courtPrefix}1", 1, "A组", "半决赛", $"{eventName}半决赛第1场", $"{eventName}8进4第1场胜者", "赵六", MatchId: "top16-m3", Dependencies: [Dependency("top16-m2", $"{eventName}8进4第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                    new ScheduledMatch(4, "2026-06-13", startTime.AddMinutes(120), startTime.AddMinutes(140), $"{courtPrefix}1", 1, "A组", "决赛", $"{eventName}决赛第1场", $"{eventName}半决赛第1场胜者", "钱七", MatchId: "top16-m4", Dependencies: [Dependency("top16-m3", $"{eventName}半决赛第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                    new ScheduledMatch(5, "2026-06-13", startTime.AddMinutes(120), startTime.AddMinutes(140), $"{courtPrefix}2", 1, "A组", "3/4名赛", $"{eventName}3/4名赛", $"{eventName}半决赛第1场负者", "孙八", MatchId: "top16-m5", Dependencies: [Dependency("top16-m3", $"{eventName}半决赛第1场", ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA)]),
+                    new ScheduledMatch(6, "2026-06-13", startTime.AddMinutes(80), startTime.AddMinutes(100), $"{courtPrefix}3", 1, "A组", "5-8名半决赛", $"{eventName}5-8名半决赛第1场", $"{eventName}8进4第1场负者", "周九", MatchId: "top16-m6", Dependencies: [Dependency("top16-m2", $"{eventName}8进4第1场", ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA)]),
+                    new ScheduledMatch(7, "2026-06-13", startTime.AddMinutes(120), startTime.AddMinutes(140), $"{courtPrefix}3", 1, "A组", "5/6名赛", $"{eventName}5/6名赛", $"{eventName}5-8名半决赛第1场胜者", "吴十", MatchId: "top16-m7", Dependencies: [Dependency("top16-m6", $"{eventName}5-8名半决赛第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                    new ScheduledMatch(8, "2026-06-13", startTime.AddMinutes(120), startTime.AddMinutes(140), $"{courtPrefix}4", 1, "A组", "7/8名赛", $"{eventName}7/8名赛", $"{eventName}5-8名半决赛第1场负者", "郑一", MatchId: "top16-m8", Dependencies: [Dependency("top16-m6", $"{eventName}5-8名半决赛第1场", ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA)])
+                ],
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(20, 0), [$"{courtPrefix}1", $"{courtPrefix}2", $"{courtPrefix}3", $"{courtPrefix}4"])],
+                    MatchMinutes: 20,
+                    MaxMatchesPerEntrantPerDay: 4));
+        }
+
+        static SchedulePlan CreateTop8PlacementSchedule(
+            string eventName,
+            string playerName,
+            string studentId,
+            TimeOnly startTime,
+            string courtPrefix)
+        {
+            var player = new CrossEventPlayerIdentity(playerName, studentId);
+            return new SchedulePlan(
+                [
+                    new ScheduledMatch(1, "2026-06-13", startTime, startTime.AddMinutes(20), $"{courtPrefix}1", 1, "A组", "8进4", $"{eventName}8进4第1场", playerName, "李四", MatchId: "top8-m1", SideAPlayerIdentities: [player]),
+                    new ScheduledMatch(2, "2026-06-13", startTime.AddMinutes(40), startTime.AddMinutes(60), $"{courtPrefix}1", 1, "A组", "半决赛", $"{eventName}半决赛第1场", $"{eventName}8进4第1场胜者", "王五", MatchId: "top8-m2", Dependencies: [Dependency("top8-m1", $"{eventName}8进4第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                    new ScheduledMatch(3, "2026-06-13", startTime.AddMinutes(80), startTime.AddMinutes(100), $"{courtPrefix}1", 1, "A组", "决赛", $"{eventName}决赛第1场", $"{eventName}半决赛第1场胜者", "赵六", MatchId: "top8-m3", Dependencies: [Dependency("top8-m2", $"{eventName}半决赛第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                    new ScheduledMatch(4, "2026-06-13", startTime.AddMinutes(80), startTime.AddMinutes(100), $"{courtPrefix}2", 1, "A组", "3/4名赛", $"{eventName}3/4名赛", $"{eventName}半决赛第1场负者", "钱七", MatchId: "top8-m4", Dependencies: [Dependency("top8-m2", $"{eventName}半决赛第1场", ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA)]),
+                    new ScheduledMatch(5, "2026-06-13", startTime.AddMinutes(40), startTime.AddMinutes(60), $"{courtPrefix}3", 1, "A组", "5-8名半决赛", $"{eventName}5-8名半决赛第1场", $"{eventName}8进4第1场负者", "孙八", MatchId: "top8-m5", Dependencies: [Dependency("top8-m1", $"{eventName}8进4第1场", ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA)]),
+                    new ScheduledMatch(6, "2026-06-13", startTime.AddMinutes(80), startTime.AddMinutes(100), $"{courtPrefix}3", 1, "A组", "5/6名赛", $"{eventName}5/6名赛", $"{eventName}5-8名半决赛第1场胜者", "周九", MatchId: "top8-m6", Dependencies: [Dependency("top8-m5", $"{eventName}5-8名半决赛第1场", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)]),
+                    new ScheduledMatch(7, "2026-06-13", startTime.AddMinutes(80), startTime.AddMinutes(100), $"{courtPrefix}4", 1, "A组", "7/8名赛", $"{eventName}7/8名赛", $"{eventName}5-8名半决赛第1场负者", "吴十", MatchId: "top8-m7", Dependencies: [Dependency("top8-m5", $"{eventName}5-8名半决赛第1场", ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA)])
+                ],
+                new ScheduleSettings(
+                    [new ScheduleDaySettings(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(20, 0), [$"{courtPrefix}1", $"{courtPrefix}2", $"{courtPrefix}3", $"{courtPrefix}4"])],
+                    MatchMinutes: 20,
+                    MaxMatchesPerEntrantPerDay: 4));
+        }
     }
 
     [Fact]

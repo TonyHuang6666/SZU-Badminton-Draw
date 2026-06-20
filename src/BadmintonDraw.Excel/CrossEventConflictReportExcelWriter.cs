@@ -79,7 +79,7 @@ public sealed class CrossEventConflictReportExcelWriter
             ("冲突卡片", board is null ? "未加载工作台" : blockingCards.ToString()),
             ("严重冲突", report.SevereCount.ToString()),
             ("警告", report.WarningCount.ToString()),
-            ("同日提醒", report.NoticeCount.ToString()),
+            ("同日/负荷推演提醒", report.NoticeCount.ToString()),
             ("导出判断", exportReadiness),
             ("调整状态", board is null
                 ? "由赛事存档直接检查。"
@@ -98,7 +98,7 @@ public sealed class CrossEventConflictReportExcelWriter
 
         var noteRow = rows.Count + 5;
         sheet.Cell(noteRow, 1).Value = report.HasIssues
-            ? "说明：严重冲突表示同一选手同时间段跨项目参赛；警告包含休息间隔不足或跨项目同日累计场次超量；同日提醒用于裁判长人工确认体能和现场调度。"
+            ? "说明：严重冲突表示同一选手同时间段跨项目参赛；警告包含休息间隔不足或已确定跨项目同日累计场次超量；同日提醒和负荷推演用于裁判长人工确认体能和现场调度。"
             : "未发现跨项目选手冲突。";
         sheet.Range(noteRow, 1, noteRow, 4).Merge();
         sheet.Cell(noteRow, 1).Style.Alignment.WrapText = true;
@@ -303,6 +303,11 @@ public sealed class CrossEventConflictReportExcelWriter
         if (issue.RestMinutes.HasValue)
         {
             return issue.RestMinutes.Value.ToString();
+        }
+
+        if (issue.Detail.Contains("负荷推演", StringComparison.Ordinal))
+        {
+            return "推演";
         }
 
         return issue.Detail.Contains("每日最多", StringComparison.Ordinal)

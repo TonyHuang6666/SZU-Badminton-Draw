@@ -752,11 +752,13 @@ public sealed class CrossEventConflictWorkflow
     {
         var report = _detector.Analyze(sources, minimumRestMinutes);
         var courtIssues = BuildCourtOverlapIssues(sources);
-        return courtIssues.Count == 0
+        var loadForecastIssues = BuildCrossEventLoadForecastIssues(sources);
+        var extraIssues = courtIssues.Concat(loadForecastIssues).ToList();
+        return extraIssues.Count == 0
             ? report
             : report with
             {
-                Issues = report.Issues.Concat(courtIssues).ToList()
+                Issues = report.Issues.Concat(extraIssues).ToList()
             };
     }
 
@@ -1154,6 +1156,207 @@ public sealed class CrossEventConflictWorkflow
         }
 
         return issues;
+    }
+
+    private static IReadOnlyList<CrossEventConflictIssue> BuildCrossEventLoadForecastIssues(
+        IReadOnlyList<CrossEventScheduleSource> sources)
+    {
+        var analyzer = new PlayerLoadForecastAnalyzer();
+        var contributions = new List<CrossEventLoadForecastContribution>();
+        foreach (var source in sources)
+        {
+            var schedule = BuildSchedulePlan(source);
+            var forecasts = analyzer.Analyze(
+                schedule,
+                maxProjectedDepth: 4,
+                dailyLimit: CrossEventScheduleRules.MaxPlayerMatchesPerDay);
+            foreach (var forecast in forecasts.Where(forecast => forecast.MaximumCount > 0))
+            {
+                var anchor = BuildForecastAnchorAppearance(source, forecast);
+                if (anchor is null)
+                {
+                    continue;
+                }
+
+                contributions.Add(new CrossEventLoadForecastContribution(source, forecast, anchor));
+            }
+        }
+
+        var issues = new List<CrossEventConflictIssue>();
+        foreach (var group in contributions.GroupBy(
+                     contribution => $"{contribution.Forecast.NormalizedPlayerName}\u001F{contribution.Forecast.DayLabel}",
+                     StringComparer.OrdinalIgnoreCase))
+        {
+            var entries = group.ToList();
+            var eventCount = entries
+                .Select(entry => entry.Source.SourceId)
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+            if (eventCount < 2 || !entries.Any(entry => entry.Forecast.HasProjectedAppearances))
+            {
+                continue;
+            }
+
+            var confirmedCount = entries.Sum(entry => entry.Forecast.ConfirmedCount);
+            if (confirmedCount > CrossEventScheduleRules.MaxPlayerMatchesPerDay)
+            {
+                continue;
+            }
+
+            var distribution = ConvolveDistributions(entries.Select(entry => entry.Forecast.Distribution));
+            var maximumCount = distribution.Keys.DefaultIfEmpty(0).Max();
+            if (maximumCount < CrossEventScheduleRules.MaxPlayerMatchesPerDay)
+            {
+                continue;
+            }
+
+            var probabilityAtLimit = distribution
+                .Where(pair => pair.Key >= CrossEventScheduleRules.MaxPlayerMatchesPerDay)
+                .Sum(pair => pair.Value);
+            if (probabilityAtLimit <= 0)
+            {
+                continue;
+            }
+
+            var expectedCount = distribution.Sum(pair => pair.Key * pair.Value);
+            var orderedAnchors = entries
+                .OrderBy(entry => entry.Anchor.DayLabel, StringComparer.Ordinal)
+                .ThenBy(entry => entry.Anchor.StartTime)
+                .ThenBy(entry => entry.Source.EventName, StringComparer.Ordinal)
+                .ToList();
+            var first = orderedAnchors[0].Anchor;
+            var secondContribution = orderedAnchors
+                .Skip(1)
+                .FirstOrDefault(entry => !string.Equals(entry.Source.SourceId, first.SourceId, StringComparison.Ordinal))
+                ?? orderedAnchors.Skip(1).FirstOrDefault();
+            var second = secondContribution?.Anchor ?? first;
+            var playerName = entries[0].Forecast.PlayerName;
+            var detail =
+                $"负荷推演：{playerName} 在 {entries[0].Forecast.DayLabel} 跨项目最高可能 {maximumCount}/{CrossEventScheduleRules.MaxPlayerMatchesPerDay} 场，"
+                + $"达到或超过每日上限概率约 {FormatProbability(probabilityAtLimit)}，期望 {expectedCount:0.0} 场。"
+                + $"分布：{FormatDistribution(distribution)}。来源：{FormatCrossEventForecastSources(entries)}。"
+                + "此为未决淘汰路径概率提醒，不作为硬冲突。";
+            issues.Add(new CrossEventConflictIssue(
+                CrossEventConflictSeverity.Notice,
+                playerName,
+                entries[0].Forecast.NormalizedPlayerName,
+                entries[0].Forecast.DayLabel,
+                null,
+                first,
+                second,
+                detail));
+        }
+
+        return issues;
+    }
+
+    private static CrossEventPlayerAppearance? BuildForecastAnchorAppearance(
+        CrossEventScheduleSource source,
+        PlayerDailyLoadForecast forecast)
+    {
+        var appearance = forecast.Appearances
+            .OrderBy(item => item.StartTime)
+            .ThenBy(item => item.Court, StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (appearance is null)
+        {
+            return null;
+        }
+
+        var match = source.Matches.FirstOrDefault(match =>
+            string.Equals(match.MatchId, appearance.MatchId, StringComparison.Ordinal)
+            || string.Equals(match.MatchName, appearance.MatchName, StringComparison.Ordinal));
+        if (match is null)
+        {
+            return null;
+        }
+
+        var side = "推演";
+        var sideText = appearance.PlayerName;
+        var opponentText = $"{match.SideA} vs {match.SideB}";
+        if (match.SideAPlayerIdentities.Any(identity =>
+                string.Equals(identity.IdentityKey, forecast.NormalizedPlayerName, StringComparison.OrdinalIgnoreCase)))
+        {
+            side = "A";
+            sideText = match.SideA;
+            opponentText = match.SideB;
+        }
+        else if (match.SideBPlayerIdentities.Any(identity =>
+                     string.Equals(identity.IdentityKey, forecast.NormalizedPlayerName, StringComparison.OrdinalIgnoreCase)))
+        {
+            side = "B";
+            sideText = match.SideB;
+            opponentText = match.SideA;
+        }
+
+        return new CrossEventPlayerAppearance(
+            source.SourceId,
+            source.EventName,
+            source.SourcePath,
+            source.EventKind,
+            match.Order,
+            match.DayLabel,
+            match.StartTime,
+            match.EndTime,
+            match.Court,
+            match.GroupName,
+            match.Phase,
+            match.MatchName,
+            side,
+            sideText,
+            opponentText);
+    }
+
+    private static IReadOnlyDictionary<int, double> ConvolveDistributions(
+        IEnumerable<IReadOnlyDictionary<int, double>> distributions)
+    {
+        var result = new Dictionary<int, double> { [0] = 1.0 };
+        foreach (var distribution in distributions)
+        {
+            var next = new Dictionary<int, double>();
+            foreach (var left in result)
+            {
+                foreach (var right in distribution)
+                {
+                    var count = left.Key + right.Key;
+                    var probability = left.Value * right.Value;
+                    next[count] = next.TryGetValue(count, out var existing)
+                        ? existing + probability
+                        : probability;
+                }
+            }
+
+            result = next;
+        }
+
+        return result
+            .OrderBy(pair => pair.Key)
+            .ToDictionary(pair => pair.Key, pair => Math.Round(pair.Value, 8));
+    }
+
+    private static string FormatCrossEventForecastSources(
+        IReadOnlyList<CrossEventLoadForecastContribution> contributions)
+    {
+        return string.Join(
+            "；",
+            contributions
+                .OrderBy(item => item.Source.EventName, StringComparer.Ordinal)
+                .Select(item =>
+                    $"{item.Source.EventName}最高{item.Forecast.MaximumCount}场({FormatDistribution(item.Forecast.Distribution)})"));
+    }
+
+    private static string FormatProbability(double probability)
+    {
+        return $"{Math.Clamp(probability, 0.0, 1.0) * 100:0.#}%";
+    }
+
+    private static string FormatDistribution(IReadOnlyDictionary<int, double> distribution)
+    {
+        return string.Join(
+            "，",
+            distribution
+                .OrderBy(pair => pair.Key)
+                .Select(pair => $"{pair.Key}场 {FormatProbability(pair.Value)}"));
     }
 
     private static CrossEventPlayerAppearance BuildCourtConflictAppearance(
@@ -2819,6 +3022,11 @@ public sealed class CrossEventConflictWorkflow
         string PlayerName,
         string NormalizedPlayerName,
         CrossEventPlayerScheduleAppearance Appearance);
+
+    private sealed record CrossEventLoadForecastContribution(
+        CrossEventScheduleSource Source,
+        PlayerDailyLoadForecast Forecast,
+        CrossEventPlayerAppearance Anchor);
 }
 
 public sealed record CrossEventConflictExportResult(

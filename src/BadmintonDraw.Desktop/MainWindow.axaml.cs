@@ -131,6 +131,8 @@ public partial class MainWindow : Window
     private Button? _crossEventBoardWindowUndoButton;
     private StackPanel? _crossEventBoardWindowDayTabs;
     private readonly Stack<CrossEventScheduleUndoSnapshot> _crossEventScheduleUndoStack = new();
+    private readonly Dictionary<string, Border> _crossEventBoardWindowMatchCards = new(StringComparer.Ordinal);
+    private Window? _crossEventConflictWindow;
     private readonly Dictionary<string, ScheduleBoardMoveValidationResult> _scheduleBoardMoveValidationCache = new(StringComparer.Ordinal);
     private Border? _scheduleBoardDragHoverCell;
     private string? _lastScheduleBoardDragFeedbackMessage;
@@ -153,6 +155,15 @@ public partial class MainWindow : Window
         Cancel,
         MoveCurrentOnly,
         CascadeMove
+    }
+
+    private enum CrossEventIssueCategory
+    {
+        All,
+        ScheduleConflict,
+        MultiEventInterval,
+        SameDayLoad,
+        LoadForecast
     }
 
     private sealed record CrossEventCustomAnchor(
@@ -822,7 +833,7 @@ public partial class MainWindow : Window
             SetStatus(
                 $"多项目排程检查报告已导出：{result.OutputPath}。"
                 + $"严重 {result.Report.SevereCount} 条，警告 {result.Report.WarningCount} 条，"
-                + $"同日提醒 {result.Report.NoticeCount} 条。");
+                + $"同日/负荷推演提醒 {result.Report.NoticeCount} 条。");
         }
         catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
         {
@@ -1060,7 +1071,7 @@ public partial class MainWindow : Window
             SetStatus(
                 $"当前多项目排程检查报告已导出：{result.OutputPath}。"
                 + $"严重 {result.Report.SevereCount} 条，警告 {result.Report.WarningCount} 条，"
-                + $"同日提醒 {result.Report.NoticeCount} 条。");
+                + $"同日/负荷推演提醒 {result.Report.NoticeCount} 条。");
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or DrawValidationException)
         {
@@ -1236,7 +1247,7 @@ public partial class MainWindow : Window
         };
     }
 
-    private static void RenderCrossEventPlayerDetailCards(
+    private void RenderCrossEventPlayerDetailCards(
         StackPanel detailStack,
         CrossEventPlayerMultiEntry entry)
     {
@@ -1270,8 +1281,11 @@ public partial class MainWindow : Window
                 BorderBrush = new SolidColorBrush(borderColor),
                 BorderThickness = new Avalonia.Thickness(1),
                 CornerRadius = new Avalonia.CornerRadius(8),
-                Padding = new Avalonia.Thickness(10)
+                Padding = new Avalonia.Thickness(10),
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Tag = appearance
             };
+            ToolTip.SetTip(card, "点击定位到多项目赛程窗口中的这场比赛。");
             var stack = new StackPanel { Spacing = 4 };
             stack.Children.Add(new TextBlock
             {
@@ -1302,6 +1316,11 @@ public partial class MainWindow : Window
             }
 
             card.Child = stack;
+            card.PointerPressed += (_, e) =>
+            {
+                e.Handled = true;
+                _ = FocusCrossEventPlayerAppearanceAsync(appearance);
+            };
             detailStack.Children.Add(card);
         }
     }
@@ -1434,6 +1453,12 @@ public partial class MainWindow : Window
             Spacing = 8
         };
         headerStack.Children.Add(filterStack);
+        var categoryStack = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8
+        };
+        headerStack.Children.Add(categoryStack);
         root.Children.Add(headerStack);
 
         var issueStack = new StackPanel { Spacing = 10 };
@@ -1680,6 +1705,407 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ShowCrossEventConflictDetails_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            SetStatus("请先加载多项目赛程。", isError: true);
+            return;
+        }
+
+        UpdateCrossEventReminderButton();
+        if (_crossEventConflictWindow is { IsVisible: true })
+        {
+            _crossEventConflictWindow.Close();
+        }
+
+        var dialog = new Window
+        {
+            Title = "多项目提醒",
+            Width = 920,
+            Height = 660,
+            MinWidth = 720,
+            MinHeight = 480,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = BuildCrossEventConflictDialogContent(_crossEventScheduleBoard.Report)
+        };
+        _crossEventConflictWindow = dialog;
+        dialog.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_crossEventConflictWindow, dialog))
+            {
+                _crossEventConflictWindow = null;
+            }
+        };
+        dialog.Show(this);
+    }
+
+    private Control BuildCrossEventConflictDialogContent(CrossEventConflictReport report)
+    {
+        var root = new Grid
+        {
+            RowDefinitions = new RowDefinitions("Auto,*"),
+            Margin = new Avalonia.Thickness(16)
+        };
+        var headerStack = new StackPanel { Spacing = 10 };
+        headerStack.Children.Add(new TextBlock
+        {
+            Text = "多项目提醒",
+            FontSize = 18,
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78))
+        });
+        headerStack.Children.Add(new TextBlock
+        {
+            Text = $"严重 {report.SevereCount}，警告 {report.WarningCount}，同日/负荷推演提醒 {report.NoticeCount}。点击卡片可定位到多项目赛程窗口。",
+            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var filterStack = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8
+        };
+        headerStack.Children.Add(filterStack);
+        var categoryStack = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8
+        };
+        headerStack.Children.Add(categoryStack);
+        root.Children.Add(headerStack);
+
+        var issueStack = new StackPanel { Spacing = 10 };
+        var issueScroll = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            Margin = new Avalonia.Thickness(0, 12, 0, 0),
+            Content = issueStack
+        };
+        Grid.SetRow(issueScroll, 1);
+        root.Children.Add(issueScroll);
+
+        var filterButtons = new List<Button>();
+        var categoryButtons = new List<Button>();
+        var selectedSeverity = report.SevereCount > 0
+            ? CrossEventConflictSeverity.Severe
+            : report.WarningCount > 0
+                ? CrossEventConflictSeverity.Warning
+                : CrossEventConflictSeverity.Notice;
+        var selectedCategory = CrossEventIssueCategory.All;
+
+        static int CountIssuesBySeverity(CrossEventConflictReport report, CrossEventConflictSeverity severity)
+        {
+            return severity switch
+            {
+                CrossEventConflictSeverity.Severe => report.SevereCount,
+                CrossEventConflictSeverity.Warning => report.WarningCount,
+                _ => report.NoticeCount
+            };
+        }
+
+        int CountIssuesByCategory(CrossEventIssueCategory category)
+        {
+            return category == CrossEventIssueCategory.All
+                ? report.Issues.Count
+                : report.Issues.Count(issue => GetCrossEventIssueCategory(issue) == category);
+        }
+
+        void RenderIssues()
+        {
+            foreach (var button in filterButtons)
+            {
+                var isSelected = Equals(button.Tag, selectedSeverity);
+                var count = CountIssuesBySeverity(report, (CrossEventConflictSeverity)button.Tag!);
+                button.IsEnabled = count > 0;
+                button.Opacity = count > 0 || isSelected ? 1 : 0.48;
+                button.Background = new SolidColorBrush(isSelected ? Color.FromRgb(239, 246, 255) : Color.FromRgb(255, 255, 255));
+                button.BorderBrush = new SolidColorBrush(isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(203, 213, 225));
+                button.Foreground = new SolidColorBrush(count > 0 || isSelected
+                    ? isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(43, 20, 95)
+                    : Color.FromRgb(148, 163, 184));
+            }
+
+            foreach (var button in categoryButtons)
+            {
+                var isSelected = Equals(button.Tag, selectedCategory);
+                var count = CountIssuesByCategory((CrossEventIssueCategory)button.Tag!);
+                button.IsEnabled = count > 0 || isSelected;
+                button.Opacity = count > 0 || isSelected ? 1 : 0.48;
+                button.Background = new SolidColorBrush(isSelected ? Color.FromRgb(240, 253, 244) : Color.FromRgb(255, 255, 255));
+                button.BorderBrush = new SolidColorBrush(isSelected ? Color.FromRgb(22, 101, 52) : Color.FromRgb(203, 213, 225));
+                button.Foreground = new SolidColorBrush(count > 0 || isSelected
+                    ? isSelected ? Color.FromRgb(22, 101, 52) : Color.FromRgb(43, 20, 95)
+                    : Color.FromRgb(148, 163, 184));
+            }
+
+            issueStack.Children.Clear();
+            var issues = report.Issues
+                .Where(issue => issue.Severity == selectedSeverity)
+                .Where(issue => selectedCategory == CrossEventIssueCategory.All
+                                || GetCrossEventIssueCategory(issue) == selectedCategory)
+                .ToList();
+            if (issues.Count == 0)
+            {
+                issueStack.Children.Add(CreateScheduleConstraintEmptyCard(report.HasIssues
+                    ? $"当前没有{FormatCrossEventConflictSeverity(selectedSeverity)} / {FormatCrossEventIssueCategory(selectedCategory)}提醒。"
+                    : "当前多项目赛程暂无提醒。"));
+                return;
+            }
+
+            foreach (var issue in issues)
+            {
+                issueStack.Children.Add(CreateCrossEventConflictIssueCard(issue));
+            }
+        }
+
+        Button AddFilterButton(string text, CrossEventConflictSeverity severity)
+        {
+            var button = new Button
+            {
+                Content = text,
+                Tag = severity,
+                Padding = new Avalonia.Thickness(12, 6),
+                HorizontalContentAlignment = HorizontalAlignment.Center
+            };
+            button.Click += (_, _) =>
+            {
+                selectedSeverity = severity;
+                RenderIssues();
+            };
+            filterButtons.Add(button);
+            filterStack.Children.Add(button);
+            return button;
+        }
+
+        Button AddCategoryButton(string text, CrossEventIssueCategory category)
+        {
+            var button = new Button
+            {
+                Content = text,
+                Tag = category,
+                Padding = new Avalonia.Thickness(12, 6),
+                HorizontalContentAlignment = HorizontalAlignment.Center
+            };
+            button.Click += (_, _) =>
+            {
+                selectedCategory = category;
+                RenderIssues();
+            };
+            categoryButtons.Add(button);
+            categoryStack.Children.Add(button);
+            return button;
+        }
+
+        AddFilterButton($"严重 {report.SevereCount}", CrossEventConflictSeverity.Severe);
+        AddFilterButton($"警告 {report.WarningCount}", CrossEventConflictSeverity.Warning);
+        AddFilterButton($"提醒/推演 {report.NoticeCount}", CrossEventConflictSeverity.Notice);
+        AddCategoryButton($"全部类型 {report.Issues.Count}", CrossEventIssueCategory.All);
+        AddCategoryButton($"兼项间隔 {CountIssuesByCategory(CrossEventIssueCategory.MultiEventInterval)}", CrossEventIssueCategory.MultiEventInterval);
+        AddCategoryButton($"同日负荷 {CountIssuesByCategory(CrossEventIssueCategory.SameDayLoad)}", CrossEventIssueCategory.SameDayLoad);
+        AddCategoryButton($"负荷推演 {CountIssuesByCategory(CrossEventIssueCategory.LoadForecast)}", CrossEventIssueCategory.LoadForecast);
+        AddCategoryButton($"赛程冲突 {CountIssuesByCategory(CrossEventIssueCategory.ScheduleConflict)}", CrossEventIssueCategory.ScheduleConflict);
+        RenderIssues();
+        return root;
+    }
+
+    private Border CreateCrossEventConflictIssueCard(CrossEventConflictIssue issue)
+    {
+        var isSevere = issue.Severity == CrossEventConflictSeverity.Severe;
+        var isWarning = issue.Severity == CrossEventConflictSeverity.Warning;
+        var borderColor = isSevere
+            ? Color.FromRgb(220, 38, 38)
+            : isWarning ? Color.FromRgb(217, 119, 6) : Color.FromRgb(242, 216, 137);
+        var backgroundColor = isSevere
+            ? Color.FromRgb(254, 242, 242)
+            : isWarning ? Color.FromRgb(255, 250, 235) : Color.FromRgb(255, 248, 230);
+        var stack = new StackPanel { Spacing = 4 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{FormatCrossEventConflictSeverity(issue.Severity)} · {FormatCrossEventIssueCategory(issue)} · {issue.DayLabel} · {issue.FirstMatch.EventName} {issue.FirstMatch.Phase} {issue.FirstMatch.MatchName}",
+            FontWeight = FontWeight.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+            TextWrapping = TextWrapping.Wrap
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{issue.FirstMatch.TimeRange} · {issue.FirstMatch.Court} · {issue.PlayerName}",
+            Foreground = new SolidColorBrush(Color.FromRgb(71, 85, 105)),
+            TextWrapping = TextWrapping.Wrap
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = issue.Detail,
+            Foreground = new SolidColorBrush(isSevere ? Color.FromRgb(185, 28, 28) : Color.FromRgb(120, 83, 0)),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var card = new Border
+        {
+            Background = new SolidColorBrush(backgroundColor),
+            BorderBrush = new SolidColorBrush(borderColor),
+            BorderThickness = new Avalonia.Thickness(isSevere ? 2 : 1),
+            CornerRadius = new Avalonia.CornerRadius(8),
+            Padding = new Avalonia.Thickness(12),
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Tag = issue,
+            Child = stack
+        };
+        card.PointerPressed += (_, e) =>
+        {
+            e.Handled = true;
+            _ = FocusCrossEventConflictIssueAsync(issue);
+        };
+        return card;
+    }
+
+    private async Task FocusCrossEventPlayerAppearanceAsync(CrossEventPlayerScheduleAppearance appearance)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            SetStatus("请先加载多项目赛程。", isError: true);
+            return;
+        }
+
+        var item = _crossEventScheduleBoard.Items.FirstOrDefault(item =>
+                       string.Equals(item.Key, appearance.ItemKey, StringComparison.Ordinal))
+                   ?? _crossEventScheduleBoard.Items.FirstOrDefault(item =>
+                       string.Equals(item.EventName, appearance.EventName, StringComparison.Ordinal)
+                       && string.Equals(item.MatchName, appearance.MatchName, StringComparison.Ordinal)
+                       && string.Equals(item.DayLabel, appearance.DayLabel, StringComparison.Ordinal)
+                       && item.StartTime == appearance.StartTime
+                       && string.Equals(item.Court, appearance.Court, StringComparison.Ordinal));
+        if (item is null)
+        {
+            SetStatus($"未找到兼项明细对应的赛程：{appearance.EventName} {appearance.MatchName}", isError: true);
+            return;
+        }
+
+        await FocusCrossEventScheduleBoardItemAsync(item, "已定位到兼项选手场次");
+    }
+
+    private static string FormatCrossEventConflictSeverity(CrossEventConflictSeverity severity)
+    {
+        return severity switch
+        {
+            CrossEventConflictSeverity.Severe => "严重",
+            CrossEventConflictSeverity.Warning => "警告",
+            _ => "提醒"
+        };
+    }
+
+    private static string FormatCrossEventIssueCategory(CrossEventConflictIssue issue)
+    {
+        return FormatCrossEventIssueCategory(GetCrossEventIssueCategory(issue));
+    }
+
+    private static string FormatCrossEventIssueCategory(CrossEventIssueCategory category)
+    {
+        return category switch
+        {
+            CrossEventIssueCategory.All => "全部类型",
+            CrossEventIssueCategory.MultiEventInterval => "兼项间隔",
+            CrossEventIssueCategory.SameDayLoad => "同日负荷",
+            CrossEventIssueCategory.LoadForecast => "负荷推演",
+            _ => "赛程冲突"
+        };
+    }
+
+    private static CrossEventIssueCategory GetCrossEventIssueCategory(CrossEventConflictIssue issue)
+    {
+        if (issue.Detail.StartsWith("负荷推演", StringComparison.Ordinal))
+        {
+            return CrossEventIssueCategory.LoadForecast;
+        }
+
+        if (issue.Detail.StartsWith("同日", StringComparison.Ordinal)
+            || issue.Detail.Contains("跨项目累计", StringComparison.Ordinal))
+        {
+            return CrossEventIssueCategory.SameDayLoad;
+        }
+
+        return issue.RestMinutes.HasValue
+            ? CrossEventIssueCategory.MultiEventInterval
+            : CrossEventIssueCategory.ScheduleConflict;
+    }
+
+    private async Task FocusCrossEventConflictIssueAsync(CrossEventConflictIssue issue)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            SetStatus("请先加载多项目赛程。", isError: true);
+            return;
+        }
+
+        var item = FindCrossEventIssueTarget(issue);
+        if (item is null)
+        {
+            SetStatus($"未找到提醒对应的多项目赛程：{issue.FirstMatch.EventName} {issue.FirstMatch.MatchName}", isError: true);
+            return;
+        }
+
+        await FocusCrossEventScheduleBoardItemAsync(item, "已定位到多项目赛程");
+    }
+
+    private async Task FocusCrossEventScheduleBoardItemAsync(
+        CrossEventScheduleBoardItem item,
+        string statusPrefix)
+    {
+        RefreshCrossEventScheduleBoard(item.DayLabel);
+        if (!EnsureCrossEventBoardWindowOpen(item.DayLabel))
+        {
+            return;
+        }
+
+        await Task.Delay(60);
+        if (!_crossEventBoardWindowMatchCards.TryGetValue(item.Key, out var card))
+        {
+            RefreshCrossEventBoardWindow(item.DayLabel);
+            await Task.Delay(60);
+            _crossEventBoardWindowMatchCards.TryGetValue(item.Key, out card);
+        }
+
+        if (card is null)
+        {
+            SetStatus($"已打开多项目赛程窗口，但未定位到卡片：{item.MatchLabel}", isError: true);
+            return;
+        }
+
+        _crossEventBoardWindow?.Activate();
+        card.BringIntoView();
+        await FlashScheduleMatchCardAsync(card);
+        SetStatus($"{statusPrefix}：{item.DayLabel} {item.TimeRange} {item.Court} {item.MatchLabel}");
+    }
+
+    private CrossEventScheduleBoardItem? FindCrossEventIssueTarget(CrossEventConflictIssue issue)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            return null;
+        }
+
+        return FindCrossEventIssueAppearance(issue.FirstMatch)
+               ?? FindCrossEventIssueAppearance(issue.SecondMatch);
+    }
+
+    private CrossEventScheduleBoardItem? FindCrossEventIssueAppearance(CrossEventPlayerAppearance appearance)
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            return null;
+        }
+
+        return _crossEventScheduleBoard.Items.FirstOrDefault(item =>
+                   string.Equals(item.SourceId, appearance.SourceId, StringComparison.Ordinal)
+                   && string.Equals(item.MatchName, appearance.MatchName, StringComparison.Ordinal)
+                   && string.Equals(item.DayLabel, appearance.DayLabel, StringComparison.Ordinal)
+                   && item.StartTime == appearance.StartTime)
+               ?? _crossEventScheduleBoard.Items.FirstOrDefault(item =>
+                   string.Equals(item.SourceId, appearance.SourceId, StringComparison.Ordinal)
+                   && string.Equals(item.MatchName, appearance.MatchName, StringComparison.Ordinal));
+    }
+
     private Control BuildScheduleBoardWindowContent()
     {
         var root = new Grid
@@ -1924,6 +2350,10 @@ public partial class MainWindow : Window
         {
             _scheduleBoardWindowMatchCards.Clear();
         }
+        else if (board?.Kind == ScheduleBoardKind.CrossEvent && ReferenceEquals(targetGrid, _crossEventBoardWindowGrid))
+        {
+            _crossEventBoardWindowMatchCards.Clear();
+        }
 
         if (board is null || string.IsNullOrWhiteSpace(dayLabel))
         {
@@ -1995,6 +2425,10 @@ public partial class MainWindow : Window
             if (boardKind == ScheduleBoardKind.SingleEvent)
             {
                 _scheduleBoardWindowMatchCards[item.FocusKey] = card;
+            }
+            else if (boardKind == ScheduleBoardKind.CrossEvent && ReferenceEquals(targetGrid, _crossEventBoardWindowGrid))
+            {
+                _crossEventBoardWindowMatchCards[item.FocusKey] = card;
             }
 
             stack.Children.Add(card);
@@ -2593,7 +3027,7 @@ public partial class MainWindow : Window
         {
             Text = boardKind == ScheduleBoardKind.SingleEvent
                 ? "单项目依赖来自淘汰树：胜者/负者进入后续轮次。"
-                : "本项目后续依赖按项目内部淘汰树计算；兼项影响只检查已确定选手在其他项目的同日比赛，不展开所有理论晋级链。",
+                : "本项目后续依赖按项目内部淘汰树计算；兼项硬约束只检查已确定选手，负荷推演会在多项目提醒中按概率汇总未决晋级路径。",
             Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
             TextWrapping = TextWrapping.Wrap
         });
@@ -3185,16 +3619,22 @@ public partial class MainWindow : Window
 
     private void OpenCrossEventBoardWindow_Click(object? sender, RoutedEventArgs e)
     {
+        EnsureCrossEventBoardWindowOpen(GetSelectedCrossEventDayLabel());
+    }
+
+    private bool EnsureCrossEventBoardWindowOpen(string? preferredDayLabel = null)
+    {
         if (_crossEventScheduleBoard is null)
         {
             SetStatus("请先加载多项目赛程。", isError: true);
-            return;
+            return false;
         }
 
         if (_crossEventBoardWindow is { IsVisible: true })
         {
+            RefreshCrossEventBoardWindow(preferredDayLabel);
             _crossEventBoardWindow.Activate();
-            return;
+            return true;
         }
 
         _crossEventBoardWindowZoom = Math.Max(_crossEventBoardZoom, 0.85);
@@ -3232,9 +3672,11 @@ public partial class MainWindow : Window
             _crossEventBoardWindowUndoButton = null;
             _crossEventBoardWindowDayTabs = null;
             _crossEventBoardWindowDayPickerPanel = null;
+            _crossEventBoardWindowMatchCards.Clear();
         };
-        RefreshCrossEventBoardWindow(GetSelectedCrossEventDayLabel());
+        RefreshCrossEventBoardWindow(preferredDayLabel ?? GetSelectedCrossEventDayLabel());
         _crossEventBoardWindow.Show(this);
+        return true;
     }
 
     private Control BuildCrossEventBoardWindowContent()
@@ -5306,6 +5748,7 @@ public partial class MainWindow : Window
         if (_crossEventScheduleBoard is null)
         {
             CrossEventBoardSummaryText.Text = "尚未加载多项目赛程。请先在左侧选择至少两个赛事存档。";
+            UpdateCrossEventReminderButton();
             CrossEventDayBox.ItemsSource = null;
             CrossEventScheduleBoardGrid.Children.Clear();
             CrossEventScheduleBoardGrid.RowDefinitions.Clear();
@@ -5339,6 +5782,21 @@ public partial class MainWindow : Window
 
         var changedText = _crossEventScheduleBoard.HasUnsavedChanges ? " · 有未保存调整" : "";
         CrossEventBoardSummaryText.Text = BuildCrossEventBoardSummary(_crossEventScheduleBoard, _crossEventBoardZoom, changedText, includeZoom: false);
+        UpdateCrossEventReminderButton();
+    }
+
+    private void UpdateCrossEventReminderButton()
+    {
+        if (_crossEventScheduleBoard is null)
+        {
+            CrossEventReminderButton.Content = "查看提醒";
+            CrossEventReminderButton.IsEnabled = false;
+            return;
+        }
+
+        var count = _crossEventScheduleBoard.Report.Issues.Count;
+        CrossEventReminderButton.IsEnabled = true;
+        CrossEventReminderButton.Content = count > 0 ? $"提醒 {count}" : "查看提醒";
     }
 
     private static string BuildCrossEventBoardSummary(
@@ -5353,7 +5811,7 @@ public partial class MainWindow : Window
             ? $"，裁判 {refereeCount.Value} 人"
             : "";
         return $"项目 {board.Sources.Count}，场次 {board.Items.Count}，兼项 {board.MultiEventPlayerCount}；"
-               + $"严重 {board.Report.SevereCount}，警告 {board.Report.WarningCount}，同日 {board.Report.NoticeCount}，"
+               + $"严重 {board.Report.SevereCount}，警告 {board.Report.WarningCount}，提醒/推演 {board.Report.NoticeCount}，"
                + $"冲突卡 {board.BlockingConflictItemCount}{refereeText}{zoomText}{changedText}";
     }
 
@@ -5435,7 +5893,7 @@ public partial class MainWindow : Window
             ? $"裁判 {refereeCount.Value} 人，"
             : "";
         return $"{prefix}：兼项选手 {board.MultiEventPlayerCount} 人，严重 {board.Report.SevereCount} 条，警告 {board.Report.WarningCount} 条，"
-               + $"同日提醒 {board.Report.NoticeCount} 条，{refereeText}冲突卡片 {board.BlockingConflictItemCount} 张。";
+               + $"同日/负荷推演提醒 {board.Report.NoticeCount} 条，{refereeText}冲突卡片 {board.BlockingConflictItemCount} 张。";
     }
 
     private CompetitionMode GetCompetitionMode()

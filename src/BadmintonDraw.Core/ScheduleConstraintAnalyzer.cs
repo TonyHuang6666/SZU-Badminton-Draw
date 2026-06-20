@@ -12,7 +12,7 @@ public sealed class ScheduleConstraintAnalyzer
 
         AddDependencyOrderIssues(issues, schedule, rules);
         AddRestIssues(issues, appearances, rules);
-        AddDailyLoadIssues(issues, appearances, schedule.Settings, rules);
+        AddDailyLoadIssues(issues, schedule, rules);
         AddKeyMatchTimeIssues(issues, schedule.Matches, rules);
 
         return new ScheduleConstraintReport(schedule.Settings.ConstraintProfile, rules, issues
@@ -97,44 +97,79 @@ public sealed class ScheduleConstraintAnalyzer
 
     private static void AddDailyLoadIssues(
         List<ScheduleConstraintIssue> issues,
-        IReadOnlyList<PlayerAppearance> appearances,
-        ScheduleSettings settings,
+        SchedulePlan schedule,
         ScheduleConstraintRules rules)
     {
         var dailyLimit = Math.Max(
-            settings.MaxMatchesPerEntrantPerDay,
-            settings.BeforeBoundaryTiming?.MaxMatchesPerEntrantPerDay ?? 0);
-        foreach (var group in appearances
-                     .GroupBy(appearance => $"{appearance.NormalizedPlayerName}\u001F{appearance.DayLabel}", StringComparer.OrdinalIgnoreCase))
+            1,
+            Math.Max(
+                schedule.Settings.MaxMatchesPerEntrantPerDay,
+                schedule.Settings.BeforeBoundaryTiming?.MaxMatchesPerEntrantPerDay ?? 0));
+        var forecastDepth = rules.MaxProjectedDepth == int.MaxValue
+            ? int.MaxValue
+            : Math.Max(rules.MaxProjectedDepth, 4);
+        var forecasts = new PlayerLoadForecastAnalyzer().Analyze(schedule, forecastDepth, dailyLimit);
+        foreach (var forecast in forecasts)
         {
-            var appearanceGroup = group
-                .GroupBy(BuildAppearanceKey, StringComparer.Ordinal)
-                .Select(item => item.First())
-                .ToList();
-            var playerName = appearanceGroup.First().PlayerName;
-            var count = CountMaximumCompatibleMatches(appearanceGroup);
-            if (count < dailyLimit)
+            if (forecast.MaximumCount < dailyLimit)
             {
                 continue;
             }
 
-            var first = appearanceGroup.OrderBy(appearance => appearance.Match.StartTime).First();
-            var severity = count > dailyLimit ? ScheduleConstraintSeverity.Warning : ScheduleConstraintSeverity.Notice;
-            var action = count > dailyLimit ? "超过" : "达到";
-            var hasProjectedAppearance = appearanceGroup.Any(appearance => appearance.IsProjected);
-            var certainty = hasProjectedAppearance ? "可能" : "已";
+            var first = forecast.Appearances.OrderBy(appearance => appearance.StartTime).First();
+            var severity = !forecast.HasProjectedAppearances && forecast.MaximumCount > dailyLimit
+                ? ScheduleConstraintSeverity.Warning
+                : ScheduleConstraintSeverity.Notice;
+            var scope = forecast.HasProjectedAppearances
+                ? ScheduleConstraintIssueScope.Speculative
+                : ScheduleConstraintIssueScope.Confirmed;
+            var message = BuildDailyLoadMessage(forecast, dailyLimit, rules);
             issues.Add(new ScheduleConstraintIssue(
                 severity,
                 ScheduleConstraintIssueType.DailyLoad,
-                hasProjectedAppearance ? ScheduleConstraintIssueScope.Speculative : ScheduleConstraintIssueScope.Confirmed,
+                scope,
                 first.DayLabel,
-                first.Match.StartTime,
-                first.Match.Court,
-                first.Match.Phase,
-                first.Match.MatchName,
-                playerName,
-                $"{playerName} 在 {first.DayLabel} {certainty}{action}每日场次上限：{count}/{dailyLimit} 场。{rules.ProfileName}下建议裁判长确认体能安排。"));
+                first.StartTime,
+                first.Court,
+                first.Phase,
+                first.MatchName,
+                forecast.PlayerName,
+                message));
         }
+    }
+
+    private static string BuildDailyLoadMessage(
+        PlayerDailyLoadForecast forecast,
+        int dailyLimit,
+        ScheduleConstraintRules rules)
+    {
+        if (!forecast.HasProjectedAppearances)
+        {
+            var action = forecast.MaximumCount > dailyLimit ? "超过" : "达到";
+            return
+                $"{forecast.PlayerName} 在 {forecast.DayLabel} 已{action}每日场次上限：{forecast.MaximumCount}/{dailyLimit} 场。{rules.ProfileName}下建议裁判长确认体能安排。";
+        }
+
+        var probability = FormatProbability(forecast.ProbabilityAtOrAboveLimit);
+        var distribution = FormatDistribution(forecast.Distribution);
+        return
+            $"负荷推演：{forecast.PlayerName} 在 {forecast.DayLabel} 最高可能 {forecast.MaximumCount}/{dailyLimit} 场，"
+            + $"达到或超过上限概率约 {probability}，期望 {forecast.ExpectedCount:0.0} 场。"
+            + $"分布：{distribution}。名次附加赛会让进入对应区间的选手继续参赛；{rules.ProfileName}下建议裁判长确认体能安排。";
+    }
+
+    private static string FormatProbability(double probability)
+    {
+        return $"{Math.Clamp(probability, 0.0, 1.0) * 100:0.#}%";
+    }
+
+    private static string FormatDistribution(IReadOnlyDictionary<int, double> distribution)
+    {
+        return string.Join(
+            "，",
+            distribution
+                .OrderBy(pair => pair.Key)
+                .Select(pair => $"{pair.Key}场 {FormatProbability(pair.Value)}"));
     }
 
     private static void AddProjectedRestIssues(
