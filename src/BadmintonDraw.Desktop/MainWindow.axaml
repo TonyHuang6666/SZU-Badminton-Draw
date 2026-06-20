@@ -13,55 +13,55 @@
         <Style Selector="TextBlock.app-title">
             <Setter Property="FontSize" Value="28" />
             <Setter Property="FontWeight" Value="Bold" />
-            <Setter Property="Foreground" Value="#28104E" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTitleBrush}" />
         </Style>
         <Style Selector="TextBlock.section-title">
             <Setter Property="FontSize" Value="17" />
             <Setter Property="FontWeight" Value="Bold" />
-            <Setter Property="Foreground" Value="#28104E" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTitleBrush}" />
         </Style>
         <Style Selector="TextBlock.field-label">
             <Setter Property="FontSize" Value="12" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="#4D4366" />
+            <Setter Property="Foreground" Value="{DynamicResource AppFieldLabelBrush}" />
             <Setter Property="Margin" Value="0,10,0,5" />
         </Style>
         <Style Selector="TextBlock.muted">
-            <Setter Property="Foreground" Value="#6F7890" />
+            <Setter Property="Foreground" Value="{DynamicResource AppMutedTextBrush}" />
         </Style>
         <Style Selector="TextBox">
             <Setter Property="MinHeight" Value="40" />
             <Setter Property="Padding" Value="12,8" />
-            <Setter Property="Background" Value="#FBFCFF" />
-            <Setter Property="BorderBrush" Value="#CBD5E1" />
+            <Setter Property="Background" Value="{DynamicResource AppInputBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppInputBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="Foreground" Value="#111827" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
         </Style>
         <Style Selector="ComboBox">
             <Setter Property="MinHeight" Value="40" />
             <Setter Property="Padding" Value="10,6" />
-            <Setter Property="Background" Value="#FBFCFF" />
-            <Setter Property="BorderBrush" Value="#CBD5E1" />
+            <Setter Property="Background" Value="{DynamicResource AppInputBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppInputBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="Foreground" Value="#111827" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
         </Style>
         <Style Selector="ComboBox:pointerover">
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="#93C5FD" />
-            <Setter Property="Foreground" Value="#111827" />
+            <Setter Property="Background" Value="{DynamicResource AppInputHoverBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppInputHoverBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
         </Style>
         <Style Selector="ComboBoxItem">
-            <Setter Property="Foreground" Value="#111827" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
         </Style>
         <Style Selector="ComboBoxItem:pointerover">
-            <Setter Property="Background" Value="#EFF6FF" />
-            <Setter Property="Foreground" Value="#0F172A" />
+            <Setter Property="Background" Value="{DynamicResource AppListHoverBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppSelectionTextBrush}" />
         </Style>
         <Style Selector="ComboBoxItem:selected">
-            <Setter Property="Background" Value="#DBEAFE" />
-            <Setter Property="Foreground" Value="#0F172A" />
+            <Setter Property="Background" Value="{DynamicResource AppListSelectedBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppSelectionTextBrush}" />
         </Style>
         <Style Selector="Button">
             <Setter Property="MinHeight" Value="40" />
@@ -70,42 +70,60 @@
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.primary">
-            <Setter Property="Background" Value="#0F5F9F" />
-            <Setter Property="BorderBrush" Value="#0F5F9F" />
-            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Background" Value="{DynamicResource AppAccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppAccentTextBrush}" />
         </Style>
         <Style Selector="Button.primary:pointerover">
-            <Setter Property="Background" Value="#0B548D" />
-            <Setter Property="BorderBrush" Value="#0B548D" />
-            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppAccentHoverBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppAccentTextBrush}" />
+        </Style>
+        <Style Selector="Button.primary:disabled">
+            <Setter Property="Background" Value="{DynamicResource AppDisabledBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppDisabledBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledTextBrush}" />
+            <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Button.secondary">
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="#C7D2E4" />
-            <Setter Property="Foreground" Value="#243B63" />
+            <Setter Property="Background" Value="{DynamicResource AppButtonBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppButtonBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppButtonTextBrush}" />
         </Style>
         <Style Selector="Button.secondary:pointerover">
-            <Setter Property="Background" Value="#F1F7FF" />
-            <Setter Property="BorderBrush" Value="#93B9E8" />
-            <Setter Property="Foreground" Value="#17345D" />
+            <Setter Property="Background" Value="{DynamicResource AppButtonHoverBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppButtonHoverBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppButtonHoverTextBrush}" />
+        </Style>
+        <Style Selector="Button.secondary:disabled">
+            <Setter Property="Background" Value="{DynamicResource AppDisabledBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppDisabledBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledTextBrush}" />
+            <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Button.subtle">
-            <Setter Property="Background" Value="#F4F7FB" />
-            <Setter Property="BorderBrush" Value="#D9E2EF" />
-            <Setter Property="Foreground" Value="#344767" />
+            <Setter Property="Background" Value="{DynamicResource AppSubtleButtonBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppSubtleButtonBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppSubtleButtonTextBrush}" />
         </Style>
         <Style Selector="Button.subtle:pointerover">
-            <Setter Property="Background" Value="#EAF1FA" />
-            <Setter Property="BorderBrush" Value="#C2D1E5" />
-            <Setter Property="Foreground" Value="#243B63" />
+            <Setter Property="Background" Value="{DynamicResource AppSubtleButtonHoverBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppSubtleButtonHoverBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppButtonHoverTextBrush}" />
+        </Style>
+        <Style Selector="Button.subtle:disabled">
+            <Setter Property="Background" Value="{DynamicResource AppDisabledBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppDisabledBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledTextBrush}" />
+            <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Button.compact">
             <Setter Property="MinHeight" Value="40" />
             <Setter Property="Padding" Value="12,8" />
         </Style>
         <Style Selector="Border.panel">
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="#D8E0EC" />
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppPanelBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
         </Style>
@@ -116,8 +134,8 @@
             <Setter Property="MinHeight" Value="42" />
         </Style>
         <Style Selector="Border.preview-row">
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="#E2E8F0" />
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppSoftBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Padding" Value="12" />
@@ -129,20 +147,20 @@
         <Style Selector="TabItem">
             <Setter Property="Padding" Value="14,8" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="#3F315F" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTabTextBrush}" />
         </Style>
         <Style Selector="TabItem:pointerover">
-            <Setter Property="Foreground" Value="#111827" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
         </Style>
         <Style Selector="TabItem:selected">
-            <Setter Property="Foreground" Value="#111827" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
         </Style>
     </Window.Styles>
 
-    <Grid Background="#F5F7FB" RowDefinitions="Auto,*,Auto">
+    <Grid Background="{DynamicResource AppBackgroundBrush}" RowDefinitions="Auto,*,Auto">
         <Border Grid.Row="0"
-                Background="#FFFFFF"
-                BorderBrush="#DCE3EF"
+                Background="{DynamicResource AppHeaderBackgroundBrush}"
+                BorderBrush="{DynamicResource AppBorderBrush}"
                 BorderThickness="0,0,0,1"
                 Padding="26,18,26,0">
             <Grid RowDefinitions="Auto,Auto">
@@ -150,8 +168,8 @@
                     <Border Width="62"
                             Height="62"
                             CornerRadius="12"
-                            Background="#FFFFFF"
-                            BorderBrush="#E2E8F0"
+                            Background="{DynamicResource AppSurfaceBrush}"
+                            BorderBrush="{DynamicResource AppSoftBorderBrush}"
                             BorderThickness="1"
                             Padding="4">
                         <Image Source="avares://BadmintonDraw.Desktop/Assets/szuba-red-logo.png"
@@ -174,11 +192,11 @@
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center"
                                 Spacing="8">
-                        <Border Background="#EEF6FF" BorderBrush="#C8DEF7" BorderThickness="1" CornerRadius="8" Padding="10,6">
-                            <TextBlock Text="跨平台桌面版" Foreground="#0F5F9F" FontWeight="SemiBold" />
+                        <Border Background="{DynamicResource AppInfoCardBackgroundBrush}" BorderBrush="{DynamicResource AppInfoCardBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10,6">
+                            <TextBlock Text="跨平台桌面版" Foreground="{DynamicResource AppInfoTextBrush}" FontWeight="SemiBold" />
                         </Border>
-                        <Border Background="#F7F3FF" BorderBrush="#DED2F8" BorderThickness="1" CornerRadius="8" Padding="10,6">
-                            <TextBlock Text="Avalonia" Foreground="#4A1E78" FontWeight="SemiBold" />
+                        <Border Background="{DynamicResource AppPurpleCardBackgroundBrush}" BorderBrush="{DynamicResource AppPurpleCardBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10,6">
+                            <TextBlock Text="Avalonia" Foreground="{DynamicResource AppPurpleTextBrush}" FontWeight="SemiBold" />
                         </Border>
                     </StackPanel>
                 </Grid>
@@ -195,8 +213,8 @@
         <Grid x:Name="MainWorkspaceGrid" Grid.Row="1" ColumnDefinitions="420,*" Margin="22" ColumnSpacing="18">
             <Border x:Name="LeftWorkspacePanel" Classes="panel" Grid.Column="0">
                 <Grid RowDefinitions="Auto,*">
-                    <Border Background="#FBFCFF"
-                            BorderBrush="#E3E9F3"
+                    <Border Background="{DynamicResource AppSurfaceAltBrush}"
+                            BorderBrush="{DynamicResource AppSoftBorderBrush}"
                             BorderThickness="0,0,0,1"
                             Padding="18,16">
                         <Grid ColumnDefinitions="*,Auto">
@@ -205,13 +223,13 @@
                                 <TextBlock Classes="muted" Text="抽签与赛程" />
                             </StackPanel>
                             <Border Grid.Column="1"
-                                    Background="#EFF6F2"
-                                    BorderBrush="#CFE5D7"
+                                    Background="{DynamicResource AppSuccessCardBackgroundBrush}"
+                                    BorderBrush="{DynamicResource AppSuccessCardBorderBrush}"
                                     BorderThickness="1"
                                     CornerRadius="8"
                                     Padding="10,6"
                                     VerticalAlignment="Center">
-                                <TextBlock Text="本地生成" Foreground="#25654A" FontWeight="SemiBold" />
+                                <TextBlock Text="本地生成" Foreground="{DynamicResource AppSuccessTextBrush}" FontWeight="SemiBold" />
                             </Border>
                         </Grid>
                     </Border>
@@ -325,8 +343,8 @@
                         <TabItem Header="赛程">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel Spacing="4" Margin="0,10,0,0">
-                                    <Border Background="#F7F3FF"
-                                            BorderBrush="#DED2F8"
+                                    <Border Background="{DynamicResource AppPurpleCardBackgroundBrush}"
+                                            BorderBrush="{DynamicResource AppPurpleCardBorderBrush}"
                                             BorderThickness="1"
                                             CornerRadius="8"
                                             Padding="12"
@@ -334,7 +352,7 @@
                                         <StackPanel Spacing="10">
                                             <TextBlock x:Name="ProgressFileText"
                                                        Text="尚未创建或打开赛事存档"
-                                                       Foreground="#5F5577"
+                                                       Foreground="{DynamicResource AppPurpleTextBrush}"
                                                        TextWrapping="Wrap" />
                                             <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
                                                 <Button Classes="secondary"
@@ -416,7 +434,7 @@
                                     </Grid>
 
                                     <TextBlock Classes="field-label" Text="赛程日列表" />
-                                    <Border BorderBrush="#D8E0EC" BorderThickness="1" CornerRadius="8" MinHeight="108">
+                                    <Border BorderBrush="{DynamicResource AppPanelBorderBrush}" BorderThickness="1" CornerRadius="8" MinHeight="108">
                                         <ScrollViewer MaxHeight="145">
                                             <ListBox x:Name="ScheduleDaysList"
                                                      Background="Transparent"
@@ -424,13 +442,13 @@
                                                 <ListBox.ItemTemplate>
                                                     <DataTemplate>
                                                         <Border Padding="10"
-                                                                BorderBrush="#EDF1F7"
+                                                                BorderBrush="{DynamicResource AppSoftBorderBrush}"
                                                                 BorderThickness="0,0,0,1"
-                                                                Background="#FFFFFF">
+                                                                Background="{DynamicResource AppSurfaceBrush}">
                                                             <Grid ColumnDefinitions="86,90,*" ColumnSpacing="8">
-                                                                <TextBlock Text="{Binding DateText}" FontWeight="Bold" Foreground="#111827" />
-                                                                <TextBlock Grid.Column="1" Text="{Binding TimeRange}" Foreground="#334155" />
-                                                                <TextBlock Grid.Column="2" Text="{Binding CourtSummary}" Foreground="#64748B" TextWrapping="Wrap" />
+                                                                <TextBlock Text="{Binding DateText}" FontWeight="Bold" Foreground="{DynamicResource AppTextBrush}" />
+                                                                <TextBlock Grid.Column="1" Text="{Binding TimeRange}" Foreground="{DynamicResource AppTextBrush}" />
+                                                                <TextBlock Grid.Column="2" Text="{Binding CourtSummary}" Foreground="{DynamicResource AppMutedTextBrush}" TextWrapping="Wrap" />
                                                             </Grid>
                                                         </Border>
                                                     </DataTemplate>
@@ -495,17 +513,17 @@
                                         <StackPanel>
                                             <TextBlock Classes="field-label" Text="裁判人数" />
                                             <TextBox x:Name="ScheduleRefereeCountBox"
-                                                     Watermark="留空则按场地数"
+                                                     PlaceholderText="留空则按场地数"
                                                      Text="" />
                                         </StackPanel>
                                         <TextBlock Grid.Column="1"
                                                    Text="人"
-                                                   Foreground="#64748B"
+                                                   Foreground="{DynamicResource AppMutedTextBrush}"
                                                    VerticalAlignment="Bottom"
                                                    Margin="0,0,0,10" />
                                     </Grid>
                                     <TextBlock Text="默认每场比赛需要 1 名裁判；填写后每个时间段最多安排 min(场地数, 裁判人数) 场。"
-                                               Foreground="#64748B"
+                                               Foreground="{DynamicResource AppMutedTextBrush}"
                                                TextWrapping="Wrap"
                                                Margin="0,4,0,0" />
 
@@ -518,7 +536,7 @@
                                         <ComboBoxItem Content="决赛日友好" Tag="FinalsDayFriendly" />
                                     </ComboBox>
                                     <TextBlock Text="策略会影响单项目生成时每日负载和重要场次位置；切换后会按当前抽签结果重新生成赛程。"
-                                               Foreground="#64748B"
+                                               Foreground="{DynamicResource AppMutedTextBrush}"
                                                TextWrapping="Wrap"
                                                Margin="0,6,0,0" />
 
@@ -529,7 +547,7 @@
                                         <ComboBoxItem Content="审计模式：完整推演所有晋级路径" Tag="Audit" />
                                     </ComboBox>
                                     <TextBlock Text="该设置先用于生成提醒，不会自动改变赛程；裁判长可根据提醒打开窗口拖动调整。"
-                                               Foreground="#64748B"
+                                               Foreground="{DynamicResource AppMutedTextBrush}"
                                                TextWrapping="Wrap"
                                                Margin="0,6,0,0" />
 
@@ -546,7 +564,7 @@
                                         <ComboBoxItem Content="全部导出" Tag="All" />
                                     </ComboBox>
                                     <TextBlock Text="材料包会固定包含记录表、赛程安排表、带时间场地对阵表和单场计分表 PDF（每场一页横版）；上方格式只用于完整赛程表单文件导出。"
-                                               Foreground="#64748B"
+                                               Foreground="{DynamicResource AppMutedTextBrush}"
                                                TextWrapping="Wrap"
                                                Margin="0,6,0,0" />
                                     <Button Classes="secondary" Content="导出完整赛程表" Margin="0,8,0,0" Click="ExportSchedule_Click" />
@@ -559,11 +577,11 @@
                                 <StackPanel Spacing="8" Margin="0,10,0,0">
                                     <TextBlock Classes="section-title" Text="多项目赛程编排" />
                                     <TextBlock Text="把多个项目的赛事存档放在一起检查和调整。加载后可在右侧总表拖动比赛卡片，或让程序自动寻找空位。"
-                                               Foreground="#64748B"
+                                               Foreground="{DynamicResource AppMutedTextBrush}"
                                                TextWrapping="Wrap" />
 
-                                    <Border Background="#F8FBFF"
-                                            BorderBrush="#C7D8F0"
+                                    <Border Background="{DynamicResource AppInfoCardBackgroundBrush}"
+                                            BorderBrush="{DynamicResource AppInfoCardBorderBrush}"
                                             BorderThickness="1"
                                             CornerRadius="8"
                                             Padding="12"
@@ -571,41 +589,41 @@
                                         <StackPanel Spacing="8">
                                             <TextBlock Text="多项目赛程工作台"
                                                        FontWeight="SemiBold"
-                                                       Foreground="#243B63" />
+                                                       Foreground="{DynamicResource AppInfoTextBrush}" />
                                             <TextBlock Text="严重冲突和警告会在总表中标红。已完成场次不会被拖动，避免和已导入赛果不一致。"
-                                                       Foreground="#64748B"
+                                                       Foreground="{DynamicResource AppMutedTextBrush}"
                                                        TextWrapping="Wrap" />
                                             <Grid ColumnDefinitions="*,74,44" ColumnSpacing="8">
                                                 <TextBlock Text="最小休息间隔"
-                                                           Foreground="#64748B"
+                                                           Foreground="{DynamicResource AppMutedTextBrush}"
                                                            VerticalAlignment="Center" />
                                                 <TextBox x:Name="CrossEventRestMinutesBox"
                                                          Grid.Column="1"
                                                          Text="20"
                                                          LostFocus="CrossEventRestMinutesBox_LostFocus" />
-                                                <TextBlock Grid.Column="2"
+                                               <TextBlock Grid.Column="2"
                                                            Text="分钟"
-                                                           Foreground="#64748B"
+                                                           Foreground="{DynamicResource AppMutedTextBrush}"
                                                            VerticalAlignment="Center" />
                                             </Grid>
                                             <Grid ColumnDefinitions="*,74,44" ColumnSpacing="8">
                                                 <TextBlock Text="裁判人数"
-                                                           Foreground="#64748B"
+                                                           Foreground="{DynamicResource AppMutedTextBrush}"
                                                            VerticalAlignment="Center" />
                                                 <TextBox x:Name="CrossEventRefereeCountBox"
                                                          Grid.Column="1"
-                                                         Watermark="按场地"
+                                                         PlaceholderText="按场地"
                                                          LostFocus="CrossEventRefereeCountBox_LostFocus" />
                                                 <TextBlock Grid.Column="2"
                                                            Text="人"
-                                                           Foreground="#64748B"
+                                                           Foreground="{DynamicResource AppMutedTextBrush}"
                                                            VerticalAlignment="Center" />
                                             </Grid>
                                             <TextBlock Text="默认每场比赛需要 1 名裁判；填写后每个时间段最多安排 min(场地数, 裁判人数) 场。"
-                                                       Foreground="#64748B"
+                                                       Foreground="{DynamicResource AppMutedTextBrush}"
                                                        TextWrapping="Wrap" />
                                             <TextBlock Text="自动编排策略"
-                                                       Foreground="#64748B"
+                                                       Foreground="{DynamicResource AppMutedTextBrush}"
                                                        FontWeight="SemiBold" />
                                             <ComboBox x:Name="CrossEventSchedulingStrategyBox"
                                                       SelectedIndex="1"
@@ -616,8 +634,8 @@
                                                 <ComboBoxItem Content="自定义" Tag="Custom" />
                                             </ComboBox>
                                             <Border x:Name="CrossEventCustomSchedulingPanel"
-                                                    Background="#FFFFFF"
-                                                    BorderBrush="#D8E0EC"
+                                                    Background="{DynamicResource AppSurfaceBrush}"
+                                                    BorderBrush="{DynamicResource AppPanelBorderBrush}"
                                                     BorderThickness="1"
                                                     CornerRadius="8"
                                                     Padding="10"
@@ -625,14 +643,14 @@
                                                 <StackPanel Spacing="10">
                                                     <TextBlock Text="自定义编排参数"
                                                                FontWeight="SemiBold"
-                                                               Foreground="#28104E" />
+                                                               Foreground="{DynamicResource AppTitleBrush}" />
                                                     <TextBlock x:Name="CrossEventCustomHintText"
                                                                Text="加载多项目赛程后，这里会显示系统推荐参数；每次调整都会以当前控件为锚点重新平衡其他参数。"
-                                                               Foreground="#64748B"
+                                                               Foreground="{DynamicResource AppMutedTextBrush}"
                                                                TextWrapping="Wrap" />
                                                     <TextBlock Text="每日目标场地负载率"
                                                                FontWeight="SemiBold"
-                                                               Foreground="#243B63" />
+                                                               Foreground="{DynamicResource AppButtonTextBrush}" />
                                                     <StackPanel x:Name="CrossEventCustomDayLoadPanel" Spacing="8" />
                                                     <CheckBox x:Name="CrossEventStageWaveBox"
                                                               Content="统一按阶段波次推进"
@@ -661,25 +679,25 @@
                                         </StackPanel>
                                     </Border>
 
-                                    <Border Background="#FFF8E6"
-                                            BorderBrush="#F2D889"
+                                    <Border Background="{DynamicResource AppWarningCardBackgroundBrush}"
+                                            BorderBrush="{DynamicResource AppWarningCardBorderBrush}"
                                             BorderThickness="1"
                                             CornerRadius="8"
                                             Padding="12"
                                             Margin="0,8,0,0">
                                         <TextBlock Text="严重冲突表示同一选手同时间段跨项目比赛；警告包含低于最小休息间隔或已确定跨项目同日累计超量；同日/负荷推演提醒用于裁判长人工确认体能和现场调度。"
-                                                   Foreground="#7B5600"
+                                                   Foreground="{DynamicResource AppWarningTextBrush}"
                                                    TextWrapping="Wrap" />
                                     </Border>
 
-                                    <Border Background="#F7F3FF"
-                                            BorderBrush="#DED2F8"
+                                    <Border Background="{DynamicResource AppPurpleCardBackgroundBrush}"
+                                            BorderBrush="{DynamicResource AppPurpleCardBorderBrush}"
                                             BorderThickness="1"
                                             CornerRadius="8"
                                             Padding="12"
                                             Margin="0,8,0,0">
                                         <TextBlock Text="拖拽方式：可在右侧当前比赛日内拖到目标时间和场地；打开独立窗口后可点击顶部日期标签切换日期，也可把卡片拖到日期标签跨日移动。误拖后可点“撤销调整”。排程检查报告会优先使用当前看板状态。"
-                                                   Foreground="#5F5577"
+                                                   Foreground="{DynamicResource AppPurpleTextBrush}"
                                                    TextWrapping="Wrap" />
                                     </Border>
                                 </StackPanel>
@@ -692,43 +710,43 @@
             <Border Classes="panel" Grid.Column="1">
                 <Grid RowDefinitions="Auto,*">
                     <Border Grid.Row="0"
-                            Background="#FBFCFF"
-                            BorderBrush="#E4EAF3"
+                            Background="{DynamicResource AppSurfaceAltBrush}"
+                            BorderBrush="{DynamicResource AppSoftBorderBrush}"
                             BorderThickness="1"
                             CornerRadius="8"
                             Padding="12"
                             Margin="18,18,18,8">
                         <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*" ColumnSpacing="14">
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Border Classes="metric-pill" Background="#ECF6FF" BorderBrush="#D2E7FB">
+                                <Border Classes="metric-pill" Background="{DynamicResource AppInfoCardBackgroundBrush}" BorderBrush="{DynamicResource AppInfoCardBorderBrush}">
                                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                        <TextBlock Text="参赛" Foreground="#59697E" FontWeight="SemiBold" FontSize="12" />
-                                        <TextBlock x:Name="ParticipantCountText" Text="-" FontSize="18" FontWeight="Bold" Foreground="#0F172A" />
+                                        <TextBlock Text="参赛" Foreground="{DynamicResource AppMutedTextBrush}" FontWeight="SemiBold" FontSize="12" />
+                                        <TextBlock x:Name="ParticipantCountText" Text="-" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource AppTextBrush}" />
                                     </StackPanel>
                                 </Border>
-                                <Border Classes="metric-pill" Background="#F0F8F1" BorderBrush="#D4EAD8">
+                                <Border Classes="metric-pill" Background="{DynamicResource AppSuccessCardBackgroundBrush}" BorderBrush="{DynamicResource AppSuccessCardBorderBrush}">
                                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                        <TextBlock Text="小组" Foreground="#59697E" FontWeight="SemiBold" FontSize="12" />
-                                        <TextBlock x:Name="GroupCountStatText" Text="-" FontSize="18" FontWeight="Bold" Foreground="#0F172A" />
+                                        <TextBlock Text="小组" Foreground="{DynamicResource AppMutedTextBrush}" FontWeight="SemiBold" FontSize="12" />
+                                        <TextBlock x:Name="GroupCountStatText" Text="-" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource AppTextBrush}" />
                                     </StackPanel>
                                 </Border>
-                                <Border Classes="metric-pill" Background="#FFF7E8" BorderBrush="#F2E0BE">
+                                <Border Classes="metric-pill" Background="{DynamicResource AppWarningCardBackgroundBrush}" BorderBrush="{DynamicResource AppWarningCardBorderBrush}">
                                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                        <TextBlock Text="项目" Foreground="#59697E" FontWeight="SemiBold" FontSize="12" />
-                                        <TextBlock x:Name="EventKindStatText" Text="-" FontSize="18" FontWeight="Bold" Foreground="#0F172A" />
+                                        <TextBlock Text="项目" Foreground="{DynamicResource AppMutedTextBrush}" FontWeight="SemiBold" FontSize="12" />
+                                        <TextBlock x:Name="EventKindStatText" Text="-" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource AppTextBrush}" />
                                     </StackPanel>
                                 </Border>
-                                <Border Classes="metric-pill" Background="#F6F1FF" BorderBrush="#E0D4F5">
+                                <Border Classes="metric-pill" Background="{DynamicResource AppPurpleCardBackgroundBrush}" BorderBrush="{DynamicResource AppPurpleCardBorderBrush}">
                                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                        <TextBlock Text="状态" Foreground="#59697E" FontWeight="SemiBold" FontSize="12" />
-                                        <TextBlock x:Name="PreviewStateText" Text="待预览" FontSize="18" FontWeight="Bold" Foreground="#0F172A" />
+                                        <TextBlock Text="状态" Foreground="{DynamicResource AppMutedTextBrush}" FontWeight="SemiBold" FontSize="12" />
+                                        <TextBlock x:Name="PreviewStateText" Text="待预览" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource AppTextBrush}" />
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
                             <TextBlock x:Name="SummaryText"
                                        Grid.Column="1"
                                        Text="尚未生成抽签预览"
-                                       Foreground="#28104E"
+                                       Foreground="{DynamicResource AppTitleBrush}"
                                        FontSize="15"
                                        FontWeight="SemiBold"
                                        TextWrapping="Wrap"
@@ -737,14 +755,14 @@
                                     Grid.Row="1"
                                     Grid.ColumnSpan="2"
                                     IsVisible="False"
-                                    Background="#FFF7E8"
-                                    BorderBrush="#F2D39C"
+                                    Background="{DynamicResource AppWarningCardBackgroundBrush}"
+                                    BorderBrush="{DynamicResource AppWarningCardBorderBrush}"
                                     BorderThickness="1"
                                     CornerRadius="8"
                                     Padding="10,8"
                                     Margin="0,8,0,0">
                                 <TextBlock x:Name="WarningText"
-                                           Foreground="#8A5B00"
+                                           Foreground="{DynamicResource AppWarningTextBrush}"
                                            TextWrapping="Wrap" />
                             </Border>
                         </Grid>
@@ -763,20 +781,20 @@
                                             <DataTemplate>
                                                 <Border Classes="preview-row">
                                                     <Grid ColumnDefinitions="84,*" ColumnSpacing="12">
-                                                        <Border Background="#EFF6FF"
-                                                                BorderBrush="#D4E7FF"
+                                                        <Border Background="{DynamicResource AppInfoCardBackgroundBrush}"
+                                                                BorderBrush="{DynamicResource AppInfoCardBorderBrush}"
                                                                 BorderThickness="1"
                                                                 CornerRadius="8"
                                                                 Padding="8"
                                                                 VerticalAlignment="Stretch">
                                                             <StackPanel VerticalAlignment="Center" Spacing="2">
-                                                                <TextBlock Text="{Binding Title}" Foreground="#0F5F9F" FontWeight="Bold" HorizontalAlignment="Center" />
-                                                                <TextBlock Text="{Binding CountText}" Foreground="#526174" FontSize="12" HorizontalAlignment="Center" />
+                                                                <TextBlock Text="{Binding Title}" Foreground="{DynamicResource AppInfoTextBrush}" FontWeight="Bold" HorizontalAlignment="Center" />
+                                                                <TextBlock Text="{Binding CountText}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="12" HorizontalAlignment="Center" />
                                                             </StackPanel>
                                                         </Border>
                                                         <TextBlock Grid.Column="1"
                                                                    Text="{Binding Body}"
-                                                                   Foreground="#111827"
+                                                                   Foreground="{DynamicResource AppTextBrush}"
                                                                    TextWrapping="Wrap"
                                                                    LineHeight="22" />
                                                     </Grid>
@@ -794,17 +812,17 @@
                                             <DataTemplate>
                                                 <Border Classes="preview-row">
                                                     <Grid ColumnDefinitions="84,*" ColumnSpacing="12">
-                                                        <Border Background="#FFF7E8"
-                                                                BorderBrush="#F3DEB7"
+                                                        <Border Background="{DynamicResource AppWarningCardBackgroundBrush}"
+                                                                BorderBrush="{DynamicResource AppWarningCardBorderBrush}"
                                                                 BorderThickness="1"
                                                                 CornerRadius="8"
                                                                 Padding="8">
                                                             <StackPanel VerticalAlignment="Center" Spacing="2">
-                                                                <TextBlock Text="{Binding Title}" Foreground="#8A5B00" FontWeight="Bold" HorizontalAlignment="Center" />
-                                                                <TextBlock Text="{Binding CountText}" Foreground="#776144" FontSize="12" HorizontalAlignment="Center" />
+                                                                <TextBlock Text="{Binding Title}" Foreground="{DynamicResource AppWarningTextBrush}" FontWeight="Bold" HorizontalAlignment="Center" />
+                                                                <TextBlock Text="{Binding CountText}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="12" HorizontalAlignment="Center" />
                                                             </StackPanel>
                                                         </Border>
-                                                        <TextBlock Grid.Column="1" Text="{Binding Body}" Foreground="#111827" TextWrapping="Wrap" LineHeight="22" />
+                                                        <TextBlock Grid.Column="1" Text="{Binding Body}" Foreground="{DynamicResource AppTextBrush}" TextWrapping="Wrap" LineHeight="22" />
                                                     </Grid>
                                                 </Border>
                                             </DataTemplate>
@@ -820,17 +838,17 @@
                                             <DataTemplate>
                                                 <Border Classes="preview-row">
                                                     <Grid ColumnDefinitions="84,*" ColumnSpacing="12">
-                                                        <Border Background="#EFF8F2"
-                                                                BorderBrush="#D4EADC"
+                                                        <Border Background="{DynamicResource AppSuccessCardBackgroundBrush}"
+                                                                BorderBrush="{DynamicResource AppSuccessCardBorderBrush}"
                                                                 BorderThickness="1"
                                                                 CornerRadius="8"
                                                                 Padding="8">
                                                             <StackPanel VerticalAlignment="Center" Spacing="2">
-                                                                <TextBlock Text="{Binding Title}" Foreground="#2C7350" FontWeight="Bold" HorizontalAlignment="Center" />
-                                                                <TextBlock Text="{Binding CountText}" Foreground="#526B5E" FontSize="12" HorizontalAlignment="Center" />
+                                                                <TextBlock Text="{Binding Title}" Foreground="{DynamicResource AppSuccessTextBrush}" FontWeight="Bold" HorizontalAlignment="Center" />
+                                                                <TextBlock Text="{Binding CountText}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="12" HorizontalAlignment="Center" />
                                                             </StackPanel>
                                                         </Border>
-                                                        <TextBlock Grid.Column="1" Text="{Binding Body}" Foreground="#111827" TextWrapping="Wrap" LineHeight="22" />
+                                                        <TextBlock Grid.Column="1" Text="{Binding Body}" Foreground="{DynamicResource AppTextBrush}" TextWrapping="Wrap" LineHeight="22" />
                                                     </Grid>
                                                 </Border>
                                             </DataTemplate>
@@ -845,8 +863,8 @@
                                           HorizontalScrollBarVisibility="Auto"
                                           Margin="0,10,0,0">
                                 <StackPanel Spacing="12">
-                                    <Border Background="#F8FAFC"
-                                            BorderBrush="#E2E8F0"
+                                    <Border Background="{DynamicResource AppSurfaceMutedBrush}"
+                                            BorderBrush="{DynamicResource AppSoftBorderBrush}"
                                             BorderThickness="1"
                                             CornerRadius="8"
                                             Padding="12">
@@ -872,28 +890,28 @@
                                             <TextBlock x:Name="ScheduleSummaryText"
                                                        Grid.Column="3"
                                                        Text="尚未生成赛程"
-                                                       Foreground="#35445D"
+                                                       Foreground="{DynamicResource AppButtonTextBrush}"
                                                        FontWeight="SemiBold"
                                                        TextWrapping="Wrap"
                                                        VerticalAlignment="Center" />
                                         </Grid>
                                      </Border>
                                     <StackPanel MinWidth="1120">
-                                        <Border Background="#EDE1FC"
-                                                BorderBrush="#D8C7F4"
+                                        <Border Background="{DynamicResource AppTableHeaderBackgroundBrush}"
+                                                BorderBrush="{DynamicResource AppTableHeaderBorderBrush}"
                                                 BorderThickness="1"
                                                 Padding="10,8">
                                             <Grid ColumnDefinitions="56,76,112,96,82,104,146,*,*,156" ColumnSpacing="8">
-                                                <TextBlock Text="序号" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
-                                                <TextBlock Grid.Column="1" Text="状态" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
-                                                <TextBlock Grid.Column="2" Text="日期/比赛日" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
-                                                <TextBlock Grid.Column="3" Text="时间" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
-                                                <TextBlock Grid.Column="4" Text="场地" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
-                                                <TextBlock Grid.Column="5" Text="组别" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
-                                                <TextBlock Grid.Column="6" Text="阶段/场次" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
-                                                <TextBlock Grid.Column="7" Text="选手/队伍A" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
-                                                <TextBlock Grid.Column="8" Text="选手/队伍B" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
-                                                <TextBlock Grid.Column="9" Text="备注" FontWeight="Bold" Foreground="#32116D" TextAlignment="Center" />
+                                                <TextBlock Text="序号" FontWeight="Bold" Foreground="{DynamicResource AppTableHeaderTextBrush}" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="1" Text="状态" FontWeight="Bold" Foreground="{DynamicResource AppTableHeaderTextBrush}" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="2" Text="日期/比赛日" FontWeight="Bold" Foreground="{DynamicResource AppTableHeaderTextBrush}" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="3" Text="时间" FontWeight="Bold" Foreground="{DynamicResource AppTableHeaderTextBrush}" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="4" Text="场地" FontWeight="Bold" Foreground="{DynamicResource AppTableHeaderTextBrush}" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="5" Text="组别" FontWeight="Bold" Foreground="{DynamicResource AppTableHeaderTextBrush}" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="6" Text="阶段/场次" FontWeight="Bold" Foreground="{DynamicResource AppTableHeaderTextBrush}" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="7" Text="选手/队伍A" FontWeight="Bold" Foreground="{DynamicResource AppTableHeaderTextBrush}" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="8" Text="选手/队伍B" FontWeight="Bold" Foreground="{DynamicResource AppTableHeaderTextBrush}" TextAlignment="Center" />
+                                                <TextBlock Grid.Column="9" Text="备注" FontWeight="Bold" Foreground="{DynamicResource AppTableHeaderTextBrush}" TextAlignment="Center" />
                                             </Grid>
                                         </Border>
                                         <ItemsControl x:Name="ScheduleList">
@@ -904,7 +922,7 @@
                                                             BorderThickness="1,0,1,1"
                                                             Padding="10,8">
                                                         <Grid ColumnDefinitions="56,76,112,96,82,104,146,*,*,156" ColumnSpacing="8">
-                                                            <TextBlock Text="{Binding Order}" Foreground="#111827" FontWeight="SemiBold" TextAlignment="Center" VerticalAlignment="Center" />
+                                                            <TextBlock Text="{Binding Order}" Foreground="{DynamicResource AppTextBrush}" FontWeight="SemiBold" TextAlignment="Center" VerticalAlignment="Center" />
                                                             <Border Grid.Column="1"
                                                                     Background="{Binding BadgeBrush}"
                                                                     CornerRadius="6"
@@ -915,17 +933,17 @@
                                                                            FontWeight="Bold"
                                                                            TextAlignment="Center" />
                                                             </Border>
-                                                            <TextBlock Grid.Column="2" Text="{Binding DayLabel}" Foreground="#111827" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" />
-                                                            <TextBlock Grid.Column="3" Text="{Binding TimeRange}" Foreground="#111827" TextWrapping="Wrap" VerticalAlignment="Center" />
-                                                            <TextBlock Grid.Column="4" Text="{Binding Court}" Foreground="#111827" TextWrapping="Wrap" VerticalAlignment="Center" />
-                                                            <TextBlock Grid.Column="5" Text="{Binding GroupName}" Foreground="#28104E" FontWeight="Bold" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                            <TextBlock Grid.Column="2" Text="{Binding DayLabel}" Foreground="{DynamicResource AppTextBrush}" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                            <TextBlock Grid.Column="3" Text="{Binding TimeRange}" Foreground="{DynamicResource AppTextBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                            <TextBlock Grid.Column="4" Text="{Binding Court}" Foreground="{DynamicResource AppTextBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                            <TextBlock Grid.Column="5" Text="{Binding GroupName}" Foreground="{DynamicResource AppTitleBrush}" FontWeight="Bold" TextWrapping="Wrap" VerticalAlignment="Center" />
                                                             <StackPanel Grid.Column="6" Spacing="2" VerticalAlignment="Center">
-                                                                <TextBlock Text="{Binding Phase}" Foreground="#111827" FontWeight="SemiBold" TextWrapping="Wrap" />
-                                                                <TextBlock Text="{Binding MatchName}" Foreground="#64748B" FontSize="12" TextWrapping="Wrap" />
+                                                                <TextBlock Text="{Binding Phase}" Foreground="{DynamicResource AppTextBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                                <TextBlock Text="{Binding MatchName}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
                                                             </StackPanel>
-                                                            <TextBlock Grid.Column="7" Text="{Binding SideA}" Foreground="#111827" TextWrapping="Wrap" VerticalAlignment="Center" />
-                                                            <TextBlock Grid.Column="8" Text="{Binding SideB}" Foreground="#111827" TextWrapping="Wrap" VerticalAlignment="Center" />
-                                                            <TextBlock Grid.Column="9" Text="{Binding Note}" Foreground="#64748B" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                            <TextBlock Grid.Column="7" Text="{Binding SideA}" Foreground="{DynamicResource AppTextBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                            <TextBlock Grid.Column="8" Text="{Binding SideB}" Foreground="{DynamicResource AppTextBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                            <TextBlock Grid.Column="9" Text="{Binding Note}" Foreground="{DynamicResource AppMutedTextBrush}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
                                                         </Grid>
                                                     </Border>
                                                 </DataTemplate>
@@ -937,8 +955,8 @@
                         </TabItem>
                         <TabItem x:Name="CrossEventPreviewTab" Header="多项目赛程">
                             <Grid RowDefinitions="Auto,*" Margin="0,6,0,0">
-                                <Border Background="#F8FAFC"
-                                        BorderBrush="#E2E8F0"
+                                <Border Background="{DynamicResource AppSurfaceMutedBrush}"
+                                        BorderBrush="{DynamicResource AppSoftBorderBrush}"
                                         BorderThickness="1"
                                         CornerRadius="8"
                                         Padding="10">
@@ -946,10 +964,10 @@
                                         <StackPanel Spacing="2">
                                             <TextBlock Text="多项目赛程总览"
                                                        FontWeight="Bold"
-                                                       Foreground="#28104E" />
+                                                       Foreground="{DynamicResource AppTitleBrush}" />
                                             <TextBlock x:Name="CrossEventBoardSummaryText"
                                                        Text="尚未加载多项目赛程。请先在左侧选择至少两个赛事存档。"
-                                                       Foreground="#64748B"
+                                                       Foreground="{DynamicResource AppMutedTextBrush}"
                                                        TextWrapping="Wrap" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1"
@@ -976,7 +994,7 @@
                                         </StackPanel>
                                         <StackPanel Grid.Column="2" Spacing="5">
                                             <TextBlock Text="显示比赛日"
-                                                       Foreground="#64748B"
+                                                       Foreground="{DynamicResource AppMutedTextBrush}"
                                                        FontWeight="SemiBold" />
                                             <ComboBox x:Name="CrossEventDayBox"
                                                       SelectionChanged="CrossEventDayBox_SelectionChanged" />
@@ -984,8 +1002,8 @@
                                     </Grid>
                                 </Border>
                                 <Border Grid.Row="1"
-                                        Background="#FBFCFF"
-                                        BorderBrush="#D8E0EC"
+                                        Background="{DynamicResource AppSurfaceAltBrush}"
+                                        BorderBrush="{DynamicResource AppPanelBorderBrush}"
                                         BorderThickness="1"
                                         CornerRadius="8"
                                         Margin="0,8,0,0">
@@ -1006,8 +1024,8 @@
 
         <Border x:Name="StatusBar"
                 Grid.Row="2"
-                Background="#FFFFFF"
-                BorderBrush="#DCE3EF"
+                Background="{DynamicResource AppStatusBarBackgroundBrush}"
+                BorderBrush="{DynamicResource AppBorderBrush}"
                 BorderThickness="0,1,0,0"
                 Padding="24,11">
             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
@@ -1015,12 +1033,12 @@
                         Width="9"
                         Height="9"
                         CornerRadius="5"
-                        Background="#19A974"
+                        Background="{DynamicResource AppStatusDotBrush}"
                         VerticalAlignment="Center" />
                 <TextBlock x:Name="StatusText"
                            Grid.Column="1"
                            Text="准备就绪。已支持抽签、赛程、多项目编排、赛事存档和材料包导出。"
-                           Foreground="#41506A"
+                           Foreground="{DynamicResource AppMutedTextBrush}"
                            FontWeight="SemiBold"
                            TextWrapping="Wrap" />
             </Grid>

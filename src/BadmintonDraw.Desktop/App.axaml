@@ -1,10 +1,247 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="BadmintonDraw.Desktop.App"
-             RequestedThemeVariant="Light">
-             <!-- The current UI uses explicit light surfaces; keep Avalonia controls in light mode even when the OS is dark. -->
+             RequestedThemeVariant="Default">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F5F7FB" />
+                    <SolidColorBrush x:Key="AppHeaderBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AppSurfaceBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AppSurfaceAltBrush" Color="#FBFCFF" />
+                    <SolidColorBrush x:Key="AppSurfaceMutedBrush" Color="#F8FAFC" />
+                    <SolidColorBrush x:Key="AppBorderBrush" Color="#DCE3EF" />
+                    <SolidColorBrush x:Key="AppSoftBorderBrush" Color="#E2E8F0" />
+                    <SolidColorBrush x:Key="AppPanelBorderBrush" Color="#D8E0EC" />
+                    <SolidColorBrush x:Key="AppTextBrush" Color="#111827" />
+                    <SolidColorBrush x:Key="AppTitleBrush" Color="#28104E" />
+                    <SolidColorBrush x:Key="AppMutedTextBrush" Color="#64748B" />
+                    <SolidColorBrush x:Key="AppFieldLabelBrush" Color="#4D4366" />
+                    <SolidColorBrush x:Key="AppTabTextBrush" Color="#3F315F" />
+                    <SolidColorBrush x:Key="AppAccentBrush" Color="#0F5F9F" />
+                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#0B548D" />
+                    <SolidColorBrush x:Key="AppAccentTextBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AppButtonBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AppButtonHoverBackgroundBrush" Color="#F1F7FF" />
+                    <SolidColorBrush x:Key="AppButtonPressedBackgroundBrush" Color="#DBEAFE" />
+                    <SolidColorBrush x:Key="AppButtonBorderBrush" Color="#C7D2E4" />
+                    <SolidColorBrush x:Key="AppButtonHoverBorderBrush" Color="#93B9E8" />
+                    <SolidColorBrush x:Key="AppButtonPressedBorderBrush" Color="#60A5FA" />
+                    <SolidColorBrush x:Key="AppButtonTextBrush" Color="#243B63" />
+                    <SolidColorBrush x:Key="AppButtonHoverTextBrush" Color="#17345D" />
+                    <SolidColorBrush x:Key="AppSubtleButtonBackgroundBrush" Color="#F4F7FB" />
+                    <SolidColorBrush x:Key="AppSubtleButtonHoverBackgroundBrush" Color="#EAF1FA" />
+                    <SolidColorBrush x:Key="AppSubtleButtonBorderBrush" Color="#D9E2EF" />
+                    <SolidColorBrush x:Key="AppSubtleButtonHoverBorderBrush" Color="#C2D1E5" />
+                    <SolidColorBrush x:Key="AppSubtleButtonTextBrush" Color="#344767" />
+                    <SolidColorBrush x:Key="AppDisabledBackgroundBrush" Color="#E5E7EB" />
+                    <SolidColorBrush x:Key="AppDisabledBorderBrush" Color="#D1D5DB" />
+                    <SolidColorBrush x:Key="AppDisabledTextBrush" Color="#6B7280" />
+                    <SolidColorBrush x:Key="AppInputBackgroundBrush" Color="#FBFCFF" />
+                    <SolidColorBrush x:Key="AppInputHoverBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AppInputBorderBrush" Color="#CBD5E1" />
+                    <SolidColorBrush x:Key="AppInputHoverBorderBrush" Color="#93C5FD" />
+                    <SolidColorBrush x:Key="AppListHoverBackgroundBrush" Color="#EFF6FF" />
+                    <SolidColorBrush x:Key="AppListSelectedBackgroundBrush" Color="#DBEAFE" />
+                    <SolidColorBrush x:Key="AppListSelectedHoverBackgroundBrush" Color="#60A5FA" />
+                    <SolidColorBrush x:Key="AppSelectionTextBrush" Color="#0F172A" />
+                    <SolidColorBrush x:Key="AppPurpleCardBackgroundBrush" Color="#F7F3FF" />
+                    <SolidColorBrush x:Key="AppPurpleCardBorderBrush" Color="#DED2F8" />
+                    <SolidColorBrush x:Key="AppPurpleTextBrush" Color="#5F5577" />
+                    <SolidColorBrush x:Key="AppSuccessCardBackgroundBrush" Color="#EFF6F2" />
+                    <SolidColorBrush x:Key="AppSuccessCardBorderBrush" Color="#CFE5D7" />
+                    <SolidColorBrush x:Key="AppSuccessTextBrush" Color="#25654A" />
+                    <SolidColorBrush x:Key="AppInfoCardBackgroundBrush" Color="#F8FBFF" />
+                    <SolidColorBrush x:Key="AppInfoCardBorderBrush" Color="#C7D8F0" />
+                    <SolidColorBrush x:Key="AppInfoTextBrush" Color="#243B63" />
+                    <SolidColorBrush x:Key="AppWarningCardBackgroundBrush" Color="#FFF8E6" />
+                    <SolidColorBrush x:Key="AppWarningCardBorderBrush" Color="#F2D889" />
+                    <SolidColorBrush x:Key="AppWarningTextBrush" Color="#7B5600" />
+                    <SolidColorBrush x:Key="AppErrorCardBackgroundBrush" Color="#FEF2F2" />
+                    <SolidColorBrush x:Key="AppErrorCardBorderBrush" Color="#DC2626" />
+                    <SolidColorBrush x:Key="AppErrorTextBrush" Color="#B91C1C" />
+                    <SolidColorBrush x:Key="AppTableHeaderBackgroundBrush" Color="#EDE1FC" />
+                    <SolidColorBrush x:Key="AppTableHeaderBorderBrush" Color="#D8C7F4" />
+                    <SolidColorBrush x:Key="AppTableHeaderTextBrush" Color="#32116D" />
+                    <SolidColorBrush x:Key="AppStatusBarBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AppStatusDotBrush" Color="#19A974" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#0F172A" />
+                    <SolidColorBrush x:Key="AppHeaderBackgroundBrush" Color="#111827" />
+                    <SolidColorBrush x:Key="AppSurfaceBrush" Color="#111827" />
+                    <SolidColorBrush x:Key="AppSurfaceAltBrush" Color="#162033" />
+                    <SolidColorBrush x:Key="AppSurfaceMutedBrush" Color="#1E293B" />
+                    <SolidColorBrush x:Key="AppBorderBrush" Color="#334155" />
+                    <SolidColorBrush x:Key="AppSoftBorderBrush" Color="#26364F" />
+                    <SolidColorBrush x:Key="AppPanelBorderBrush" Color="#334155" />
+                    <SolidColorBrush x:Key="AppTextBrush" Color="#E5E7EB" />
+                    <SolidColorBrush x:Key="AppTitleBrush" Color="#F3E8FF" />
+                    <SolidColorBrush x:Key="AppMutedTextBrush" Color="#A7B4C8" />
+                    <SolidColorBrush x:Key="AppFieldLabelBrush" Color="#C4B5FD" />
+                    <SolidColorBrush x:Key="AppTabTextBrush" Color="#D8B4FE" />
+                    <SolidColorBrush x:Key="AppAccentBrush" Color="#0EA5E9" />
+                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#0284C7" />
+                    <SolidColorBrush x:Key="AppAccentTextBrush" Color="#F8FAFC" />
+                    <SolidColorBrush x:Key="AppButtonBackgroundBrush" Color="#1E293B" />
+                    <SolidColorBrush x:Key="AppButtonHoverBackgroundBrush" Color="#334155" />
+                    <SolidColorBrush x:Key="AppButtonPressedBackgroundBrush" Color="#0F3A5E" />
+                    <SolidColorBrush x:Key="AppButtonBorderBrush" Color="#475569" />
+                    <SolidColorBrush x:Key="AppButtonHoverBorderBrush" Color="#60A5FA" />
+                    <SolidColorBrush x:Key="AppButtonPressedBorderBrush" Color="#38BDF8" />
+                    <SolidColorBrush x:Key="AppButtonTextBrush" Color="#E2E8F0" />
+                    <SolidColorBrush x:Key="AppButtonHoverTextBrush" Color="#F8FAFC" />
+                    <SolidColorBrush x:Key="AppSubtleButtonBackgroundBrush" Color="#182235" />
+                    <SolidColorBrush x:Key="AppSubtleButtonHoverBackgroundBrush" Color="#26364F" />
+                    <SolidColorBrush x:Key="AppSubtleButtonBorderBrush" Color="#334155" />
+                    <SolidColorBrush x:Key="AppSubtleButtonHoverBorderBrush" Color="#475569" />
+                    <SolidColorBrush x:Key="AppSubtleButtonTextBrush" Color="#CBD5E1" />
+                    <SolidColorBrush x:Key="AppDisabledBackgroundBrush" Color="#1F2937" />
+                    <SolidColorBrush x:Key="AppDisabledBorderBrush" Color="#334155" />
+                    <SolidColorBrush x:Key="AppDisabledTextBrush" Color="#64748B" />
+                    <SolidColorBrush x:Key="AppInputBackgroundBrush" Color="#0F172A" />
+                    <SolidColorBrush x:Key="AppInputHoverBackgroundBrush" Color="#111827" />
+                    <SolidColorBrush x:Key="AppInputBorderBrush" Color="#475569" />
+                    <SolidColorBrush x:Key="AppInputHoverBorderBrush" Color="#60A5FA" />
+                    <SolidColorBrush x:Key="AppListHoverBackgroundBrush" Color="#1E3A5F" />
+                    <SolidColorBrush x:Key="AppListSelectedBackgroundBrush" Color="#1D4ED8" />
+                    <SolidColorBrush x:Key="AppListSelectedHoverBackgroundBrush" Color="#2563EB" />
+                    <SolidColorBrush x:Key="AppSelectionTextBrush" Color="#F8FAFC" />
+                    <SolidColorBrush x:Key="AppPurpleCardBackgroundBrush" Color="#24143A" />
+                    <SolidColorBrush x:Key="AppPurpleCardBorderBrush" Color="#6B4CA3" />
+                    <SolidColorBrush x:Key="AppPurpleTextBrush" Color="#D8B4FE" />
+                    <SolidColorBrush x:Key="AppSuccessCardBackgroundBrush" Color="#0F2E21" />
+                    <SolidColorBrush x:Key="AppSuccessCardBorderBrush" Color="#256D48" />
+                    <SolidColorBrush x:Key="AppSuccessTextBrush" Color="#86EFAC" />
+                    <SolidColorBrush x:Key="AppInfoCardBackgroundBrush" Color="#102A43" />
+                    <SolidColorBrush x:Key="AppInfoCardBorderBrush" Color="#1D4ED8" />
+                    <SolidColorBrush x:Key="AppInfoTextBrush" Color="#BAE6FD" />
+                    <SolidColorBrush x:Key="AppWarningCardBackgroundBrush" Color="#3B2F12" />
+                    <SolidColorBrush x:Key="AppWarningCardBorderBrush" Color="#A16207" />
+                    <SolidColorBrush x:Key="AppWarningTextBrush" Color="#FDE68A" />
+                    <SolidColorBrush x:Key="AppErrorCardBackgroundBrush" Color="#3A1518" />
+                    <SolidColorBrush x:Key="AppErrorCardBorderBrush" Color="#B91C1C" />
+                    <SolidColorBrush x:Key="AppErrorTextBrush" Color="#FCA5A5" />
+                    <SolidColorBrush x:Key="AppTableHeaderBackgroundBrush" Color="#2E1B4B" />
+                    <SolidColorBrush x:Key="AppTableHeaderBorderBrush" Color="#6B4CA3" />
+                    <SolidColorBrush x:Key="AppTableHeaderTextBrush" Color="#F3E8FF" />
+                    <SolidColorBrush x:Key="AppStatusBarBackgroundBrush" Color="#111827" />
+                    <SolidColorBrush x:Key="AppStatusDotBrush" Color="#34D399" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
 
     <Application.Styles>
         <FluentTheme />
+        <Style Selector="Window">
+            <Setter Property="Background" Value="{DynamicResource AppBackgroundBrush}" />
+        </Style>
+        <Style Selector="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="Background" Value="{DynamicResource AppButtonBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppButtonBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppButtonTextBrush}" />
+        </Style>
+        <Style Selector="Button:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AppButtonHoverBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppButtonHoverBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppButtonHoverTextBrush}" />
+        </Style>
+        <Style Selector="Button:pressed">
+            <Setter Property="Background" Value="{DynamicResource AppButtonPressedBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppButtonPressedBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppButtonHoverTextBrush}" />
+        </Style>
+        <Style Selector="Button:disabled">
+            <Setter Property="Background" Value="{DynamicResource AppDisabledBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppDisabledBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledTextBrush}" />
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="Background" Value="{DynamicResource AppInputBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppInputBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+        </Style>
+        <Style Selector="TextBox:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AppInputHoverBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppInputHoverBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+        </Style>
+        <Style Selector="TextBox:disabled">
+            <Setter Property="Background" Value="{DynamicResource AppDisabledBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppDisabledBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledTextBrush}" />
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="Background" Value="{DynamicResource AppInputBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppInputBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+        </Style>
+        <Style Selector="ComboBox:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AppInputHoverBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppInputHoverBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+        </Style>
+        <Style Selector="ComboBox:disabled">
+            <Setter Property="Background" Value="{DynamicResource AppDisabledBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppDisabledBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledTextBrush}" />
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="ComboBoxItem">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+        </Style>
+        <Style Selector="ComboBoxItem:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AppListHoverBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppSelectionTextBrush}" />
+        </Style>
+        <Style Selector="ComboBoxItem:selected">
+            <Setter Property="Background" Value="{DynamicResource AppListSelectedBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppSelectionTextBrush}" />
+        </Style>
+        <Style Selector="ListBox">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+        </Style>
+        <Style Selector="ListBoxItem">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+        </Style>
+        <Style Selector="ListBoxItem:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AppListHoverBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppSelectionTextBrush}" />
+        </Style>
+        <Style Selector="ListBoxItem:selected">
+            <Setter Property="Background" Value="{DynamicResource AppListSelectedBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppSelectionTextBrush}" />
+        </Style>
+        <Style Selector="ListBoxItem:selected:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AppListSelectedHoverBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppSelectionTextBrush}" />
+        </Style>
+        <Style Selector="ContextMenu">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppInputBorderBrush}" />
+        </Style>
+        <Style Selector="MenuItem">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+        </Style>
+        <Style Selector="MenuItem:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AppListHoverBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppSelectionTextBrush}" />
+        </Style>
+        <Style Selector="ToolTip">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppInputBorderBrush}" />
+        </Style>
     </Application.Styles>
 </Application>

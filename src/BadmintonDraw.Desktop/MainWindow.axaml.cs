@@ -81,6 +81,22 @@ public partial class MainWindow : Window
     private static readonly IBrush DropBlockedBackground = new SolidColorBrush(Color.FromRgb(254, 242, 242));
     private static readonly IBrush DropBlockedBorder = new SolidColorBrush(Color.FromRgb(220, 38, 38));
 
+    private IBrush ThemeBrush(string resourceKey, Color fallbackColor)
+    {
+        if (TryGetResource(resourceKey, ActualThemeVariant, out var value) && value is IBrush brush)
+        {
+            return brush;
+        }
+
+        if (Application.Current?.TryGetResource(resourceKey, ActualThemeVariant, out value) == true
+            && value is IBrush appBrush)
+        {
+            return appBrush;
+        }
+
+        return new SolidColorBrush(fallbackColor);
+    }
+
     private IReadOnlyList<DrawParticipant> _participants = [];
     private IReadOnlyList<string> _importWarnings = [];
     private IReadOnlyList<ParticipantImportWarning> _participantImportWarnings = [];
@@ -1173,7 +1189,7 @@ public partial class MainWindow : Window
             Text = $"兼项选手 {rows.Count} 人；明细会随多项目赛程调整实时重新计算。",
             FontSize = 16,
             FontWeight = FontWeight.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+            Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(43, 20, 95)),
             Margin = new Avalonia.Thickness(0, 0, 0, 10)
         });
         var sortPanel = new StackPanel
@@ -1185,7 +1201,7 @@ public partial class MainWindow : Window
         sortPanel.Children.Add(new TextBlock
         {
             Text = "排序",
-            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            Foreground = ThemeBrush("AppMutedTextBrush", Color.FromRgb(100, 116, 139)),
             VerticalAlignment = VerticalAlignment.Center
         });
         sortPanel.Children.Add(sortBox);
@@ -1222,7 +1238,7 @@ public partial class MainWindow : Window
         await dialog.ShowDialog(this);
     }
 
-    private static Border CreateCrossEventDialogPanel(string title, Control content)
+    private Border CreateCrossEventDialogPanel(string title, Control content)
     {
         var grid = new Grid();
         grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
@@ -1231,15 +1247,15 @@ public partial class MainWindow : Window
         {
             Text = title,
             FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(39, 59, 99)),
+            Foreground = ThemeBrush("AppButtonTextBrush", Color.FromRgb(39, 59, 99)),
             Margin = new Avalonia.Thickness(0, 0, 0, 8)
         });
         Grid.SetRow(content, 1);
         grid.Children.Add(content);
         return new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(248, 250, 252)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            Background = ThemeBrush("AppSurfaceMutedBrush", Color.FromRgb(248, 250, 252)),
+            BorderBrush = ThemeBrush("AppSoftBorderBrush", Color.FromRgb(226, 232, 240)),
             BorderThickness = new Avalonia.Thickness(1),
             CornerRadius = new Avalonia.CornerRadius(10),
             Padding = new Avalonia.Thickness(10),
@@ -1257,28 +1273,27 @@ public partial class MainWindow : Window
             Text = $"{entry.PlayerName}：{string.Join("、", entry.EventNames)}",
             FontSize = 15,
             FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78)),
+            Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(40, 16, 78)),
             TextWrapping = TextWrapping.Wrap
         });
         detailStack.Children.Add(new TextBlock
         {
             Text = $"共 {entry.MatchCount} 场，未完成 {entry.PendingMatchCount} 场；严重 {entry.SevereIssueCount} 条，警告 {entry.WarningIssueCount} 条；最短休息 {FormatRestMinutes(entry.ShortestRestMinutes)}。",
-            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            Foreground = ThemeBrush("AppMutedTextBrush", Color.FromRgb(100, 116, 139)),
             TextWrapping = TextWrapping.Wrap
         });
 
         foreach (var appearance in entry.Appearances)
         {
-            var borderColor = appearance.ConflictSeverity is CrossEventConflictSeverity.Severe or CrossEventConflictSeverity.Warning
-                ? Color.FromRgb(220, 38, 38)
-                : Color.FromRgb(199, 210, 228);
-            var backgroundColor = appearance.ConflictSeverity is CrossEventConflictSeverity.Severe or CrossEventConflictSeverity.Warning
-                ? Color.FromRgb(254, 242, 242)
-                : Color.FromRgb(255, 255, 255);
+            var hasConflict = appearance.ConflictSeverity is CrossEventConflictSeverity.Severe or CrossEventConflictSeverity.Warning;
             var card = new Border
             {
-                Background = new SolidColorBrush(backgroundColor),
-                BorderBrush = new SolidColorBrush(borderColor),
+                Background = hasConflict
+                    ? ThemeBrush("AppErrorCardBackgroundBrush", Color.FromRgb(254, 242, 242))
+                    : ThemeBrush("AppSurfaceBrush", Color.FromRgb(255, 255, 255)),
+                BorderBrush = hasConflict
+                    ? ThemeBrush("AppErrorCardBorderBrush", Color.FromRgb(220, 38, 38))
+                    : ThemeBrush("AppButtonBorderBrush", Color.FromRgb(199, 210, 228)),
                 BorderThickness = new Avalonia.Thickness(1),
                 CornerRadius = new Avalonia.CornerRadius(8),
                 Padding = new Avalonia.Thickness(10),
@@ -1291,13 +1306,13 @@ public partial class MainWindow : Window
             {
                 Text = $"{appearance.DayLabel} {appearance.TimeRange} · {appearance.Court} · {appearance.EventName}",
                 FontWeight = FontWeight.Bold,
-                Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+                Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(43, 20, 95)),
                 TextWrapping = TextWrapping.Wrap
             });
             stack.Children.Add(new TextBlock
             {
                 Text = $"{appearance.Phase} {appearance.MatchName} · {appearance.Status}",
-                Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+                Foreground = ThemeBrush("AppMutedTextBrush", Color.FromRgb(100, 116, 139)),
                 TextWrapping = TextWrapping.Wrap
             });
             stack.Children.Add(new TextBlock
@@ -1438,12 +1453,12 @@ public partial class MainWindow : Window
             Text = $"高级约束提醒（{report.Rules.ProfileName}）",
             FontSize = 18,
             FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78))
+            Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(40, 16, 78))
         });
         headerStack.Children.Add(new TextBlock
         {
             Text = $"已确定风险 {report.ConfirmedCount}，下一轮接续 {report.DirectDependencyCount}，推演风险 {report.SpeculativeCount}。严重/警告/提醒只作为卡片颜色和排序依据；点击卡片可定位到赛程安排窗口。",
-            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            Foreground = ThemeBrush("AppMutedTextBrush", Color.FromRgb(100, 116, 139)),
             TextWrapping = TextWrapping.Wrap
         });
 
@@ -1497,11 +1512,17 @@ public partial class MainWindow : Window
                 var count = CountIssuesByScope(report, (ScheduleConstraintIssueScope)button.Tag!);
                 button.IsEnabled = count > 0;
                 button.Opacity = count > 0 || isSelected ? 1 : 0.48;
-                button.Background = new SolidColorBrush(isSelected ? Color.FromRgb(239, 246, 255) : Color.FromRgb(255, 255, 255));
-                button.BorderBrush = new SolidColorBrush(isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(203, 213, 225));
-                button.Foreground = new SolidColorBrush(count > 0 || isSelected
-                    ? isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(43, 20, 95)
-                    : Color.FromRgb(148, 163, 184));
+                button.Background = isSelected
+                    ? ThemeBrush("AppInfoCardBackgroundBrush", Color.FromRgb(239, 246, 255))
+                    : ThemeBrush("AppButtonBackgroundBrush", Color.FromRgb(255, 255, 255));
+                button.BorderBrush = isSelected
+                    ? ThemeBrush("AppAccentBrush", Color.FromRgb(15, 95, 159))
+                    : ThemeBrush("AppButtonBorderBrush", Color.FromRgb(203, 213, 225));
+                button.Foreground = count > 0 || isSelected
+                    ? isSelected
+                        ? ThemeBrush("AppAccentBrush", Color.FromRgb(15, 95, 159))
+                        : ThemeBrush("AppTitleBrush", Color.FromRgb(43, 20, 95))
+                    : ThemeBrush("AppDisabledTextBrush", Color.FromRgb(148, 163, 184));
             }
 
             issueStack.Children.Clear();
@@ -1544,19 +1565,19 @@ public partial class MainWindow : Window
         return root;
     }
 
-    private static Border CreateScheduleConstraintEmptyCard(string text)
+    private Border CreateScheduleConstraintEmptyCard(string text)
     {
         return new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(240, 248, 241)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(212, 234, 216)),
+            Background = ThemeBrush("AppSuccessCardBackgroundBrush", Color.FromRgb(240, 248, 241)),
+            BorderBrush = ThemeBrush("AppSuccessCardBorderBrush", Color.FromRgb(212, 234, 216)),
             BorderThickness = new Avalonia.Thickness(1),
             CornerRadius = new Avalonia.CornerRadius(8),
             Padding = new Avalonia.Thickness(12),
             Child = new TextBlock
             {
                 Text = text,
-                Foreground = new SolidColorBrush(Color.FromRgb(37, 101, 74)),
+                Foreground = ThemeBrush("AppSuccessTextBrush", Color.FromRgb(37, 101, 74)),
                 TextWrapping = TextWrapping.Wrap
             }
         };
@@ -1566,31 +1587,36 @@ public partial class MainWindow : Window
     {
         var isBlocking = issue.Severity == ScheduleConstraintSeverity.Severe;
         var isWarning = issue.Severity == ScheduleConstraintSeverity.Warning;
-        var borderColor = isBlocking
-            ? Color.FromRgb(220, 38, 38)
-            : isWarning ? Color.FromRgb(217, 119, 6) : Color.FromRgb(242, 216, 137);
-        var backgroundColor = isBlocking
-            ? Color.FromRgb(254, 242, 242)
-            : isWarning ? Color.FromRgb(255, 250, 235) : Color.FromRgb(255, 248, 230);
+        var borderBrush = isBlocking
+            ? ThemeBrush("AppErrorCardBorderBrush", Color.FromRgb(220, 38, 38))
+            : isWarning
+                ? ThemeBrush("AppWarningCardBorderBrush", Color.FromRgb(217, 119, 6))
+                : ThemeBrush("AppWarningCardBorderBrush", Color.FromRgb(242, 216, 137));
+        var backgroundBrush = isBlocking
+            ? ThemeBrush("AppErrorCardBackgroundBrush", Color.FromRgb(254, 242, 242))
+            : ThemeBrush("AppWarningCardBackgroundBrush", isWarning ? Color.FromRgb(255, 250, 235) : Color.FromRgb(255, 248, 230));
+        var detailBrush = isBlocking
+            ? ThemeBrush("AppErrorTextBrush", Color.FromRgb(185, 28, 28))
+            : ThemeBrush("AppWarningTextBrush", Color.FromRgb(120, 83, 0));
         var stack = new StackPanel { Spacing = 4 };
         stack.Children.Add(new TextBlock
         {
             Text = $"{FormatScheduleConstraintSeverity(issue.Severity)} · {FormatScheduleConstraintScope(issue.Scope)} · {issue.DayLabel} {FormatOptionalTime(issue.StartTime)} · {issue.Court ?? "-"} · {issue.Phase} {issue.MatchName}",
             FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+            Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(43, 20, 95)),
             TextWrapping = TextWrapping.Wrap
         });
         stack.Children.Add(new TextBlock
         {
             Text = issue.Message,
-            Foreground = new SolidColorBrush(isBlocking ? Color.FromRgb(185, 28, 28) : Color.FromRgb(120, 83, 0)),
+            Foreground = detailBrush,
             TextWrapping = TextWrapping.Wrap
         });
 
         var card = new Border
         {
-            Background = new SolidColorBrush(backgroundColor),
-            BorderBrush = new SolidColorBrush(borderColor),
+            Background = backgroundBrush,
+            BorderBrush = borderBrush,
             BorderThickness = new Avalonia.Thickness(isBlocking ? 2 : 1),
             CornerRadius = new Avalonia.CornerRadius(8),
             Padding = new Avalonia.Thickness(12),
@@ -1753,12 +1779,12 @@ public partial class MainWindow : Window
             Text = "多项目提醒",
             FontSize = 18,
             FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78))
+            Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(40, 16, 78))
         });
         headerStack.Children.Add(new TextBlock
         {
             Text = $"严重 {report.SevereCount}，警告 {report.WarningCount}，同日/负荷推演提醒 {report.NoticeCount}。点击卡片可定位到多项目赛程窗口。",
-            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            Foreground = ThemeBrush("AppMutedTextBrush", Color.FromRgb(100, 116, 139)),
             TextWrapping = TextWrapping.Wrap
         });
 
@@ -1820,11 +1846,17 @@ public partial class MainWindow : Window
                 var count = CountIssuesBySeverity(report, (CrossEventConflictSeverity)button.Tag!);
                 button.IsEnabled = count > 0;
                 button.Opacity = count > 0 || isSelected ? 1 : 0.48;
-                button.Background = new SolidColorBrush(isSelected ? Color.FromRgb(239, 246, 255) : Color.FromRgb(255, 255, 255));
-                button.BorderBrush = new SolidColorBrush(isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(203, 213, 225));
-                button.Foreground = new SolidColorBrush(count > 0 || isSelected
-                    ? isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(43, 20, 95)
-                    : Color.FromRgb(148, 163, 184));
+                button.Background = isSelected
+                    ? ThemeBrush("AppInfoCardBackgroundBrush", Color.FromRgb(239, 246, 255))
+                    : ThemeBrush("AppButtonBackgroundBrush", Color.FromRgb(255, 255, 255));
+                button.BorderBrush = isSelected
+                    ? ThemeBrush("AppAccentBrush", Color.FromRgb(15, 95, 159))
+                    : ThemeBrush("AppButtonBorderBrush", Color.FromRgb(203, 213, 225));
+                button.Foreground = count > 0 || isSelected
+                    ? isSelected
+                        ? ThemeBrush("AppAccentBrush", Color.FromRgb(15, 95, 159))
+                        : ThemeBrush("AppTitleBrush", Color.FromRgb(43, 20, 95))
+                    : ThemeBrush("AppDisabledTextBrush", Color.FromRgb(148, 163, 184));
             }
 
             foreach (var button in categoryButtons)
@@ -1833,11 +1865,17 @@ public partial class MainWindow : Window
                 var count = CountIssuesByCategory((CrossEventIssueCategory)button.Tag!);
                 button.IsEnabled = count > 0 || isSelected;
                 button.Opacity = count > 0 || isSelected ? 1 : 0.48;
-                button.Background = new SolidColorBrush(isSelected ? Color.FromRgb(240, 253, 244) : Color.FromRgb(255, 255, 255));
-                button.BorderBrush = new SolidColorBrush(isSelected ? Color.FromRgb(22, 101, 52) : Color.FromRgb(203, 213, 225));
-                button.Foreground = new SolidColorBrush(count > 0 || isSelected
-                    ? isSelected ? Color.FromRgb(22, 101, 52) : Color.FromRgb(43, 20, 95)
-                    : Color.FromRgb(148, 163, 184));
+                button.Background = isSelected
+                    ? ThemeBrush("AppSuccessCardBackgroundBrush", Color.FromRgb(240, 253, 244))
+                    : ThemeBrush("AppButtonBackgroundBrush", Color.FromRgb(255, 255, 255));
+                button.BorderBrush = isSelected
+                    ? ThemeBrush("AppSuccessCardBorderBrush", Color.FromRgb(22, 101, 52))
+                    : ThemeBrush("AppButtonBorderBrush", Color.FromRgb(203, 213, 225));
+                button.Foreground = count > 0 || isSelected
+                    ? isSelected
+                        ? ThemeBrush("AppSuccessTextBrush", Color.FromRgb(22, 101, 52))
+                        : ThemeBrush("AppTitleBrush", Color.FromRgb(43, 20, 95))
+                    : ThemeBrush("AppDisabledTextBrush", Color.FromRgb(148, 163, 184));
             }
 
             issueStack.Children.Clear();
@@ -1914,37 +1952,42 @@ public partial class MainWindow : Window
     {
         var isSevere = issue.Severity == CrossEventConflictSeverity.Severe;
         var isWarning = issue.Severity == CrossEventConflictSeverity.Warning;
-        var borderColor = isSevere
-            ? Color.FromRgb(220, 38, 38)
-            : isWarning ? Color.FromRgb(217, 119, 6) : Color.FromRgb(242, 216, 137);
-        var backgroundColor = isSevere
-            ? Color.FromRgb(254, 242, 242)
-            : isWarning ? Color.FromRgb(255, 250, 235) : Color.FromRgb(255, 248, 230);
+        var borderBrush = isSevere
+            ? ThemeBrush("AppErrorCardBorderBrush", Color.FromRgb(220, 38, 38))
+            : isWarning
+                ? ThemeBrush("AppWarningCardBorderBrush", Color.FromRgb(217, 119, 6))
+                : ThemeBrush("AppWarningCardBorderBrush", Color.FromRgb(242, 216, 137));
+        var backgroundBrush = isSevere
+            ? ThemeBrush("AppErrorCardBackgroundBrush", Color.FromRgb(254, 242, 242))
+            : ThemeBrush("AppWarningCardBackgroundBrush", isWarning ? Color.FromRgb(255, 250, 235) : Color.FromRgb(255, 248, 230));
+        var detailBrush = isSevere
+            ? ThemeBrush("AppErrorTextBrush", Color.FromRgb(185, 28, 28))
+            : ThemeBrush("AppWarningTextBrush", Color.FromRgb(120, 83, 0));
         var stack = new StackPanel { Spacing = 4 };
         stack.Children.Add(new TextBlock
         {
             Text = $"{FormatCrossEventConflictSeverity(issue.Severity)} · {FormatCrossEventIssueCategory(issue)} · {issue.DayLabel} · {issue.FirstMatch.EventName} {issue.FirstMatch.Phase} {issue.FirstMatch.MatchName}",
             FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+            Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(43, 20, 95)),
             TextWrapping = TextWrapping.Wrap
         });
         stack.Children.Add(new TextBlock
         {
             Text = $"{issue.FirstMatch.TimeRange} · {issue.FirstMatch.Court} · {issue.PlayerName}",
-            Foreground = new SolidColorBrush(Color.FromRgb(71, 85, 105)),
+            Foreground = ThemeBrush("AppMutedTextBrush", Color.FromRgb(71, 85, 105)),
             TextWrapping = TextWrapping.Wrap
         });
         stack.Children.Add(new TextBlock
         {
             Text = issue.Detail,
-            Foreground = new SolidColorBrush(isSevere ? Color.FromRgb(185, 28, 28) : Color.FromRgb(120, 83, 0)),
+            Foreground = detailBrush,
             TextWrapping = TextWrapping.Wrap
         });
 
         var card = new Border
         {
-            Background = new SolidColorBrush(backgroundColor),
-            BorderBrush = new SolidColorBrush(borderColor),
+            Background = backgroundBrush,
+            BorderBrush = borderBrush,
             BorderThickness = new Avalonia.Thickness(isSevere ? 2 : 1),
             CornerRadius = new Avalonia.CornerRadius(8),
             Padding = new Avalonia.Thickness(12),
@@ -2115,8 +2158,8 @@ public partial class MainWindow : Window
         };
         var header = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(248, 250, 252)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            Background = ThemeBrush("AppSurfaceMutedBrush", Color.FromRgb(248, 250, 252)),
+            BorderBrush = ThemeBrush("AppSoftBorderBrush", Color.FromRgb(226, 232, 240)),
             BorderThickness = new Avalonia.Thickness(1),
             CornerRadius = new Avalonia.CornerRadius(10),
             Padding = new Avalonia.Thickness(12)
@@ -2128,7 +2171,7 @@ public partial class MainWindow : Window
             Text = "赛程安排窗口",
             FontSize = 18,
             FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78))
+            Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(40, 16, 78))
         });
         titleStack.Children.Add(_scheduleBoardWindowSummaryText!);
         _scheduleBoardWindowDayTabs = new StackPanel
@@ -2160,7 +2203,7 @@ public partial class MainWindow : Window
         _scheduleBoardWindowDayPickerPanel.Children.Add(new TextBlock
         {
             Text = "比赛日",
-            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            Foreground = ThemeBrush("AppMutedTextBrush", Color.FromRgb(100, 116, 139)),
             VerticalAlignment = VerticalAlignment.Center
         });
         _scheduleBoardWindowDayPickerPanel.Children.Add(_scheduleBoardWindowDayBox!);
@@ -2178,8 +2221,8 @@ public partial class MainWindow : Window
 
         var boardHost = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(251, 252, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(216, 224, 236)),
+            Background = ThemeBrush("AppSurfaceAltBrush", Color.FromRgb(251, 252, 255)),
+            BorderBrush = ThemeBrush("AppPanelBorderBrush", Color.FromRgb(216, 224, 236)),
             BorderThickness = new Avalonia.Thickness(1),
             CornerRadius = new Avalonia.CornerRadius(10),
             Margin = new Avalonia.Thickness(0, 10, 0, 0),
@@ -2267,7 +2310,7 @@ public partial class MainWindow : Window
         targetPanel.Children.Add(new TextBlock
         {
             Text = "点击切换日期，拖到日期可跨日移动：",
-            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            Foreground = ThemeBrush("AppMutedTextBrush", Color.FromRgb(100, 116, 139)),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Avalonia.Thickness(0, 0, 2, 0)
         });
@@ -2277,8 +2320,12 @@ public partial class MainWindow : Window
             var isSelected = string.Equals(dayLabel, selectedDayLabel, StringComparison.Ordinal);
             var tab = new Border
             {
-                Background = new SolidColorBrush(isSelected ? Color.FromRgb(236, 246, 255) : Color.FromRgb(255, 255, 255)),
-                BorderBrush = new SolidColorBrush(isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(203, 213, 225)),
+                Background = isSelected
+                    ? ThemeBrush("AppInfoCardBackgroundBrush", Color.FromRgb(236, 246, 255))
+                    : ThemeBrush("AppButtonBackgroundBrush", Color.FromRgb(255, 255, 255)),
+                BorderBrush = isSelected
+                    ? ThemeBrush("AppAccentBrush", Color.FromRgb(15, 95, 159))
+                    : ThemeBrush("AppButtonBorderBrush", Color.FromRgb(203, 213, 225)),
                 BorderThickness = new Avalonia.Thickness(isSelected ? 2 : 1),
                 CornerRadius = new Avalonia.CornerRadius(999),
                 Padding = new Avalonia.Thickness(10, 5),
@@ -2288,7 +2335,9 @@ public partial class MainWindow : Window
                 {
                     Text = dayLabel,
                     FontWeight = isSelected ? FontWeight.Bold : FontWeight.SemiBold,
-                    Foreground = new SolidColorBrush(isSelected ? Color.FromRgb(15, 95, 159) : Color.FromRgb(43, 20, 95))
+                    Foreground = isSelected
+                        ? ThemeBrush("AppAccentBrush", Color.FromRgb(15, 95, 159))
+                        : ThemeBrush("AppTitleBrush", Color.FromRgb(43, 20, 95))
                 }
             };
             ToolTip.SetTip(tab, $"点击切换到 {dayLabel}；拖动比赛卡片到这里可跨日移动。");
@@ -2436,8 +2485,8 @@ public partial class MainWindow : Window
 
         var border = new Border
         {
-            Background = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            Background = ThemeBrush("AppSurfaceBrush", Color.FromRgb(255, 255, 255)),
+            BorderBrush = ThemeBrush("AppSoftBorderBrush", Color.FromRgb(226, 232, 240)),
             BorderThickness = new Avalonia.Thickness(0, 0, 1, 1),
             MinHeight = ScaleCrossEvent(72, zoom),
             Padding = new Avalonia.Thickness(ScaleCrossEvent(6, zoom)),
@@ -2465,8 +2514,14 @@ public partial class MainWindow : Window
                 : Color.FromRgb(248, 251, 255);
         var card = new Border
         {
-            Background = new SolidColorBrush(backgroundColor),
-            BorderBrush = new SolidColorBrush(borderColor),
+            Background = item.IsBlocking
+                ? new SolidColorBrush(backgroundColor)
+                : item.IsLocked
+                    ? ThemeBrush("AppSurfaceMutedBrush", backgroundColor)
+                    : ThemeBrush("AppInfoCardBackgroundBrush", backgroundColor),
+            BorderBrush = item.IsBlocking
+                ? new SolidColorBrush(borderColor)
+                : ThemeBrush("AppButtonBorderBrush", borderColor),
             BorderThickness = new Avalonia.Thickness(item.IsBlocking ? 2 : 1),
             CornerRadius = new Avalonia.CornerRadius(8),
             Padding = new Avalonia.Thickness(ScaleCrossEvent(8, zoom)),
@@ -2489,13 +2544,13 @@ public partial class MainWindow : Window
             Text = item.Title,
             FontSize = ScaleCrossEventFont(13, zoom),
             FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+            Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(43, 20, 95)),
             TextWrapping = TextWrapping.Wrap
         });
         stack.Children.Add(new TextBlock
         {
             Text = item.Subtitle,
-            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            Foreground = ThemeBrush("AppMutedTextBrush", Color.FromRgb(100, 116, 139)),
             FontSize = ScaleCrossEventFont(12, zoom)
         });
         stack.Children.Add(new TextBlock
@@ -3156,27 +3211,36 @@ public partial class MainWindow : Window
         };
     }
 
-    private static Border CreateScheduleBoardCascadePreviewCard(ScheduleBoardCascadeMovePreviewItem item)
+    private Border CreateScheduleBoardCascadePreviewCard(ScheduleBoardCascadeMovePreviewItem item)
     {
+        var isInvalid = item.RestMinutes < 0;
         var stack = new StackPanel { Spacing = 4 };
         stack.Children.Add(new TextBlock
         {
             Text = $"第 {item.Depth} 层后续 · {item.DayLabel} {item.TimeRange} · {item.Court} · {item.Phase} {item.DisplayMatchName}",
             FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+            Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(43, 20, 95)),
             TextWrapping = TextWrapping.Wrap
         });
         stack.Children.Add(new TextBlock
         {
             Text = $"{item.DependencyText}；与前序间隔 {item.RestMinutes} 分钟{(item.IsCompleted ? "；该场已有赛果" : "")}",
-            Foreground = new SolidColorBrush(item.RestMinutes < 0 ? Color.FromRgb(185, 28, 28) : Color.FromRgb(120, 83, 0)),
+            Foreground = isInvalid
+                ? ThemeBrush("AppErrorTextBrush", Color.FromRgb(185, 28, 28))
+                : ThemeBrush("AppWarningTextBrush", Color.FromRgb(120, 83, 0)),
             TextWrapping = TextWrapping.Wrap
         });
 
         return new Border
         {
-            Background = new SolidColorBrush(item.IsCompleted ? Color.FromRgb(241, 245, 249) : Color.FromRgb(255, 251, 235)),
-            BorderBrush = new SolidColorBrush(item.RestMinutes < 0 ? Color.FromRgb(220, 38, 38) : Color.FromRgb(245, 158, 11)),
+            Background = item.IsCompleted
+                ? ThemeBrush("AppSurfaceMutedBrush", Color.FromRgb(241, 245, 249))
+                : isInvalid
+                    ? ThemeBrush("AppErrorCardBackgroundBrush", Color.FromRgb(254, 242, 242))
+                    : ThemeBrush("AppWarningCardBackgroundBrush", Color.FromRgb(255, 251, 235)),
+            BorderBrush = isInvalid
+                ? ThemeBrush("AppErrorCardBorderBrush", Color.FromRgb(220, 38, 38))
+                : ThemeBrush("AppWarningCardBorderBrush", Color.FromRgb(245, 158, 11)),
             BorderThickness = new Avalonia.Thickness(1),
             CornerRadius = new Avalonia.CornerRadius(8),
             Padding = new Avalonia.Thickness(12),
@@ -3184,16 +3248,21 @@ public partial class MainWindow : Window
         };
     }
 
-    private static Border CreateScheduleBoardCrossEventImpactCard(ScheduleBoardCrossEventImpactPreviewItem item)
+    private Border CreateScheduleBoardCrossEventImpactCard(ScheduleBoardCrossEventImpactPreviewItem item)
     {
         var isSevere = item.Severity == CrossEventConflictSeverity.Severe;
         var isWarning = item.Severity == CrossEventConflictSeverity.Warning;
-        var borderColor = isSevere
-            ? Color.FromRgb(220, 38, 38)
-            : isWarning ? Color.FromRgb(245, 158, 11) : Color.FromRgb(242, 216, 137);
-        var backgroundColor = isSevere
-            ? Color.FromRgb(254, 242, 242)
-            : isWarning ? Color.FromRgb(255, 251, 235) : Color.FromRgb(255, 248, 230);
+        var borderBrush = isSevere
+            ? ThemeBrush("AppErrorCardBorderBrush", Color.FromRgb(220, 38, 38))
+            : isWarning
+                ? ThemeBrush("AppWarningCardBorderBrush", Color.FromRgb(245, 158, 11))
+                : ThemeBrush("AppWarningCardBorderBrush", Color.FromRgb(242, 216, 137));
+        var backgroundBrush = isSevere
+            ? ThemeBrush("AppErrorCardBackgroundBrush", Color.FromRgb(254, 242, 242))
+            : ThemeBrush("AppWarningCardBackgroundBrush", isWarning ? Color.FromRgb(255, 251, 235) : Color.FromRgb(255, 248, 230));
+        var detailBrush = isSevere
+            ? ThemeBrush("AppErrorTextBrush", Color.FromRgb(185, 28, 28))
+            : ThemeBrush("AppWarningTextBrush", Color.FromRgb(120, 83, 0));
         var label = item.Severity switch
         {
             CrossEventConflictSeverity.Severe => "严重",
@@ -3205,20 +3274,20 @@ public partial class MainWindow : Window
         {
             Text = $"{label} · {item.PlayerName} · {item.DayLabel} {item.TimeRange} · {item.Court} · {item.EventName} {item.Phase} {item.MatchName}",
             FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(43, 20, 95)),
+            Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(43, 20, 95)),
             TextWrapping = TextWrapping.Wrap
         });
         stack.Children.Add(new TextBlock
         {
             Text = $"{item.Detail}{(item.IsCompleted ? "；该场已有赛果" : "")}",
-            Foreground = new SolidColorBrush(isSevere ? Color.FromRgb(185, 28, 28) : Color.FromRgb(120, 83, 0)),
+            Foreground = detailBrush,
             TextWrapping = TextWrapping.Wrap
         });
 
         return new Border
         {
-            Background = new SolidColorBrush(backgroundColor),
-            BorderBrush = new SolidColorBrush(borderColor),
+            Background = backgroundBrush,
+            BorderBrush = borderBrush,
             BorderThickness = new Avalonia.Thickness(isSevere ? 2 : 1),
             CornerRadius = new Avalonia.CornerRadius(8),
             Padding = new Avalonia.Thickness(12),
@@ -3688,8 +3757,8 @@ public partial class MainWindow : Window
         };
         var header = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(248, 250, 252)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            Background = ThemeBrush("AppSurfaceMutedBrush", Color.FromRgb(248, 250, 252)),
+            BorderBrush = ThemeBrush("AppSoftBorderBrush", Color.FromRgb(226, 232, 240)),
             BorderThickness = new Avalonia.Thickness(1),
             CornerRadius = new Avalonia.CornerRadius(10),
             Padding = new Avalonia.Thickness(12)
@@ -3701,7 +3770,7 @@ public partial class MainWindow : Window
             Text = "多项目赛程窗口",
             FontSize = 18,
             FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(40, 16, 78))
+            Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(40, 16, 78))
         });
         titleStack.Children.Add(_crossEventBoardWindowSummaryText!);
         _crossEventBoardWindowDayTabs = new StackPanel
@@ -3733,7 +3802,7 @@ public partial class MainWindow : Window
         _crossEventBoardWindowDayPickerPanel.Children.Add(new TextBlock
         {
             Text = "比赛日",
-            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            Foreground = ThemeBrush("AppMutedTextBrush", Color.FromRgb(100, 116, 139)),
             VerticalAlignment = VerticalAlignment.Center
         });
         _crossEventBoardWindowDayPickerPanel.Children.Add(_crossEventBoardWindowDayBox!);
@@ -3751,8 +3820,8 @@ public partial class MainWindow : Window
 
         var boardHost = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(251, 252, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(216, 224, 236)),
+            Background = ThemeBrush("AppSurfaceAltBrush", Color.FromRgb(251, 252, 255)),
+            BorderBrush = ThemeBrush("AppPanelBorderBrush", Color.FromRgb(216, 224, 236)),
             BorderThickness = new Avalonia.Thickness(1),
             CornerRadius = new Avalonia.CornerRadius(10),
             Margin = new Avalonia.Thickness(0, 10, 0, 0),
@@ -3768,7 +3837,7 @@ public partial class MainWindow : Window
         return root;
     }
 
-    private static Button CreateCrossEventWindowButton(string text, EventHandler<RoutedEventArgs> handler)
+    private Button CreateCrossEventWindowButton(string text, EventHandler<RoutedEventArgs> handler)
     {
         var button = new Button
         {
@@ -5062,9 +5131,9 @@ public partial class MainWindow : Window
         {
             Content = "知道了",
             MinWidth = 100,
-            Background = new SolidColorBrush(Color.FromRgb(15, 95, 159)),
-            Foreground = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(15, 95, 159))
+            Background = ThemeBrush("AppAccentBrush", Color.FromRgb(15, 95, 159)),
+            Foreground = ThemeBrush("AppAccentTextBrush", Colors.White),
+            BorderBrush = ThemeBrush("AppAccentBrush", Color.FromRgb(15, 95, 159))
         };
         okButton.Click += (_, _) => dialog.Close();
 
@@ -5075,6 +5144,7 @@ public partial class MainWindow : Window
                 new RowDefinition(GridLength.Star),
                 new RowDefinition(GridLength.Auto)
             },
+            Background = ThemeBrush("AppBackgroundBrush", Colors.White),
             Margin = new Avalonia.Thickness(22),
             Children =
             {
@@ -5084,7 +5154,7 @@ public partial class MainWindow : Window
                     {
                         Text = message,
                         TextWrapping = TextWrapping.Wrap,
-                        Foreground = new SolidColorBrush(Color.FromRgb(31, 41, 55)),
+                        Foreground = ThemeBrush("AppTextBrush", Color.FromRgb(31, 41, 55)),
                         LineHeight = 22
                     }
                 },
@@ -5147,14 +5217,14 @@ public partial class MainWindow : Window
             Text = $"参赛选手/队伍信息 · {_participants.Count} 个参赛单位",
             FontSize = 22,
             FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(47, 22, 93)),
+            Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(47, 22, 93)),
             Margin = new Avalonia.Thickness(0, 0, 0, 14)
         };
         var hint = new TextBlock
         {
             Text = "可在此直接修改“是否种子”和“种子序号”；两项都留空即按非种子处理，修改后点击“应用修改”再预览抽签。",
             TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush(Color.FromRgb(90, 105, 130)),
+            Foreground = ThemeBrush("AppMutedTextBrush", Color.FromRgb(90, 105, 130)),
             Margin = new Avalonia.Thickness(0, 0, 0, 12),
             [Grid.RowProperty] = 1
         };
@@ -5170,7 +5240,7 @@ public partial class MainWindow : Window
             MinWidth = 48,
             TextAlignment = TextAlignment.Center,
             FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(47, 22, 93)),
+            Foreground = ThemeBrush("AppTitleBrush", Color.FromRgb(47, 22, 93)),
             VerticalAlignment = VerticalAlignment.Center
         };
         void SetRosterZoom(double value)
@@ -5191,7 +5261,7 @@ public partial class MainWindow : Window
                 new TextBlock
                 {
                     Text = "缩放",
-                    Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+                    Foreground = ThemeBrush("AppMutedTextBrush", Color.FromRgb(100, 116, 139)),
                     VerticalAlignment = VerticalAlignment.Center
                 },
                 CreateCrossEventWindowButton("缩小", (_, _) => SetRosterZoom(rosterZoom - ParticipantRosterZoomStep)),
@@ -5238,6 +5308,7 @@ public partial class MainWindow : Window
                 new RowDefinition(GridLength.Star),
                 new RowDefinition(GridLength.Auto)
             },
+            Background = ThemeBrush("AppBackgroundBrush", Colors.White),
             Margin = new Avalonia.Thickness(20),
             Children =
             {
@@ -5246,7 +5317,8 @@ public partial class MainWindow : Window
                 zoomControls,
                 new Border
                 {
-                    BorderBrush = new SolidColorBrush(Color.FromRgb(210, 224, 240)),
+                    Background = ThemeBrush("AppSurfaceBrush", Colors.White),
+                    BorderBrush = ThemeBrush("AppSoftBorderBrush", Color.FromRgb(210, 224, 240)),
                     BorderThickness = new Avalonia.Thickness(1),
                     CornerRadius = new CornerRadius(10),
                     ClipToBounds = true,
@@ -5272,7 +5344,7 @@ public partial class MainWindow : Window
         window.Show(this);
     }
 
-    private static Grid BuildParticipantRosterGrid(
+    private Grid BuildParticipantRosterGrid(
         IReadOnlyList<DrawParticipant> participants,
         ICollection<ParticipantSeedEditor> seedEditors)
     {
@@ -5346,14 +5418,16 @@ public partial class MainWindow : Window
         return table;
     }
 
-    private static void AddRosterCell(Grid table, int row, int column, string text, bool isHeader)
+    private void AddRosterCell(Grid table, int row, int column, string text, bool isHeader)
     {
         var border = new Border
         {
             Background = isHeader
-                ? new SolidColorBrush(Color.FromRgb(226, 214, 248))
-                : new SolidColorBrush(row % 2 == 0 ? Color.FromRgb(255, 255, 255) : Color.FromRgb(248, 250, 252)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(210, 224, 240)),
+                ? ThemeBrush("AppTableHeaderBackgroundBrush", Color.FromRgb(226, 214, 248))
+                : row % 2 == 0
+                    ? ThemeBrush("AppSurfaceBrush", Color.FromRgb(255, 255, 255))
+                    : ThemeBrush("AppSurfaceAltBrush", Color.FromRgb(248, 250, 252)),
+            BorderBrush = ThemeBrush("AppSoftBorderBrush", Color.FromRgb(210, 224, 240)),
             BorderThickness = new Avalonia.Thickness(0, 0, 1, 1),
             Padding = new Avalonia.Thickness(10, 8),
             Child = new TextBlock
@@ -5361,9 +5435,9 @@ public partial class MainWindow : Window
                 Text = text,
                 TextWrapping = TextWrapping.Wrap,
                 FontWeight = isHeader ? FontWeight.Bold : FontWeight.Normal,
-                Foreground = new SolidColorBrush(isHeader
-                    ? Color.FromRgb(47, 22, 93)
-                    : Color.FromRgb(17, 24, 39))
+                Foreground = isHeader
+                    ? ThemeBrush("AppTableHeaderTextBrush", Color.FromRgb(47, 22, 93))
+                    : ThemeBrush("AppTextBrush", Color.FromRgb(17, 24, 39))
             }
         };
         Grid.SetRow(border, row);
@@ -5393,12 +5467,14 @@ public partial class MainWindow : Window
         };
     }
 
-    private static void AddRosterControlCell(Grid table, int row, int column, Control control)
+    private void AddRosterControlCell(Grid table, int row, int column, Control control)
     {
         var border = new Border
         {
-            Background = new SolidColorBrush(row % 2 == 0 ? Color.FromRgb(255, 255, 255) : Color.FromRgb(248, 250, 252)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(210, 224, 240)),
+            Background = row % 2 == 0
+                ? ThemeBrush("AppSurfaceBrush", Color.FromRgb(255, 255, 255))
+                : ThemeBrush("AppSurfaceAltBrush", Color.FromRgb(248, 250, 252)),
+            BorderBrush = ThemeBrush("AppSoftBorderBrush", Color.FromRgb(210, 224, 240)),
             BorderThickness = new Avalonia.Thickness(0, 0, 1, 1),
             Padding = new Avalonia.Thickness(8, 5),
             Child = control
@@ -5832,7 +5908,7 @@ public partial class MainWindow : Window
         targetGrid.Children.Add(new TextBlock
         {
             Text = text,
-            Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+            Foreground = ThemeBrush("AppMutedTextBrush", Color.FromRgb(100, 116, 139)),
             FontSize = ScaleCrossEventFont(13, zoom),
             Margin = new Avalonia.Thickness(12)
         });
@@ -5842,8 +5918,8 @@ public partial class MainWindow : Window
     {
         var border = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(237, 225, 252)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(216, 199, 244)),
+            Background = ThemeBrush("AppTableHeaderBackgroundBrush", Color.FromRgb(237, 225, 252)),
+            BorderBrush = ThemeBrush("AppTableHeaderBorderBrush", Color.FromRgb(216, 199, 244)),
             BorderThickness = new Avalonia.Thickness(0, 0, 1, 1),
             Padding = new Avalonia.Thickness(ScaleCrossEvent(10, zoom), ScaleCrossEvent(8, zoom)),
             Child = new TextBlock
@@ -5851,7 +5927,7 @@ public partial class MainWindow : Window
                 Text = text,
                 FontSize = ScaleCrossEventFont(13, zoom),
                 FontWeight = FontWeight.Bold,
-                Foreground = new SolidColorBrush(Color.FromRgb(50, 17, 109)),
+                Foreground = ThemeBrush("AppTableHeaderTextBrush", Color.FromRgb(50, 17, 109)),
                 TextAlignment = TextAlignment.Center
             }
         };
@@ -5864,8 +5940,8 @@ public partial class MainWindow : Window
     {
         var border = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(248, 250, 252)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            Background = ThemeBrush("AppSurfaceMutedBrush", Color.FromRgb(248, 250, 252)),
+            BorderBrush = ThemeBrush("AppSoftBorderBrush", Color.FromRgb(226, 232, 240)),
             BorderThickness = new Avalonia.Thickness(0, 0, 1, 1),
             Padding = new Avalonia.Thickness(ScaleCrossEvent(10, zoom), ScaleCrossEvent(14, zoom)),
             Child = new TextBlock
@@ -5873,6 +5949,7 @@ public partial class MainWindow : Window
                 Text = slot.ToString("HH:mm"),
                 FontSize = ScaleCrossEventFont(13, zoom),
                 FontWeight = FontWeight.SemiBold,
+                Foreground = ThemeBrush("AppTextBrush", Color.FromRgb(17, 24, 39)),
                 TextAlignment = TextAlignment.Center
             }
         };
@@ -6005,8 +6082,17 @@ public partial class MainWindow : Window
                 : participant.DisplayName;
     }
 
-    private static IReadOnlyList<SchedulePreviewRow> FormatScheduleRows(SchedulePlan schedule)
+    private IReadOnlyList<SchedulePreviewRow> FormatScheduleRows(SchedulePlan schedule)
     {
+        var scheduledBackground = ThemeBrush("AppSurfaceBrush", Color.FromRgb(255, 255, 255));
+        var scheduledBorder = ThemeBrush("AppSoftBorderBrush", Color.FromRgb(226, 232, 240));
+        var scheduledBadgeBackground = ThemeBrush("AppInfoCardBackgroundBrush", Color.FromRgb(236, 246, 255));
+        var scheduledBadgeForeground = ThemeBrush("AppInfoTextBrush", Color.FromRgb(15, 95, 159));
+        var unscheduledBackground = ThemeBrush("AppErrorCardBackgroundBrush", Color.FromRgb(255, 247, 247));
+        var unscheduledBorder = ThemeBrush("AppErrorCardBorderBrush", Color.FromRgb(246, 190, 190));
+        var unscheduledBadgeBackground = ThemeBrush("AppWarningCardBackgroundBrush", Color.FromRgb(255, 228, 230));
+        var unscheduledBadgeForeground = ThemeBrush("AppErrorTextBrush", Color.FromRgb(159, 18, 57));
+
         var rows = schedule.Matches
             .Select(match => new SchedulePreviewRow(
                 match.Order.ToString(),
@@ -6020,10 +6106,10 @@ public partial class MainWindow : Window
                 match.SideA,
                 match.SideB,
                 match.Note,
-                ScheduledRowBackground,
-                ScheduledRowBorder,
-                ScheduledBadgeBackground,
-                ScheduledBadgeForeground))
+                scheduledBackground,
+                scheduledBorder,
+                scheduledBadgeBackground,
+                scheduledBadgeForeground))
             .ToList();
         rows.AddRange(schedule.UnscheduledMatches.Select(match =>
             new SchedulePreviewRow(
@@ -6038,12 +6124,12 @@ public partial class MainWindow : Window
                 match.SideA,
                 match.SideB,
                 match.Reason,
-                UnscheduledRowBackground,
-                UnscheduledRowBorder,
-                UnscheduledBadgeBackground,
-                UnscheduledBadgeForeground)));
+                unscheduledBackground,
+                unscheduledBorder,
+                unscheduledBadgeBackground,
+                unscheduledBadgeForeground)));
         return rows.Count == 0
-            ? [new SchedulePreviewRow("-", "空", "暂无", "-", "-", "-", "暂无赛程", "生成赛程后显示", "", "", "", ScheduledRowBackground, ScheduledRowBorder, ScheduledBadgeBackground, ScheduledBadgeForeground)]
+            ? [new SchedulePreviewRow("-", "空", "暂无", "-", "-", "-", "暂无赛程", "生成赛程后显示", "", "", "", scheduledBackground, scheduledBorder, scheduledBadgeBackground, scheduledBadgeForeground)]
             : rows;
     }
 
@@ -6156,20 +6242,20 @@ public partial class MainWindow : Window
     {
         StatusText.Text = message;
         StatusText.Foreground = isError
-            ? ErrorStatusBrush
+            ? ThemeBrush("AppErrorTextBrush", Color.FromRgb(185, 28, 28))
             : isWarning
-                ? WarningStatusBrush
-                : new SolidColorBrush(Color.FromRgb(65, 80, 106));
+                ? ThemeBrush("AppWarningTextBrush", Color.FromRgb(217, 119, 6))
+                : ThemeBrush("AppMutedTextBrush", Color.FromRgb(65, 80, 106));
         StatusDot.Background = isError
-            ? ErrorStatusBrush
+            ? ThemeBrush("AppErrorTextBrush", Color.FromRgb(185, 28, 28))
             : isWarning
-                ? WarningStatusBrush
-                : ReadyStatusBrush;
+                ? ThemeBrush("AppWarningTextBrush", Color.FromRgb(217, 119, 6))
+                : ThemeBrush("AppStatusDotBrush", Color.FromRgb(25, 169, 116));
         StatusBar.Background = isError
-            ? ErrorStatusBackground
+            ? ThemeBrush("AppErrorCardBackgroundBrush", Color.FromRgb(254, 242, 242))
             : isWarning
-                ? WarningStatusBackground
-                : ReadyStatusBackground;
+                ? ThemeBrush("AppWarningCardBackgroundBrush", Color.FromRgb(255, 250, 235))
+                : ThemeBrush("AppStatusBarBackgroundBrush", Colors.White);
     }
 
     public sealed record PreviewGroupRow(
