@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="BadmintonDraw.Desktop.MainWindow"
         x:CompileBindings="False"
-        Title="深大羽协抽签工具 - 跨平台桌面版"
+        Title="深大羽协羽毛球赛事工作台"
         Width="1180"
         Height="760"
         MinWidth="1040"
@@ -109,10 +109,11 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
         </Style>
-        <Style Selector="Border.metric">
+        <Style Selector="Border.metric-pill">
             <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="Padding" Value="16,14" />
+            <Setter Property="Padding" Value="10,7" />
             <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="MinHeight" Value="42" />
         </Style>
         <Style Selector="Border.preview-row">
             <Setter Property="Background" Value="#FFFFFF" />
@@ -157,9 +158,9 @@
                                Stretch="Uniform" />
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
-                        <TextBlock Classes="app-title" Text="深大羽协抽签工具" />
+                        <TextBlock Classes="app-title" Text="深大羽协羽毛球赛事工作台" />
                         <TextBlock Classes="muted"
-                                   Text="跨平台桌面版 · 深圳大学羽毛球赛事工作台"
+                                   Text="抽签、赛程、多项目编排与现场材料生成"
                                    FontSize="14" />
                     </StackPanel>
                     <Image Grid.Column="2"
@@ -689,58 +690,67 @@
             </Border>
 
             <Border Classes="panel" Grid.Column="1">
-                <Grid RowDefinitions="Auto,Auto,*">
-                    <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="10" Margin="18,18,18,0">
-                        <Border Classes="metric" Background="#ECF6FF" BorderBrush="#D2E7FB">
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="参赛单位" Foreground="#59697E" FontWeight="SemiBold" />
-                                <TextBlock x:Name="ParticipantCountText" Text="-" FontSize="26" FontWeight="Bold" Foreground="#0F172A" />
-                            </StackPanel>
-                        </Border>
-                        <Border Grid.Column="1" Classes="metric" Background="#F0F8F1" BorderBrush="#D4EAD8">
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="小组数" Foreground="#59697E" FontWeight="SemiBold" />
-                                <TextBlock x:Name="GroupCountStatText" Text="-" FontSize="26" FontWeight="Bold" Foreground="#0F172A" />
-                            </StackPanel>
-                        </Border>
-                        <Border Grid.Column="2" Classes="metric" Background="#FFF7E8" BorderBrush="#F2E0BE">
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="项目" Foreground="#59697E" FontWeight="SemiBold" />
-                                <TextBlock x:Name="EventKindStatText" Text="-" FontSize="26" FontWeight="Bold" Foreground="#0F172A" />
-                            </StackPanel>
-                        </Border>
-                        <Border Grid.Column="3" Classes="metric" Background="#F6F1FF" BorderBrush="#E0D4F5">
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="状态" Foreground="#59697E" FontWeight="SemiBold" />
-                                <TextBlock x:Name="PreviewStateText" Text="待预览" FontSize="26" FontWeight="Bold" Foreground="#0F172A" />
-                            </StackPanel>
-                        </Border>
-                    </Grid>
-
-                    <Border Grid.Row="1"
+                <Grid RowDefinitions="Auto,*">
+                    <Border Grid.Row="0"
                             Background="#FBFCFF"
                             BorderBrush="#E4EAF3"
                             BorderThickness="1"
                             CornerRadius="8"
-                            Padding="16"
-                            Margin="18,14,18,14">
-                        <StackPanel Spacing="6">
-                            <TextBlock x:Name="SummaryText" Classes="section-title" Text="尚未生成抽签预览" TextWrapping="Wrap" />
+                            Padding="12"
+                            Margin="18,18,18,8">
+                        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Border Classes="metric-pill" Background="#ECF6FF" BorderBrush="#D2E7FB">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <TextBlock Text="参赛" Foreground="#59697E" FontWeight="SemiBold" FontSize="12" />
+                                        <TextBlock x:Name="ParticipantCountText" Text="-" FontSize="18" FontWeight="Bold" Foreground="#0F172A" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Classes="metric-pill" Background="#F0F8F1" BorderBrush="#D4EAD8">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <TextBlock Text="小组" Foreground="#59697E" FontWeight="SemiBold" FontSize="12" />
+                                        <TextBlock x:Name="GroupCountStatText" Text="-" FontSize="18" FontWeight="Bold" Foreground="#0F172A" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Classes="metric-pill" Background="#FFF7E8" BorderBrush="#F2E0BE">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <TextBlock Text="项目" Foreground="#59697E" FontWeight="SemiBold" FontSize="12" />
+                                        <TextBlock x:Name="EventKindStatText" Text="-" FontSize="18" FontWeight="Bold" Foreground="#0F172A" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Classes="metric-pill" Background="#F6F1FF" BorderBrush="#E0D4F5">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <TextBlock Text="状态" Foreground="#59697E" FontWeight="SemiBold" FontSize="12" />
+                                        <TextBlock x:Name="PreviewStateText" Text="待预览" FontSize="18" FontWeight="Bold" Foreground="#0F172A" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                            <TextBlock x:Name="SummaryText"
+                                       Grid.Column="1"
+                                       Text="尚未生成抽签预览"
+                                       Foreground="#28104E"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Center" />
                             <Border x:Name="WarningPanel"
+                                    Grid.Row="1"
+                                    Grid.ColumnSpan="2"
                                     IsVisible="False"
                                     Background="#FFF7E8"
                                     BorderBrush="#F2D39C"
                                     BorderThickness="1"
                                     CornerRadius="8"
-                                    Padding="10,8">
+                                    Padding="10,8"
+                                    Margin="0,8,0,0">
                                 <TextBlock x:Name="WarningText"
                                            Foreground="#8A5B00"
                                            TextWrapping="Wrap" />
                             </Border>
-                        </StackPanel>
+                        </Grid>
                     </Border>
 
-                    <TabControl x:Name="PreviewTabs" Grid.Row="2" Margin="18,0,18,18">
+                    <TabControl x:Name="PreviewTabs" Grid.Row="1" Margin="18,0,18,18">
                         <TabItem Header="抽签结果">
                             <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
                                 <StackPanel Spacing="12">
@@ -1009,7 +1019,7 @@
                         VerticalAlignment="Center" />
                 <TextBlock x:Name="StatusText"
                            Grid.Column="1"
-                           Text="准备就绪。跨平台桌面版已支持抽签、赛程、多项目编排、赛事存档和材料包导出。"
+                           Text="准备就绪。已支持抽签、赛程、多项目编排、赛事存档和材料包导出。"
                            Foreground="#41506A"
                            FontWeight="SemiBold"
                            TextWrapping="Wrap" />
