@@ -3446,7 +3446,7 @@ public sealed class DrawWorkflowTests
 
             Assert.Equal(0, board.Report.SevereCount);
             Assert.Equal(["2026-06-13"], result.DayLabels);
-            Assert.Equal(5, result.OutputPaths.Count);
+            Assert.Equal(6, result.OutputPaths.Count);
             Assert.NotEqual(outputDirectory, result.OutputDirectory);
             Assert.True(Directory.Exists(result.OutputDirectory));
             Assert.All(result.OutputPaths, path => Assert.StartsWith(result.OutputDirectory, path, StringComparison.Ordinal));
@@ -3457,6 +3457,8 @@ public sealed class DrawWorkflowTests
             Assert.Contains(result.OutputPaths, path => path.EndsWith("合并赛程记录表.xlsx", StringComparison.Ordinal));
             Assert.Contains(result.OutputPaths, path => path.EndsWith("合并赛程安排表.pdf", StringComparison.Ordinal));
             Assert.Contains(result.OutputPaths, path => path.EndsWith("合并单场比赛计分表.pdf", StringComparison.Ordinal));
+            var manifestPath = Assert.Single(result.OutputPaths, path => path.EndsWith("合并材料包说明.txt", StringComparison.Ordinal));
+            Assert.Contains("多项目合并材料包", File.ReadAllText(manifestPath));
         }
         finally
         {

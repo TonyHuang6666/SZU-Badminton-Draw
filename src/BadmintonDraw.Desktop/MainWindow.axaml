@@ -63,6 +63,15 @@
             <Setter Property="Background" Value="{DynamicResource AppListSelectedBackgroundBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource AppSelectionTextBrush}" />
         </Style>
+        <Style Selector="CalendarDatePicker">
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="Background" Value="{DynamicResource AppInputBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppInputBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+        </Style>
         <Style Selector="Button">
             <Setter Property="MinHeight" Value="40" />
             <Setter Property="Padding" Value="14,8" />
@@ -367,7 +376,38 @@
                                     </Border>
 
                                     <TextBlock Classes="field-label" Text="比赛日期" />
-                                    <DatePicker x:Name="ScheduleDatePicker" />
+                                    <Grid ColumnDefinitions="190,Auto,Auto,Auto" ColumnSpacing="7">
+                                        <CalendarDatePicker x:Name="ScheduleDatePicker"
+                                                            PlaceholderText="选择比赛日期"
+                                                            FirstDayOfWeek="Monday"
+                                                            IsTodayHighlighted="True"
+                                                            SelectedDateFormat="Custom"
+                                                            CustomDateFormatString="yyyy-MM-dd" />
+                                        <Button Grid.Column="1"
+                                                Classes="secondary compact"
+                                                MinWidth="46"
+                                                MinHeight="34"
+                                                Padding="6,4"
+                                                FontSize="13"
+                                                Content="明天"
+                                                Click="UseTomorrowScheduleDate_Click" />
+                                        <Button Grid.Column="2"
+                                                Classes="secondary compact"
+                                                MinWidth="46"
+                                                MinHeight="34"
+                                                Padding="6,4"
+                                                FontSize="13"
+                                                Content="周六"
+                                                Click="UseThisSaturdayScheduleDate_Click" />
+                                        <Button Grid.Column="3"
+                                                Classes="secondary compact"
+                                                MinWidth="46"
+                                                MinHeight="34"
+                                                Padding="6,4"
+                                                FontSize="13"
+                                                Content="周日"
+                                                Click="UseThisSundayScheduleDate_Click" />
+                                    </Grid>
 
                                     <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
                                         <StackPanel>

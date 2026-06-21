@@ -512,7 +512,51 @@ public sealed class CrossEventConflictWorkflow
             outputPaths.Add(scoreSheetPath);
         }
 
+        var manifestPath = Path.Combine(packageDirectory, "合并材料包说明.txt");
+        File.WriteAllLines(
+            manifestPath,
+            BuildMergedMaterialsManifestLines(board, schedule, dayLabels, outputPaths));
+        outputPaths.Add(manifestPath);
+
         return new CrossEventMergedMaterialsExportResult(packageDirectory, outputPaths, schedule, dayLabels);
+    }
+
+    private static IReadOnlyList<string> BuildMergedMaterialsManifestLines(
+        CrossEventScheduleBoard board,
+        SchedulePlan schedule,
+        IReadOnlyList<string> dayLabels,
+        IReadOnlyList<string> outputPaths)
+    {
+        var lines = new List<string>
+        {
+            "多项目合并材料包",
+            $"导出时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}",
+            $"项目数：{board.Sources.Count}",
+            $"总场次：{schedule.Matches.Count}",
+            $"比赛日：{string.Join("、", dayLabels)}",
+            $"排程检查：严重 {board.Report.SevereCount} 条，警告 {board.Report.WarningCount} 条，提醒/推演 {board.Report.NoticeCount} 条。",
+            "",
+            "每日材料："
+        };
+
+        foreach (var dayLabel in dayLabels)
+        {
+            var matchCount = schedule.Matches.Count(match => string.Equals(match.DayLabel, dayLabel, StringComparison.Ordinal));
+            lines.Add($"- {dayLabel}：{matchCount} 场；包含合并赛程记录表、合并赛程安排表 Excel/PDF、单场计分表 PDF。");
+        }
+
+        lines.Add("");
+        lines.Add("通用材料：");
+        lines.Add("- 多项目排程检查报告.xlsx：用于复核严重冲突、警告和提醒/推演。");
+        lines.Add("");
+        lines.Add("文件清单：");
+        foreach (var outputPath in outputPaths.OrderBy(Path.GetFileName, StringComparer.Ordinal))
+        {
+            lines.Add($"- {Path.GetFileName(outputPath)}");
+        }
+
+        lines.Add("- 合并材料包说明.txt");
+        return lines;
     }
 
     public static SchedulePlan BuildMergedSchedulePlan(CrossEventScheduleBoard board)

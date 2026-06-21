@@ -228,7 +228,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         ApplyWindowIcon();
         SeedBox.Text = DrawWorkflow.GenerateSeed();
-        ScheduleDatePicker.SelectedDate = new DateTimeOffset(DateTime.Today);
+        ScheduleDatePicker.SelectedDate = DateTime.Today;
         ScheduleDaysList.ItemsSource = _scheduleDays;
         CrossEventCustomSchedulingPanel.IsVisible = false;
         UpdateScheduleUndoButtons();
@@ -491,19 +491,103 @@ public partial class MainWindow : Window
         TryGenerateSchedule();
     }
 
-    private void ScheduleAutoStrategyBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    private async void ScheduleAutoStrategyBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (!_uiReady || _latestResult is null)
         {
             return;
         }
 
-        TryGenerateSchedule();
+        await RebuildSingleScheduleByStrategyAsync(
+            forceConfirmation: _singleScheduleUndoStack.Count > 0 || _progressState is not null,
+            restoreStrategyOnCancel: true);
+    }
+
+    private async Task RebuildSingleScheduleByStrategyAsync(
+        bool forceConfirmation,
+        bool restoreStrategyOnCancel)
+    {
+        var previousStrategy = _latestSchedule?.Settings.AutoSchedulingStrategy;
+        if (_progressState is { Results.Count: > 0 })
+        {
+            if (restoreStrategyOnCancel && previousStrategy is not null)
+            {
+                SelectScheduleAutoStrategyWithoutEvent(previousStrategy.Value);
+            }
+
+            SetStatus(
+                "当前赛事存档已有赛果，不能整体重排单项目赛程；请在赛程安排窗口拖动未完成场次。",
+                isError: true);
+            return;
+        }
+
+        var strategy = GetScheduleAutoSchedulingStrategy();
+        var strategyText = ScheduleWorkflow.BuildScheduleStrategyText(strategy);
+        if (forceConfirmation && _latestSchedule is not null)
+        {
+            var confirmed = await ConfirmAsync(
+                "按策略重新编排",
+                $"将按“{strategyText}”重新生成单项目赛程，已有手动拖动调整会被覆盖。是否继续？");
+            if (!confirmed)
+            {
+                if (restoreStrategyOnCancel && previousStrategy is not null)
+                {
+                    SelectScheduleAutoStrategyWithoutEvent(previousStrategy.Value);
+                }
+
+                SetStatus("已取消按策略重新编排。", isWarning: true);
+                return;
+            }
+        }
+
+        var selectedDay = _scheduleBoardWindowDayBox?.SelectedItem?.ToString();
+        if (!TryGenerateSchedule())
+        {
+            if (restoreStrategyOnCancel && previousStrategy is not null)
+            {
+                SelectScheduleAutoStrategyWithoutEvent(previousStrategy.Value);
+            }
+
+            return;
+        }
+
+        RefreshScheduleBoardWindow(selectedDay);
+        var hasConstraintWarnings = _latestScheduleConstraintReport is { SevereCount: > 0 } or { WarningCount: > 0 };
+        SetStatus(
+            $"已按“{strategyText}”重新编排单项目赛程；手动调整历史已清空。",
+            isWarning: hasConstraintWarnings);
     }
 
     private void ScheduleTimingBoundaryBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         UpdateScheduleTimingSplitVisibility();
+    }
+
+    private void UseTomorrowScheduleDate_Click(object? sender, RoutedEventArgs e)
+    {
+        SetScheduleDate(DateOnly.FromDateTime(DateTime.Today.AddDays(1)));
+    }
+
+    private void UseThisSaturdayScheduleDate_Click(object? sender, RoutedEventArgs e)
+    {
+        SetScheduleDate(GetNextOrSameWeekday(DateOnly.FromDateTime(DateTime.Today), DayOfWeek.Saturday));
+    }
+
+    private void UseThisSundayScheduleDate_Click(object? sender, RoutedEventArgs e)
+    {
+        SetScheduleDate(GetNextOrSameWeekday(DateOnly.FromDateTime(DateTime.Today), DayOfWeek.Sunday));
+    }
+
+    private void SetScheduleDate(DateOnly date)
+    {
+        ScheduleDatePicker.SelectedDate = date.ToDateTime(TimeOnly.MinValue);
+        SetStatus($"已选择比赛日期：{date:yyyy-MM-dd}。");
+    }
+
+    private static DateOnly GetNextOrSameWeekday(DateOnly startDate, DayOfWeek targetDay)
+    {
+        var offset = ((int)targetDay - (int)startDate.DayOfWeek + 7) % 7;
+        return startDate.AddDays(offset);
     }
 
     private void AddScheduleDay_Click(object? sender, RoutedEventArgs e)
@@ -1114,8 +1198,17 @@ public partial class MainWindow : Window
         try
         {
             var result = _crossEventConflictWorkflow.ExportMergedScheduleMaterials(_crossEventScheduleBoard, outputDirectory);
+            var dayText = result.DayLabels.Count switch
+            {
+                0 => "无比赛日",
+                1 => result.DayLabels[0],
+                _ => $"{result.DayLabels.First()} 至 {result.DayLabels.Last()}"
+            };
             SetStatus(
-                $"多项目合并材料包已导出到：{result.OutputDirectory}（共 {result.OutputPaths.Count} 个文件）。",
+                $"多项目合并材料包已导出到：{result.OutputDirectory}（{dayText}，"
+                + $"共 {result.Schedule.Matches.Count} 场、{result.OutputPaths.Count} 个文件，含材料包说明）。"
+                + $"排程检查：严重 {_crossEventScheduleBoard.Report.SevereCount}，"
+                + $"警告 {_crossEventScheduleBoard.Report.WarningCount}，提醒 {_crossEventScheduleBoard.Report.NoticeCount}。",
                 isWarning: _crossEventScheduleBoard.Report.WarningCount > 0);
         }
         catch (Exception ex) when (ex is TournamentProgressException or IOException or InvalidOperationException or DrawValidationException)
@@ -4265,7 +4358,7 @@ public partial class MainWindow : Window
 
     private void AddCurrentScheduleDay(bool showStatus = true)
     {
-        if (ScheduleDatePicker.SelectedDate is not DateTimeOffset selectedDate)
+        if (ScheduleDatePicker.SelectedDate is not DateTime selectedDate)
         {
             throw new DrawValidationException("请选择比赛日期。");
         }
@@ -5213,7 +5306,7 @@ public partial class MainWindow : Window
         };
         var yesButton = new Button
         {
-            Content = "继续导出",
+            Content = "继续",
             MinWidth = 110,
             Background = new SolidColorBrush(Color.FromRgb(15, 95, 159)),
             Foreground = Brushes.White,
@@ -5909,8 +6002,13 @@ public partial class MainWindow : Window
         }
 
         SelectComboBoxTag(ScheduleConstraintProfileBox, settings.ConstraintProfile.ToString());
+        SelectScheduleAutoStrategyWithoutEvent(settings.AutoSchedulingStrategy);
+    }
+
+    private void SelectScheduleAutoStrategyWithoutEvent(ScheduleAutoSchedulingStrategy strategy)
+    {
         ScheduleAutoStrategyBox.SelectionChanged -= ScheduleAutoStrategyBox_SelectionChanged;
-        SelectComboBoxTag(ScheduleAutoStrategyBox, settings.AutoSchedulingStrategy.ToString());
+        SelectComboBoxTag(ScheduleAutoStrategyBox, strategy.ToString());
         ScheduleAutoStrategyBox.SelectionChanged += ScheduleAutoStrategyBox_SelectionChanged;
     }
 
