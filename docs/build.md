@@ -4,9 +4,9 @@
 
 安装：
 
-- Visual Studio 2022
-- `.NET 桌面开发` 工作负载
 - .NET 8 SDK
+- Windows 可使用 Visual Studio 2022、Rider 或 VS Code。
+- macOS/Linux 可使用终端、Rider 或 VS Code。
 
 项目主要依赖：
 
@@ -27,15 +27,7 @@ dotnet test
 dotnet run --project src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj
 ```
 
-Avalonia 是当前 GUI 开发主线，macOS、Windows 和 Linux 都使用这个入口。Windows WPF 版目前只作为历史备用和必要时的回归对照，需要时可单独运行：
-
-```powershell
-dotnet run --project src\BadmintonDraw.App\BadmintonDraw.App.csproj
-```
-
-也可以直接用 Visual Studio、Rider 或 VS Code 打开 `BadmintonDraw.sln`。跨平台 Avalonia 版启动项目是 `BadmintonDraw.Desktop`；Windows WPF 版启动项目是 `BadmintonDraw.App`，目前仅作为历史备用入口和必要时的回归对照。
-
-如果 Visual Studio 正在运行 `BadmintonDraw.App`，重新构建时可能出现 DLL 被锁定。关闭正在运行的抽签工具窗口后重新构建即可；不需要关闭整个 Visual Studio。
+Avalonia 是当前唯一 GUI 主线，macOS、Windows 和 Linux 都使用这个入口。也可以直接用 Visual Studio、Rider 或 VS Code 打开 `BadmintonDraw.sln`，启动项目选择 `BadmintonDraw.Desktop`。历史 WPF 项目已经从仓库移除，不再单独构建或发布。
 
 ## 测试入口
 
@@ -63,26 +55,17 @@ dotnet test tests\BadmintonDraw.Tests\BadmintonDraw.Tests.csproj -c Debug --no-r
 
 ### Windows
 
-Avalonia Windows 版：
-
 ```powershell
 dotnet publish src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
-```
-
-WPF Windows 版目前暂缓维护，仅在需要 Windows 备用包时构建：
-
-```powershell
-dotnet publish src\BadmintonDraw.App\BadmintonDraw.App.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
 ```
 
 生成文件位于：
 
 ```text
 src\BadmintonDraw.Desktop\bin\Release\net8.0\win-x64\publish
-src\BadmintonDraw.App\bin\Release\net8.0-windows\win-x64\publish
 ```
 
-把发布目录中的 `.exe` 发给干事即可使用。Avalonia Windows 版是首选桌面版；WPF 版保留为历史备用版本，不作为常规 release 必发产物。
+把发布目录中的 `.exe` 发给干事即可使用。Windows 桌面版也使用 Avalonia，与 macOS 版共享同一套界面和工作流。
 
 ### macOS
 
@@ -106,7 +89,7 @@ artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
 1. 先跑 `dotnet test tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj --no-restore --verbosity minimal`。
 2. 再跑 `dotnet build BadmintonDraw.sln --no-restore --verbosity minimal`。
 3. macOS 包使用 `VERSION=x.y.z bash scripts/publish-macos.sh osx-arm64` 生成，并上传 `artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg`。
-4. Windows 版上传 Avalonia 单文件 `.exe`。4.2 起主线 release 发布 Avalonia 双平台包；WPF 版仅在需要 Windows 备用包时单独构建。
+4. Windows 版上传 Avalonia 单文件 `.exe`。4.2 起主线 release 发布 Avalonia 双平台包；4.5 后 WPF 项目已移除。
 5. Release 说明中列出规则化抽签、单项目/多项目赛程编排、多格式导出、赛事存档、记录表导入确认、合并材料包、深色模式和跨平台桌面版等重要变化。
 
 GitHub CLI 示例：
@@ -129,10 +112,10 @@ gh release create v4.5.0 \
 
 ## 跨平台说明
 
-`BadmintonDraw.Core`、`BadmintonDraw.Excel` 和 `BadmintonDraw.Workflows` 是普通 .NET 项目，可以在 macOS/Linux 上参与构建和测试。Avalonia GUI 位于 `src/BadmintonDraw.Desktop`，用于 macOS/Windows/Linux 跨平台桌面版，也是当前 GUI 主线。Windows WPF GUI 只能在 Windows 上运行，保留为历史备用入口。
+`BadmintonDraw.Core`、`BadmintonDraw.Excel` 和 `BadmintonDraw.Workflows` 是普通 .NET 项目，可以在 macOS/Linux 上参与构建和测试。Avalonia GUI 位于 `src/BadmintonDraw.Desktop`，用于 macOS/Windows/Linux 跨平台桌面版，也是当前唯一 GUI 主线。
 
 跨平台维护时应保持：
 
 - 保留 `BadmintonDraw.Core` 作为跨平台核心。
-- 新功能优先落在 Avalonia、`Core`、`Excel` 和 `Workflows`；WPF 如需恢复维护，也应继续调用 `BadmintonDraw.Workflows`，避免 UI 层重复业务逻辑。
+- 新功能优先落在 Avalonia、`Core`、`Excel` 和 `Workflows`，避免 UI 层重复业务逻辑。
 - 保持 Excel、图片、PDF 导出逻辑在独立类库中，减少界面迁移成本。

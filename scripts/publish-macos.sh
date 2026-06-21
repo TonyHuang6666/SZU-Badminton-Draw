@@ -20,7 +20,7 @@ MACOS_DIR="$APP_PATH/Contents/MacOS"
 RESOURCES_DIR="$APP_PATH/Contents/Resources"
 EXECUTABLE_PATH="$MACOS_DIR/BadmintonDraw.Desktop"
 DMG_PATH="$OUTPUT_ROOT/SZU-Badminton-Draw_${RID}.dmg"
-ICON_SOURCE="$ROOT_DIR/src/BadmintonDraw.App/Assets/szuba-app-icon.png"
+ICON_SOURCE="$ROOT_DIR/src/BadmintonDraw.Desktop/Assets/szuba-app-icon.png"
 ICON_FILE=""
 ICON_PLIST_ENTRY=""
 

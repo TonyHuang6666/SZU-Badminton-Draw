@@ -7,8 +7,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BadmintonDraw.Core", "src\B
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BadmintonDraw.Excel", "src\BadmintonDraw.Excel\BadmintonDraw.Excel.csproj", "{66907E7C-C7B8-42F4-935C-4DB33C67551F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BadmintonDraw.App", "src\BadmintonDraw.App\BadmintonDraw.App.csproj", "{1A6B83BB-DA01-4F59-AE15-B653D4118C79}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BadmintonDraw.Tests", "tests\BadmintonDraw.Tests\BadmintonDraw.Tests.csproj", "{41D4DF4B-6A71-4E63-B1C6-1377A2653CF2}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
@@ -51,18 +49,6 @@ Global
 		{66907E7C-C7B8-42F4-935C-4DB33C67551F}.Release|x64.Build.0 = Release|Any CPU
 		{66907E7C-C7B8-42F4-935C-4DB33C67551F}.Release|x86.ActiveCfg = Release|Any CPU
 		{66907E7C-C7B8-42F4-935C-4DB33C67551F}.Release|x86.Build.0 = Release|Any CPU
-		{1A6B83BB-DA01-4F59-AE15-B653D4118C79}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{1A6B83BB-DA01-4F59-AE15-B653D4118C79}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{1A6B83BB-DA01-4F59-AE15-B653D4118C79}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{1A6B83BB-DA01-4F59-AE15-B653D4118C79}.Debug|x64.Build.0 = Debug|Any CPU
-		{1A6B83BB-DA01-4F59-AE15-B653D4118C79}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{1A6B83BB-DA01-4F59-AE15-B653D4118C79}.Debug|x86.Build.0 = Debug|Any CPU
-		{1A6B83BB-DA01-4F59-AE15-B653D4118C79}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{1A6B83BB-DA01-4F59-AE15-B653D4118C79}.Release|Any CPU.Build.0 = Release|Any CPU
-		{1A6B83BB-DA01-4F59-AE15-B653D4118C79}.Release|x64.ActiveCfg = Release|Any CPU
-		{1A6B83BB-DA01-4F59-AE15-B653D4118C79}.Release|x64.Build.0 = Release|Any CPU
-		{1A6B83BB-DA01-4F59-AE15-B653D4118C79}.Release|x86.ActiveCfg = Release|Any CPU
-		{1A6B83BB-DA01-4F59-AE15-B653D4118C79}.Release|x86.Build.0 = Release|Any CPU
 		{41D4DF4B-6A71-4E63-B1C6-1377A2653CF2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{41D4DF4B-6A71-4E63-B1C6-1377A2653CF2}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{41D4DF4B-6A71-4E63-B1C6-1377A2653CF2}.Debug|x64.ActiveCfg = Debug|Any CPU
