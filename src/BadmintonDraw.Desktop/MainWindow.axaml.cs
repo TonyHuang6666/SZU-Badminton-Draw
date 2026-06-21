@@ -60,6 +60,9 @@ public partial class MainWindow : Window
     private const double ParticipantRosterMinZoom = 0.5;
     private const double ParticipantRosterMaxZoom = 1.8;
     private const double ParticipantRosterZoomStep = 0.1;
+    private const double ScheduleBoardDragSourceOpacity = 0.45;
+    private const double ScheduleBoardAutoScrollEdgeThreshold = 64;
+    private const double ScheduleBoardAutoScrollStep = 36;
     private static readonly IBrush ReadyStatusBrush = new SolidColorBrush(Color.FromRgb(25, 169, 116));
     private static readonly IBrush WarningStatusBrush = new SolidColorBrush(Color.FromRgb(217, 119, 6));
     private static readonly IBrush ErrorStatusBrush = new SolidColorBrush(Color.FromRgb(185, 28, 28));
@@ -74,12 +77,6 @@ public partial class MainWindow : Window
     private static readonly IBrush UnscheduledRowBorder = new SolidColorBrush(Color.FromRgb(246, 190, 190));
     private static readonly IBrush UnscheduledBadgeBackground = new SolidColorBrush(Color.FromRgb(255, 228, 230));
     private static readonly IBrush UnscheduledBadgeForeground = new SolidColorBrush(Color.FromRgb(159, 18, 57));
-    private static readonly IBrush DropAllowedBackground = new SolidColorBrush(Color.FromRgb(236, 253, 245));
-    private static readonly IBrush DropAllowedBorder = new SolidColorBrush(Color.FromRgb(34, 197, 94));
-    private static readonly IBrush DropWarningBackground = new SolidColorBrush(Color.FromRgb(255, 251, 235));
-    private static readonly IBrush DropWarningBorder = new SolidColorBrush(Color.FromRgb(245, 158, 11));
-    private static readonly IBrush DropBlockedBackground = new SolidColorBrush(Color.FromRgb(254, 242, 242));
-    private static readonly IBrush DropBlockedBorder = new SolidColorBrush(Color.FromRgb(220, 38, 38));
 
     private IBrush ThemeBrush(string resourceKey, Color fallbackColor)
     {
@@ -114,6 +111,7 @@ public partial class MainWindow : Window
     private StackPanel? _scheduleBoardWindowDayPickerPanel;
     private TextBlock? _scheduleBoardWindowSummaryText;
     private Grid? _scheduleBoardWindowGrid;
+    private ScrollViewer? _scheduleBoardWindowScrollViewer;
     private Button? _scheduleBoardWindowUndoButton;
     private StackPanel? _scheduleBoardWindowDayTabs;
     private readonly Stack<SingleScheduleUndoSnapshot> _singleScheduleUndoStack = new();
@@ -144,6 +142,7 @@ public partial class MainWindow : Window
     private StackPanel? _crossEventBoardWindowDayPickerPanel;
     private TextBlock? _crossEventBoardWindowSummaryText;
     private Grid? _crossEventBoardWindowGrid;
+    private ScrollViewer? _crossEventBoardWindowScrollViewer;
     private Button? _crossEventBoardWindowUndoButton;
     private StackPanel? _crossEventBoardWindowDayTabs;
     private readonly Stack<CrossEventScheduleUndoSnapshot> _crossEventScheduleUndoStack = new();
@@ -151,6 +150,9 @@ public partial class MainWindow : Window
     private Window? _crossEventConflictWindow;
     private readonly Dictionary<string, ScheduleBoardMoveValidationResult> _scheduleBoardMoveValidationCache = new(StringComparer.Ordinal);
     private Border? _scheduleBoardDragHoverCell;
+    private Border? _scheduleBoardDragSourceCard;
+    private Control? _scheduleBoardDragFeedbackCard;
+    private double _scheduleBoardDragSourceOriginalOpacity = 1.0;
     private string? _lastScheduleBoardDragFeedbackMessage;
     private string? _scheduleBoardDragSwitchDayLabel;
     private bool _uiReady;
@@ -1391,6 +1393,7 @@ public partial class MainWindow : Window
             _scheduleBoardWindowDayBox = null;
             _scheduleBoardWindowSummaryText = null;
             _scheduleBoardWindowGrid = null;
+            _scheduleBoardWindowScrollViewer = null;
             _scheduleBoardWindowUndoButton = null;
             _scheduleBoardWindowDayTabs = null;
             _scheduleBoardWindowDayPickerPanel = null;
@@ -2219,6 +2222,13 @@ public partial class MainWindow : Window
         header.Child = headerGrid;
         root.Children.Add(header);
 
+        _scheduleBoardWindowScrollViewer = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            Content = _scheduleBoardWindowGrid
+        };
+
         var boardHost = new Border
         {
             Background = ThemeBrush("AppSurfaceAltBrush", Color.FromRgb(251, 252, 255)),
@@ -2226,12 +2236,7 @@ public partial class MainWindow : Window
             BorderThickness = new Avalonia.Thickness(1),
             CornerRadius = new Avalonia.CornerRadius(10),
             Margin = new Avalonia.Thickness(0, 10, 0, 0),
-            Child = new ScrollViewer
-            {
-                HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
-                VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
-                Content = _scheduleBoardWindowGrid
-            }
+            Child = _scheduleBoardWindowScrollViewer
         };
         Grid.SetRow(boardHost, 1);
         root.Children.Add(boardHost);
@@ -2603,6 +2608,10 @@ public partial class MainWindow : Window
         _scheduleBoardMoveValidationCache.Clear();
         _scheduleBoardDragSwitchDayLabel = null;
         ClearScheduleBoardDragFeedback();
+        var sourceCard = (Border)sender;
+        _scheduleBoardDragSourceCard = sourceCard;
+        _scheduleBoardDragSourceOriginalOpacity = sourceCard.Opacity;
+        sourceCard.Opacity = ScheduleBoardDragSourceOpacity;
         var data = new DataTransfer();
         data.Add(DataTransferItem.CreateText(item.DragPayload));
         try
@@ -2614,6 +2623,12 @@ public partial class MainWindow : Window
             _scheduleBoardDragSwitchDayLabel = null;
             _scheduleBoardMoveValidationCache.Clear();
             ClearScheduleBoardDragFeedback();
+            if (_scheduleBoardDragSourceCard is not null)
+            {
+                _scheduleBoardDragSourceCard.Opacity = _scheduleBoardDragSourceOriginalOpacity;
+                _scheduleBoardDragSourceCard = null;
+                _scheduleBoardDragSourceOriginalOpacity = 1.0;
+            }
         }
     }
 
@@ -2925,7 +2940,8 @@ public partial class MainWindow : Window
         }
 
         var result = ValidateScheduleBoardDrop(target, text);
-        ApplyScheduleBoardDragFeedback(cell, result);
+        ApplyScheduleBoardDragFeedback(cell, target, result);
+        AutoScrollScheduleBoardWindow(target.Kind, e);
         e.DragEffects = result.CanDrop ? DragDropEffects.Move : DragDropEffects.None;
         e.Handled = true;
     }
@@ -3359,6 +3375,7 @@ public partial class MainWindow : Window
 
     private void ApplyScheduleBoardDragFeedback(
         Border cell,
+        ScheduleBoardDropTarget target,
         ScheduleBoardMoveValidationResult result)
     {
         if (!ReferenceEquals(_scheduleBoardDragHoverCell, cell))
@@ -3366,17 +3383,33 @@ public partial class MainWindow : Window
             ClearScheduleBoardDragFeedback();
             _scheduleBoardDragHoverCell = cell;
         }
+        else
+        {
+            RemoveScheduleBoardDragFeedbackCard();
+        }
 
         var (background, border) = result.Severity switch
         {
-            ScheduleBoardMoveValidationSeverity.Blocked => (DropBlockedBackground, DropBlockedBorder),
-            ScheduleBoardMoveValidationSeverity.Warning => (DropWarningBackground, DropWarningBorder),
-            _ => (DropAllowedBackground, DropAllowedBorder)
+            ScheduleBoardMoveValidationSeverity.Blocked => (
+                ThemeBrush("AppErrorCardBackgroundBrush", Color.FromRgb(254, 242, 242)),
+                ThemeBrush("AppErrorCardBorderBrush", Color.FromRgb(220, 38, 38))),
+            ScheduleBoardMoveValidationSeverity.Warning => (
+                ThemeBrush("AppWarningCardBackgroundBrush", Color.FromRgb(255, 251, 235)),
+                ThemeBrush("AppWarningCardBorderBrush", Color.FromRgb(245, 158, 11))),
+            _ => (
+                ThemeBrush("AppSuccessCardBackgroundBrush", Color.FromRgb(236, 253, 245)),
+                ThemeBrush("AppSuccessCardBorderBrush", Color.FromRgb(34, 197, 94)))
         };
         cell.Background = background;
         cell.BorderBrush = border;
-        cell.BorderThickness = new Avalonia.Thickness(2);
+        cell.BorderThickness = new Avalonia.Thickness(3);
         ToolTip.SetTip(cell, result.Message);
+        if (cell.Child is StackPanel stack)
+        {
+            _scheduleBoardDragFeedbackCard = CreateScheduleBoardDropFeedbackCard(target, result);
+            stack.Children.Insert(0, _scheduleBoardDragFeedbackCard);
+        }
+
         if (!string.Equals(_lastScheduleBoardDragFeedbackMessage, result.Message, StringComparison.Ordinal))
         {
             _lastScheduleBoardDragFeedbackMessage = result.Message;
@@ -3391,14 +3424,117 @@ public partial class MainWindow : Window
     {
         if (_scheduleBoardDragHoverCell is not null)
         {
-            _scheduleBoardDragHoverCell.Background = Brushes.White;
-            _scheduleBoardDragHoverCell.BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 240));
+            RemoveScheduleBoardDragFeedbackCard();
+            _scheduleBoardDragHoverCell.Background = ThemeBrush("AppSurfaceBrush", Color.FromRgb(255, 255, 255));
+            _scheduleBoardDragHoverCell.BorderBrush = ThemeBrush("AppSoftBorderBrush", Color.FromRgb(226, 232, 240));
             _scheduleBoardDragHoverCell.BorderThickness = new Avalonia.Thickness(0, 0, 1, 1);
             ToolTip.SetTip(_scheduleBoardDragHoverCell, null);
         }
 
         _scheduleBoardDragHoverCell = null;
         _lastScheduleBoardDragFeedbackMessage = null;
+    }
+
+    private void RemoveScheduleBoardDragFeedbackCard()
+    {
+        if (_scheduleBoardDragHoverCell?.Child is StackPanel stack && _scheduleBoardDragFeedbackCard is not null)
+        {
+            stack.Children.Remove(_scheduleBoardDragFeedbackCard);
+        }
+
+        _scheduleBoardDragFeedbackCard = null;
+    }
+
+    private Border CreateScheduleBoardDropFeedbackCard(
+        ScheduleBoardDropTarget target,
+        ScheduleBoardMoveValidationResult result)
+    {
+        var (label, background, border, foreground) = result.Severity switch
+        {
+            ScheduleBoardMoveValidationSeverity.Blocked => (
+                "硬冲突不可放置",
+                ThemeBrush("AppErrorCardBackgroundBrush", Color.FromRgb(254, 242, 242)),
+                ThemeBrush("AppErrorCardBorderBrush", Color.FromRgb(220, 38, 38)),
+                ThemeBrush("AppErrorTextBrush", Color.FromRgb(185, 28, 28))),
+            ScheduleBoardMoveValidationSeverity.Warning => (
+                "软冲突可放置",
+                ThemeBrush("AppWarningCardBackgroundBrush", Color.FromRgb(255, 251, 235)),
+                ThemeBrush("AppWarningCardBorderBrush", Color.FromRgb(245, 158, 11)),
+                ThemeBrush("AppWarningTextBrush", Color.FromRgb(146, 64, 14))),
+            _ => (
+                "可放置",
+                ThemeBrush("AppSuccessCardBackgroundBrush", Color.FromRgb(236, 253, 245)),
+                ThemeBrush("AppSuccessCardBorderBrush", Color.FromRgb(34, 197, 94)),
+                ThemeBrush("AppSuccessTextBrush", Color.FromRgb(22, 101, 52)))
+        };
+
+        var stack = new StackPanel { Spacing = 3 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{label} · {target.DayLabel} {target.StartTime:HH:mm} · {target.Court}",
+            FontWeight = FontWeight.Bold,
+            Foreground = foreground,
+            TextWrapping = TextWrapping.Wrap
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = result.Message,
+            FontSize = 12,
+            Foreground = ThemeBrush("AppBodyTextBrush", Color.FromRgb(30, 41, 59)),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        return new Border
+        {
+            Background = background,
+            BorderBrush = border,
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(8),
+            Padding = new Avalonia.Thickness(8),
+            Margin = new Avalonia.Thickness(0, 0, 0, 6),
+            Child = stack,
+            IsHitTestVisible = false
+        };
+    }
+
+    private void AutoScrollScheduleBoardWindow(ScheduleBoardKind kind, DragEventArgs e)
+    {
+        var scrollViewer = kind == ScheduleBoardKind.SingleEvent
+            ? _scheduleBoardWindowScrollViewer
+            : _crossEventBoardWindowScrollViewer;
+        if (scrollViewer is null || !scrollViewer.IsVisible)
+        {
+            return;
+        }
+
+        var point = e.GetPosition(scrollViewer);
+        var deltaX = GetScheduleBoardAutoScrollDelta(point.X, scrollViewer.Bounds.Width);
+        var deltaY = GetScheduleBoardAutoScrollDelta(point.Y, scrollViewer.Bounds.Height);
+        if (Math.Abs(deltaX) < 0.001 && Math.Abs(deltaY) < 0.001)
+        {
+            return;
+        }
+
+        var maxX = Math.Max(0, scrollViewer.Extent.Width - scrollViewer.Viewport.Width);
+        var maxY = Math.Max(0, scrollViewer.Extent.Height - scrollViewer.Viewport.Height);
+        scrollViewer.Offset = new Vector(
+            Math.Clamp(scrollViewer.Offset.X + deltaX, 0, maxX),
+            Math.Clamp(scrollViewer.Offset.Y + deltaY, 0, maxY));
+    }
+
+    private static double GetScheduleBoardAutoScrollDelta(double position, double length)
+    {
+        if (position < ScheduleBoardAutoScrollEdgeThreshold)
+        {
+            return -ScheduleBoardAutoScrollStep;
+        }
+
+        if (position > length - ScheduleBoardAutoScrollEdgeThreshold)
+        {
+            return ScheduleBoardAutoScrollStep;
+        }
+
+        return 0;
     }
 
     private void MoveSingleScheduleBoardItem(string payload, ScheduleBoardDropTarget target)
@@ -3738,6 +3874,7 @@ public partial class MainWindow : Window
             _crossEventBoardWindowDayBox = null;
             _crossEventBoardWindowSummaryText = null;
             _crossEventBoardWindowGrid = null;
+            _crossEventBoardWindowScrollViewer = null;
             _crossEventBoardWindowUndoButton = null;
             _crossEventBoardWindowDayTabs = null;
             _crossEventBoardWindowDayPickerPanel = null;
@@ -3818,6 +3955,13 @@ public partial class MainWindow : Window
         header.Child = headerGrid;
         root.Children.Add(header);
 
+        _crossEventBoardWindowScrollViewer = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            Content = _crossEventBoardWindowGrid
+        };
+
         var boardHost = new Border
         {
             Background = ThemeBrush("AppSurfaceAltBrush", Color.FromRgb(251, 252, 255)),
@@ -3825,12 +3969,7 @@ public partial class MainWindow : Window
             BorderThickness = new Avalonia.Thickness(1),
             CornerRadius = new Avalonia.CornerRadius(10),
             Margin = new Avalonia.Thickness(0, 10, 0, 0),
-            Child = new ScrollViewer
-            {
-                HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
-                VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
-                Content = _crossEventBoardWindowGrid
-            }
+            Child = _crossEventBoardWindowScrollViewer
         };
         Grid.SetRow(boardHost, 1);
         root.Children.Add(boardHost);
