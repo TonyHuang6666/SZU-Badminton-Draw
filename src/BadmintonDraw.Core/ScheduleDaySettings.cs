@@ -4,7 +4,9 @@ public sealed record ScheduleDaySettings(
     DateOnly Date,
     TimeOnly DayStart,
     TimeOnly DayEnd,
-    IReadOnlyList<string> Courts)
+    IReadOnlyList<string> Courts,
+    IReadOnlyList<ScheduleRefereeCapacityWindow>? RefereeCapacityWindows = null,
+    IReadOnlyList<ScheduleCourtAvailabilityBlock>? UnavailableCourtWindows = null)
 {
     public string DayLabel => Date.ToString("yyyy-MM-dd");
 }

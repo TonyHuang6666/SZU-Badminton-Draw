@@ -667,6 +667,7 @@ public sealed class ScheduleService
                             candidate.Timing,
                             day,
                             currentStart,
+                            court,
                             remaining.Values,
                             scheduledById,
                             dailyAssignments,
@@ -724,7 +725,7 @@ public sealed class ScheduleService
 
                 foreach (var court in idleCourts)
                 {
-                    courtAvailableAt[court] = FindNextWakeTime(currentStart, day, courtAvailableAt, dailyAssignments);
+                    courtAvailableAt[court] = FindNextWakeTime(currentStart, day, court, courtAvailableAt, dailyAssignments);
                 }
 
                 if (remaining.Count == 0)
@@ -734,10 +735,11 @@ public sealed class ScheduleService
             }
         }
 
-        return new SchedulePlan(
+        var incompletePlan = new SchedulePlan(
             scheduled,
             settings,
             BuildUnscheduledPreviews(remaining.Values, scheduledById.Keys.ToHashSet(), scheduled.Count));
+        return incompletePlan with { QualityReport = BuildScheduleQualityReport(incompletePlan, spreadApplied: false) };
     }
 
     private static SchedulePlan BuildFinalSchedulePlan(
@@ -747,12 +749,97 @@ public sealed class ScheduleService
         var plan = new SchedulePlan(scheduled, settings);
         if (settings.AutoSchedulingStrategy == ScheduleAutoSchedulingStrategy.Compact)
         {
-            return plan;
+            return plan with { QualityReport = BuildScheduleQualityReport(plan, spreadApplied: false) };
         }
 
-        return TrySpreadMatchesWithinDays(plan, out var spreadPlan)
+        var finalPlan = TrySpreadMatchesWithinDays(plan, out var spreadPlan)
             ? spreadPlan
             : plan;
+        return finalPlan with { QualityReport = BuildScheduleQualityReport(finalPlan, !ReferenceEquals(finalPlan, plan)) };
+    }
+
+    public static ScheduleQualityReport EvaluateScheduleQuality(
+        SchedulePlan plan,
+        bool spreadApplied = false)
+    {
+        return BuildScheduleQualityReport(plan, spreadApplied);
+    }
+
+    private static ScheduleQualityReport BuildScheduleQualityReport(
+        SchedulePlan plan,
+        bool spreadApplied)
+    {
+        var insights = new List<ScheduleQualityInsight>();
+        var orderViolations = ScheduleDependencyGraph.Build(plan).FindOrderViolations().Count;
+        var unscheduledCount = plan.UnscheduledMatches.Count;
+        var hardViolations = orderViolations + unscheduledCount;
+        insights.Add(new ScheduleQualityInsight(
+            "硬约束",
+            hardViolations == 0
+                ? "淘汰树依赖、场地占用和裁判并发已在排程过程中作为硬约束处理。"
+                : $"仍有 {orderViolations} 条淘汰树依赖顺序问题、{unscheduledCount} 场未安排，需要增加资源或人工处理。",
+            hardViolations * 100_000));
+        insights.Add(new ScheduleQualityInsight(
+            "策略",
+            $"{GetScheduleStrategyName(plan.Settings.AutoSchedulingStrategy)}；{(spreadApplied ? "已按并发波次整体插入空档。" : "保持紧凑或未能进一步分散。")}"));
+
+        var softScore = 0;
+        foreach (var day in plan.Settings.Days.OrderBy(day => day.Date))
+        {
+            var dayMatches = plan.Matches
+                .Where(match => string.Equals(match.DayLabel, day.DayLabel, StringComparison.Ordinal))
+                .ToList();
+            var capacity = CalculateDayCapacityMinutes(day, plan.Settings.RefereeCount);
+            var minutes = dayMatches.Sum(match => match.DurationMinutes);
+            var utilization = capacity <= 0 ? 0 : minutes * 100d / capacity;
+            var waveCount = dayMatches
+                .GroupBy(match => match.StartTime)
+                .Count();
+            var gapPenalty = CalculateWaveGapPenalty(dayMatches);
+            softScore += gapPenalty;
+            insights.Add(new ScheduleQualityInsight(
+                "每日负载",
+                $"{day.DayLabel}：{dayMatches.Count} 场，约 {utilization:0.#}% 负载，{waveCount} 个开赛波次。",
+                gapPenalty));
+        }
+
+        return new ScheduleQualityReport(
+            GetScheduleStrategyName(plan.Settings.AutoSchedulingStrategy),
+            hardViolations,
+            softScore + hardViolations * 100_000,
+            insights);
+    }
+
+    private static int CalculateWaveGapPenalty(IReadOnlyList<ScheduledMatch> dayMatches)
+    {
+        var waves = dayMatches
+            .GroupBy(match => match.StartTime)
+            .OrderBy(group => group.Key)
+            .Select(group => new
+            {
+                Start = group.Key,
+                End = group.Max(match => match.EndTime),
+                Duration = group.Max(match => match.DurationMinutes)
+            })
+            .ToList();
+        var penalty = 0;
+        for (var index = 1; index < waves.Count; index++)
+        {
+            var gap = Math.Max(0, (int)(waves[index].Start - waves[index - 1].End).TotalMinutes);
+            penalty += Math.Max(0, gap - waves[index - 1].Duration);
+        }
+
+        return penalty;
+    }
+
+    private static string GetScheduleStrategyName(ScheduleAutoSchedulingStrategy strategy)
+    {
+        return strategy switch
+        {
+            ScheduleAutoSchedulingStrategy.BalancedRelaxed => "均衡宽松",
+            ScheduleAutoSchedulingStrategy.FinalsDayFriendly => "决赛日友好",
+            _ => "紧凑完成"
+        };
     }
 
     private static bool TrySpreadMatchesWithinDays(
@@ -1000,6 +1087,11 @@ public sealed class ScheduleService
 
         foreach (var court in courtPreference)
         {
+            if (!ScheduleResourceCalculator.IsCourtAvailable(day, court, start, end))
+            {
+                continue;
+            }
+
             if (proposed.Any(candidate => string.Equals(candidate.Court, court, StringComparison.Ordinal)))
             {
                 continue;
@@ -1068,8 +1160,13 @@ public sealed class ScheduleService
         IReadOnlyList<ScheduledMatch> placed,
         int? refereeCount)
     {
-        var hardLimit = GetConcurrentMatchLimit(day, refereeCount);
-        var overlappingMatches = placed.Count(match => match.EndTime > start);
+        var longestDuration = wave
+            .Select(match => match.DurationMinutes)
+            .DefaultIfEmpty(1)
+            .Max();
+        var end = start.AddMinutes(longestDuration);
+        var hardLimit = ScheduleResourceCalculator.GetConcurrentMatchLimit(day, refereeCount, start, end);
+        var overlappingMatches = placed.Count(match => match.StartTime < end && start < match.EndTime);
         return overlappingMatches + wave.Count > hardLimit;
     }
 
@@ -1241,6 +1338,7 @@ public sealed class ScheduleService
         ResolvedScheduleTiming timing,
         ScheduleDaySettings day,
         TimeOnly start,
+        string court,
         IEnumerable<UnscheduledMatch> remaining,
         IReadOnlyDictionary<int, ScheduledAssignment> scheduledById,
         IReadOnlyList<ScheduledAssignment> dailyAssignments,
@@ -1252,6 +1350,11 @@ public sealed class ScheduleService
         }
 
         var end = start.AddMinutes(timing.MatchMinutes);
+        if (!ScheduleResourceCalculator.IsCourtAvailable(day, court, start, end))
+        {
+            return false;
+        }
+
         if (WouldExceedRefereeCapacity(day, start, end, dailyAssignments, settings.RefereeCount))
         {
             return false;
@@ -1427,6 +1530,7 @@ public sealed class ScheduleService
     private static TimeOnly FindNextWakeTime(
         TimeOnly current,
         ScheduleDaySettings day,
+        string court,
         IReadOnlyDictionary<string, TimeOnly> courtAvailableAt,
         IReadOnlyList<ScheduledAssignment> dailyAssignments)
     {
@@ -1439,25 +1543,18 @@ public sealed class ScheduleService
             .Where(time => time > current)
             .DefaultIfEmpty(day.DayEnd)
             .Min();
-        var next = nextCourtTime < nextMatchEnd ? nextCourtTime : nextMatchEnd;
+        var nextUnavailableEnd = (day.UnavailableCourtWindows ?? Array.Empty<ScheduleCourtAvailabilityBlock>())
+            .Where(window => window.AppliesTo(court) && window.StartTime <= current && window.EndTime > current)
+            .Select(window => window.EndTime)
+            .DefaultIfEmpty(day.DayEnd)
+            .Min();
+        var next = new[] { nextCourtTime, nextMatchEnd, nextUnavailableEnd }.Min();
         return next > current ? next : day.DayEnd;
     }
 
     private static int CalculateDayCapacityMinutes(ScheduleDaySettings day, int? refereeCount)
     {
-        var availableMinutes = Math.Max(0, (int)(day.DayEnd - day.DayStart).TotalMinutes);
-        return Math.Max(1, availableMinutes * GetConcurrentMatchLimit(day, refereeCount));
-    }
-
-    private static int GetConcurrentMatchLimit(ScheduleDaySettings day, int? refereeCount)
-    {
-        var courtCount = Math.Max(1, day.Courts.Count);
-        if (refereeCount is not > 0)
-        {
-            return courtCount;
-        }
-
-        return Math.Max(1, Math.Min(courtCount, refereeCount.Value));
+        return ScheduleResourceCalculator.CalculateDayCapacityMinutes(day, refereeCount, slotMinutes: 1);
     }
 
     private static bool WouldExceedRefereeCapacity(
@@ -1467,7 +1564,7 @@ public sealed class ScheduleService
         IReadOnlyList<ScheduledAssignment> dailyAssignments,
         int? refereeCount)
     {
-        var concurrentLimit = GetConcurrentMatchLimit(day, refereeCount);
+        var concurrentLimit = ScheduleResourceCalculator.GetConcurrentMatchLimit(day, refereeCount, start, end);
         var overlappingMatches = dailyAssignments.Count(assignment =>
             assignment.StartTime < end && start < assignment.EndTime);
         return overlappingMatches >= concurrentLimit;

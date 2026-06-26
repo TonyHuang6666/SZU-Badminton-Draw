@@ -2476,7 +2476,38 @@ public partial class MainWindow : Window
         var unscheduledText = schedule.UnscheduledMatches.Count > 0
             ? $"，未安排 {schedule.UnscheduledMatches.Count} 场"
             : "";
-        return $"已安排 {schedule.Matches.Count} 场{unscheduledText}，比赛日 {schedule.DayCount} 个；缩放 {Math.Round(zoom * 100)}%。";
+        var qualityText = BuildScheduleQualityInline(schedule.QualityReport);
+        var qualitySuffix = string.IsNullOrWhiteSpace(qualityText)
+            ? ""
+            : $"；质量：{qualityText}";
+        return $"已安排 {schedule.Matches.Count} 场{unscheduledText}，比赛日 {schedule.DayCount} 个；缩放 {Math.Round(zoom * 100)}%{qualitySuffix}。";
+    }
+
+    private static string BuildScheduleQualitySentence(ScheduleQualityReport? report)
+    {
+        var text = BuildScheduleQualityInline(report);
+        return string.IsNullOrWhiteSpace(text)
+            ? ""
+            : $" 质量：{text}。";
+    }
+
+    private static string BuildScheduleQualityInline(ScheduleQualityReport? report)
+    {
+        if (report is null)
+        {
+            return "";
+        }
+
+        var hardText = report.HardConstraintCount == 0
+            ? "硬约束 0"
+            : $"硬约束 {report.HardConstraintCount}";
+        var softText = report.SoftScore > 0
+            ? $"，软评分 {report.SoftScore}"
+            : "";
+        var strategyText = string.IsNullOrWhiteSpace(report.StrategyName)
+            ? ""
+            : $"，策略 {report.StrategyName}";
+        return $"{hardText}{softText}{strategyText}";
     }
 
     private void RenderScheduleBoard(Grid targetGrid, string? dayLabel, double zoom)
@@ -3677,7 +3708,9 @@ public partial class MainWindow : Window
 
         ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
         UpdateScheduleConstraintReport(_latestSchedule);
-        ScheduleSummaryText.Text = $"已调整 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。";
+        ScheduleSummaryText.Text =
+            $"已调整 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。"
+            + BuildScheduleQualitySentence(_latestSchedule.QualityReport);
         RefreshScheduleBoardWindow(target.DayLabel);
         UpdateScheduleUndoButtons();
         SetStatus(
@@ -3720,7 +3753,9 @@ public partial class MainWindow : Window
 
         ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
         UpdateScheduleConstraintReport(_latestSchedule);
-        ScheduleSummaryText.Text = $"已连锁调整 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。";
+        ScheduleSummaryText.Text =
+            $"已连锁调整 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。"
+            + BuildScheduleQualitySentence(_latestSchedule.QualityReport);
         RefreshScheduleBoardWindow(target.DayLabel);
         UpdateScheduleUndoButtons();
         var movedCount = result.MovedMatches.Count;
@@ -3822,7 +3857,9 @@ public partial class MainWindow : Window
         UpdateProgressDisplay();
         ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
         UpdateScheduleConstraintReport(_latestSchedule);
-        ScheduleSummaryText.Text = $"已撤销上一步调整；当前 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。";
+        ScheduleSummaryText.Text =
+            $"已撤销上一步调整；当前 {_latestSchedule.Matches.Count} 场赛程，预计 {_latestSchedule.DayCount} 个比赛日。"
+            + BuildScheduleQualitySentence(_latestSchedule.QualityReport);
         RefreshScheduleBoardWindow(snapshot.DayLabel);
         UpdateScheduleUndoButtons();
         SetStatus(
@@ -4322,7 +4359,9 @@ public partial class MainWindow : Window
             ClearProgressReference();
             ScheduleSummaryText.Text = _latestSchedule.IsComplete
                 ? $"已生成 {_latestSchedule.Matches.Count} 场，预计 {_latestSchedule.DayCount} 个比赛日。{ScheduleWorkflow.BuildScheduleCapacityText(settings)}"
-                : $"已安排 {_latestSchedule.Matches.Count} 场，未安排 {_latestSchedule.UnscheduledMatches.Count} 场，共 {_latestSchedule.TotalMatchCount} 场。{ScheduleWorkflow.BuildScheduleCapacityText(settings)}";
+                  + BuildScheduleQualitySentence(_latestSchedule.QualityReport)
+                : $"已安排 {_latestSchedule.Matches.Count} 场，未安排 {_latestSchedule.UnscheduledMatches.Count} 场，共 {_latestSchedule.TotalMatchCount} 场。{ScheduleWorkflow.BuildScheduleCapacityText(settings)}"
+                  + BuildScheduleQualitySentence(_latestSchedule.QualityReport);
             ScheduleList.ItemsSource = FormatScheduleRows(_latestSchedule);
             RefreshScheduleBoardWindow();
             var hasConstraintWarnings = _latestScheduleConstraintReport is { SevereCount: > 0 } or { WarningCount: > 0 };
@@ -4823,7 +4862,10 @@ public partial class MainWindow : Window
 
         var capacityByDay = orderedDays.ToDictionary(
             day => day.DayLabel,
-            day => Math.Max(1, (int)Math.Round((day.EndTime - day.StartTime).TotalMinutes) * GetEffectiveCrossEventConcurrentMatchLimit(day)),
+            day => ScheduleResourceCalculator.CalculateDayCapacityMinutes(
+                day,
+                GetCrossEventRefereeCount(),
+                slotMinutes: Math.Max(1, day.SlotMinutes)),
             StringComparer.Ordinal);
         var recommendedMinutes = orderedDays.Sum(day =>
             capacityByDay[day.DayLabel] * (recommendation.DayLoadTargets.FirstOrDefault(target => target.DayLabel == day.DayLabel)?.TargetUtilization ?? 0.6));
@@ -4855,15 +4897,6 @@ public partial class MainWindow : Window
         }
 
         return result;
-    }
-
-    private int GetEffectiveCrossEventConcurrentMatchLimit(CrossEventScheduleBoardDay day)
-    {
-        var courtCount = Math.Max(1, day.Courts.Count);
-        var refereeCount = GetCrossEventRefereeCount();
-        return refereeCount is > 0
-            ? Math.Max(1, Math.Min(courtCount, refereeCount.Value))
-            : courtCount;
     }
 
     private static IReadOnlyDictionary<string, double> AllocateTargetMinutes(
@@ -5962,7 +5995,8 @@ public partial class MainWindow : Window
         UpdateScheduleConstraintReport(state.Snapshot.Schedule);
         RefreshScheduleBoardWindow();
         ScheduleSummaryText.Text =
-            $"已恢复 {state.Snapshot.Schedule.Matches.Count} 场赛程，累计完成 {state.Results.Count} 场。";
+            $"已恢复 {state.Snapshot.Schedule.Matches.Count} 场赛程，累计完成 {state.Results.Count} 场。"
+            + BuildScheduleQualitySentence(state.Snapshot.Schedule.QualityReport);
         UpdateEventKindForMode();
         UpdateKnockoutGoalVisibility();
         UpdateDrawPdfOptionsVisibility();
@@ -6123,9 +6157,13 @@ public partial class MainWindow : Window
         var refereeText = refereeCount is > 0
             ? $"，裁判 {refereeCount.Value} 人"
             : "";
+        var qualityText = BuildScheduleQualityInline(board.QualityReport);
+        var qualitySuffix = string.IsNullOrWhiteSpace(qualityText)
+            ? ""
+            : $"，质量 {qualityText}";
         return $"项目 {board.Sources.Count}，场次 {board.Items.Count}，兼项 {board.MultiEventPlayerCount}；"
                + $"严重 {board.Report.SevereCount}，警告 {board.Report.WarningCount}，提醒/推演 {board.Report.NoticeCount}，"
-               + $"冲突卡 {board.BlockingConflictItemCount}{refereeText}{zoomText}{changedText}";
+               + $"冲突卡 {board.BlockingConflictItemCount}{refereeText}{qualitySuffix}{zoomText}{changedText}";
     }
 
     private void RenderCrossEventScheduleBoard(string? dayLabel)
@@ -6206,8 +6244,12 @@ public partial class MainWindow : Window
         var refereeText = refereeCount is > 0
             ? $"裁判 {refereeCount.Value} 人，"
             : "";
+        var qualityText = BuildScheduleQualityInline(board.QualityReport);
+        var qualitySuffix = string.IsNullOrWhiteSpace(qualityText)
+            ? ""
+            : $" 质量：{qualityText}。";
         return $"{prefix}：兼项选手 {board.MultiEventPlayerCount} 人，严重 {board.Report.SevereCount} 条，警告 {board.Report.WarningCount} 条，"
-               + $"同日/负荷推演提醒 {board.Report.NoticeCount} 条，{refereeText}冲突卡片 {board.BlockingConflictItemCount} 张。";
+               + $"同日/负荷推演提醒 {board.Report.NoticeCount} 条，{refereeText}冲突卡片 {board.BlockingConflictItemCount} 张。{qualitySuffix}";
     }
 
     private CompetitionMode GetCompetitionMode()

@@ -6,7 +6,8 @@ namespace BadmintonDraw.Core;
 public sealed record SchedulePlan(
     IReadOnlyList<ScheduledMatch> Matches,
     ScheduleSettings Settings,
-    IReadOnlyList<UnscheduledMatchPreview> UnscheduledMatches)
+    IReadOnlyList<UnscheduledMatchPreview> UnscheduledMatches,
+    ScheduleQualityReport? QualityReport = null)
 {
     public SchedulePlan(IReadOnlyList<ScheduledMatch> Matches, ScheduleSettings Settings)
         : this(Matches, Settings, Array.Empty<UnscheduledMatchPreview>())

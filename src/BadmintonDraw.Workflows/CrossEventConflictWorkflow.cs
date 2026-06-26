@@ -158,6 +158,11 @@ public sealed class CrossEventConflictWorkflow
             throw new DrawValidationException($"{dayLabel} {startTime:HH:mm}-{endTime:HH:mm} 超出可用时间段 {targetDay.TimeRange}。");
         }
 
+        if (!ScheduleResourceCalculator.IsCourtAvailable(targetDay, court, startTime, endTime))
+        {
+            throw new DrawValidationException("目标场地在该时间段不可用，请选择其他空位。");
+        }
+
         var hasCourtOverlap = board.Items.Any(other =>
             !string.Equals(other.Key, itemKey, StringComparison.Ordinal)
             && string.Equals(other.DayLabel, dayLabel, StringComparison.Ordinal)
@@ -431,6 +436,10 @@ public sealed class CrossEventConflictWorkflow
             && (!string.Equals(item.DayLabel, original.DayLabel, StringComparison.Ordinal)
                 || item.StartTime != original.StartTime
                 || !string.Equals(item.Court, original.Court, StringComparison.Ordinal)));
+        working = working with
+        {
+            QualityReport = BuildCrossEventQualityReport(working, movedCount, messages)
+        };
 
         return new CrossEventScheduleAutoAdjustResult(
             working,
@@ -779,7 +788,7 @@ public sealed class CrossEventConflictWorkflow
             .ThenBy(item => item.Order)
             .ToList();
         var playerDetails = BuildPlayerDetails(sources, items, report);
-        return new CrossEventScheduleBoard(
+        var board = new CrossEventScheduleBoard(
             sources,
             days,
             items,
@@ -788,6 +797,13 @@ public sealed class CrossEventConflictWorkflow
             minimumRestMinutes,
             hasUnsavedChanges,
             schedulingOptions);
+        return board with
+        {
+            QualityReport = BuildCrossEventQualityReport(
+                board,
+                movedCount: 0,
+                messages: Array.Empty<string>())
+        };
     }
 
     private CrossEventConflictReport BuildBoardConflictReport(
@@ -1460,6 +1476,9 @@ public sealed class CrossEventConflictWorkflow
                 {
                     builder.Courts.Add(court);
                 }
+
+                builder.RefereeCapacityWindows.AddRange(day.RefereeCapacityWindows ?? []);
+                builder.UnavailableCourtWindows.AddRange(day.UnavailableCourtWindows ?? []);
             }
 
             foreach (var match in source.Matches)
@@ -1485,7 +1504,18 @@ public sealed class CrossEventConflictWorkflow
                     end,
                     pair.Value.Courts.OrderBy(court => court, StringComparer.OrdinalIgnoreCase).ToList(),
                     slotMinutes,
-                    BuildTimeSlots(start, end, slotMinutes));
+                    BuildTimeSlots(start, end, slotMinutes),
+                    pair.Value.RefereeCapacityWindows
+                        .Distinct()
+                        .OrderBy(window => window.StartTime)
+                        .ThenBy(window => window.EndTime)
+                        .ThenBy(window => window.RefereeCount)
+                        .ToList(),
+                    pair.Value.UnavailableCourtWindows
+                        .Distinct()
+                        .OrderBy(window => window.StartTime)
+                        .ThenBy(window => window.EndTime)
+                        .ToList());
             })
             .ToList();
     }
@@ -1667,16 +1697,69 @@ public sealed class CrossEventConflictWorkflow
 
     private static int CalculateDayCapacityMinutes(CrossEventScheduleBoardDay day, int? refereeCount)
     {
-        var availableMinutes = Math.Max(0, (int)(day.EndTime - day.StartTime).TotalMinutes);
-        return Math.Max(1, availableMinutes * GetConcurrentMatchLimit(day, refereeCount));
+        return ScheduleResourceCalculator.CalculateDayCapacityMinutes(day, refereeCount, day.SlotMinutes);
     }
 
-    private static int GetConcurrentMatchLimit(CrossEventScheduleBoardDay day, int? refereeCount)
+    private static ScheduleQualityReport BuildCrossEventQualityReport(
+        CrossEventScheduleBoard board,
+        int movedCount,
+        IReadOnlyList<string> messages)
     {
-        var courtCount = Math.Max(1, day.Courts.Count);
-        return refereeCount is > 0
-            ? Math.Max(1, Math.Min(courtCount, refereeCount.Value))
-            : courtCount;
+        var options = board.SchedulingOptions;
+        var strategyName = GetCrossEventStrategyName(options?.Strategy ?? CrossEventSchedulingStrategy.BalancedRelaxed);
+        var hardConstraintCount = board.Report.SevereCount + board.Report.WarningCount;
+        var softScore = hardConstraintCount * 100_000;
+        var insights = new List<ScheduleQualityInsight>
+        {
+            new(
+                "硬约束",
+                hardConstraintCount == 0
+                    ? "跨项目场地占用、同选手冲突、淘汰树接续和裁判并发已作为硬约束检查。"
+                    : $"仍有 {hardConstraintCount} 条阻塞级问题，导出前需要继续调整。",
+                hardConstraintCount * 100_000),
+            new(
+                "策略",
+                $"{strategyName}；自动调整移动 {movedCount} 场。")
+        };
+
+        foreach (var day in board.Days.OrderBy(day => day.DayLabel, StringComparer.Ordinal))
+        {
+            var dayItems = board.Items
+                .Where(item => string.Equals(item.DayLabel, day.DayLabel, StringComparison.Ordinal))
+                .ToList();
+            var capacity = CalculateDayCapacityMinutes(day, options?.RefereeCount);
+            var minutes = dayItems.Sum(item => item.DurationMinutes);
+            var utilization = capacity <= 0 ? 0 : minutes * 100d / capacity;
+            var target = options?.DayLoadTargets.FirstOrDefault(item => string.Equals(item.DayLabel, day.DayLabel, StringComparison.Ordinal));
+            var targetText = target is null ? "" : $"，目标 {target.TargetUtilization:P0}";
+            var overloadPenalty = target is null
+                ? 0
+                : Math.Max(0, (int)Math.Round((utilization / 100d - target.WarningUtilization) * 1000));
+            softScore += overloadPenalty;
+            insights.Add(new ScheduleQualityInsight(
+                "每日负载",
+                $"{day.DayLabel}：{dayItems.Count} 场，约 {utilization:0.#}% 负载{targetText}。",
+                overloadPenalty));
+        }
+
+        foreach (var message in messages.Take(5))
+        {
+            insights.Add(new ScheduleQualityInsight("未放置原因", message, 10_000));
+            softScore += 10_000;
+        }
+
+        return new ScheduleQualityReport(strategyName, hardConstraintCount, softScore, insights);
+    }
+
+    private static string GetCrossEventStrategyName(CrossEventSchedulingStrategy strategy)
+    {
+        return strategy switch
+        {
+            CrossEventSchedulingStrategy.Compact => "紧凑完成",
+            CrossEventSchedulingStrategy.FinalsDayFriendly => "决赛日友好",
+            CrossEventSchedulingStrategy.Custom => "自定义",
+            _ => "均衡宽松"
+        };
     }
 
     private static bool WouldExceedRefereeCapacity(
@@ -1694,7 +1777,7 @@ public sealed class CrossEventConflictWorkflow
             return false;
         }
 
-        var concurrentLimit = GetConcurrentMatchLimit(day, refereeCount);
+        var concurrentLimit = ScheduleResourceCalculator.GetConcurrentMatchLimit(day, refereeCount, startTime, endTime);
         var overlappingMatches = placements is null
             ? board.Items.Count(item =>
                 !string.Equals(item.Key, itemKey, StringComparison.Ordinal)
@@ -1937,6 +2020,12 @@ public sealed class CrossEventConflictWorkflow
         IReadOnlyDictionary<string, int> dayNumbers,
         int? refereeCount)
     {
+        var day = board.Days.FirstOrDefault(candidate => string.Equals(candidate.DayLabel, placement.DayLabel, StringComparison.Ordinal));
+        if (day is null || !ScheduleResourceCalculator.IsCourtAvailable(day, placement.Court, placement.StartTime, placement.EndTime))
+        {
+            return false;
+        }
+
         if (WouldExceedRefereeCapacity(board, entry.Key, placement.DayLabel, placement.StartTime, placement.EndTime, refereeCount, placements))
         {
             return false;
@@ -2638,7 +2727,9 @@ public sealed class CrossEventConflictWorkflow
                 DateOnly.TryParse(day.DayLabel, out var date) ? date : DateOnly.FromDateTime(DateTime.Today),
                 day.StartTime,
                 day.EndTime,
-                day.Courts))
+                day.Courts,
+                day.RefereeCapacityWindows,
+                day.UnavailableCourtWindows))
             .ToList();
         var matchMinutes = matches
             .Select(match => match.DurationMinutes)
@@ -2710,6 +2801,9 @@ public sealed class CrossEventConflictWorkflow
             {
                 builder.Courts.Add(court);
             }
+
+            builder.RefereeCapacityWindows.AddRange(day.RefereeCapacityWindows ?? []);
+            builder.UnavailableCourtWindows.AddRange(day.UnavailableCourtWindows ?? []);
         }
 
         foreach (var match in matches)
@@ -2726,7 +2820,18 @@ public sealed class CrossEventConflictWorkflow
                 DateOnly.Parse(pair.Key),
                 pair.Value.StartTime ?? new TimeOnly(8, 0),
                 pair.Value.EndTime ?? new TimeOnly(22, 0),
-                pair.Value.Courts.OrderBy(court => court, StringComparer.OrdinalIgnoreCase).ToList()))
+                pair.Value.Courts.OrderBy(court => court, StringComparer.OrdinalIgnoreCase).ToList(),
+                pair.Value.RefereeCapacityWindows
+                    .Distinct()
+                    .OrderBy(window => window.StartTime)
+                    .ThenBy(window => window.EndTime)
+                    .ThenBy(window => window.RefereeCount)
+                    .ToList(),
+                pair.Value.UnavailableCourtWindows
+                    .Distinct()
+                    .OrderBy(window => window.StartTime)
+                    .ThenBy(window => window.EndTime)
+                    .ToList()))
             .ToList();
         var matchMinutes = currentSettings?.MatchMinutes
             ?? matches.Select(match => (int)(match.EndTime - match.StartTime).TotalMinutes).DefaultIfEmpty(20).Min();
@@ -3005,6 +3110,10 @@ public sealed class CrossEventConflictWorkflow
         public HashSet<string> Courts { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public List<int> Durations { get; } = [];
+
+        public List<ScheduleRefereeCapacityWindow> RefereeCapacityWindows { get; } = [];
+
+        public List<ScheduleCourtAvailabilityBlock> UnavailableCourtWindows { get; } = [];
     }
 
     private sealed class BoardConflictAccumulator(CrossEventConflictSeverity severity)

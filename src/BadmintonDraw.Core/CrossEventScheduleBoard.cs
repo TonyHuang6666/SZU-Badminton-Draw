@@ -8,7 +8,8 @@ public sealed record CrossEventScheduleBoard(
     CrossEventConflictReport Report,
     int MinimumRestMinutes,
     bool HasUnsavedChanges,
-    CrossEventSchedulingOptions? SchedulingOptions = null)
+    CrossEventSchedulingOptions? SchedulingOptions = null,
+    ScheduleQualityReport? QualityReport = null)
 {
     public int BlockingConflictItemCount => Items.Count(item => item.IsBlockingConflict);
 
@@ -21,7 +22,9 @@ public sealed record CrossEventScheduleBoardDay(
     TimeOnly EndTime,
     IReadOnlyList<string> Courts,
     int SlotMinutes,
-    IReadOnlyList<TimeOnly> TimeSlots)
+    IReadOnlyList<TimeOnly> TimeSlots,
+    IReadOnlyList<ScheduleRefereeCapacityWindow>? RefereeCapacityWindows = null,
+    IReadOnlyList<ScheduleCourtAvailabilityBlock>? UnavailableCourtWindows = null)
 {
     public string TimeRange => $"{StartTime:HH:mm}-{EndTime:HH:mm}";
 }

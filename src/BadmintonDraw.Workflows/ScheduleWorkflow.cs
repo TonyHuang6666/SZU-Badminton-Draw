@@ -245,7 +245,8 @@ public sealed class ScheduleWorkflow
         TimeOnly startTime,
         string court,
         IReadOnlySet<string>? lockedMatchNames,
-        bool ensureDependencyOrder)
+        bool ensureDependencyOrder,
+        bool refreshQualityReport = true)
     {
         var match = schedule.Matches.FirstOrDefault(item => string.Equals(item.MatchName, matchName, StringComparison.Ordinal))
             ?? throw new DrawValidationException("找不到需要调整的比赛。");
@@ -267,6 +268,11 @@ public sealed class ScheduleWorkflow
             throw new DrawValidationException("目标时间超出了当前比赛日的可用时间段。");
         }
 
+        if (!ScheduleResourceCalculator.IsCourtAvailable(day, court, startTime, endTime))
+        {
+            throw new DrawValidationException("目标场地在该时间段不可用，请选择其他空位。");
+        }
+
         var hasCourtOverlap = schedule.Matches.Any(other =>
             !string.Equals(other.MatchName, match.MatchName, StringComparison.Ordinal)
             && string.Equals(other.DayLabel, dayLabel, StringComparison.Ordinal)
@@ -275,6 +281,11 @@ public sealed class ScheduleWorkflow
         if (hasCourtOverlap)
         {
             throw new DrawValidationException("目标时间和场地已有比赛，请选择空位后再调整。");
+        }
+
+        if (WouldExceedRefereeCapacity(schedule, match.MatchName, dayLabel, startTime, endTime))
+        {
+            throw new DrawValidationException("目标时间段超过裁判人数可承载的同时开赛上限。");
         }
 
         var matches = schedule.Matches
@@ -294,7 +305,9 @@ public sealed class ScheduleWorkflow
             ScheduleDependencyGraph.Build(moved).EnsureDependencyOrder();
         }
 
-        return moved;
+        return refreshQualityReport
+            ? moved with { QualityReport = ScheduleService.EvaluateScheduleQuality(moved) }
+            : moved;
     }
 
     public static ScheduleBoardMoveValidationResult ValidateScheduledMatchMove(
@@ -314,7 +327,8 @@ public sealed class ScheduleWorkflow
                 startTime,
                 court,
                 lockedMatchNames,
-                ensureDependencyOrder: false);
+                ensureDependencyOrder: false,
+                refreshQualityReport: false);
             var targetText = $"目标：{dayLabel} {startTime:HH:mm} · {court}";
             var fixableOrderViolations = FindFixableCascadeOrderViolations(moved, matchName);
             var newIssues = FindNewRelevantMoveIssues(schedule, moved, matchName);
@@ -371,7 +385,8 @@ public sealed class ScheduleWorkflow
             startTime,
             court,
             lockedMatchNames,
-            ensureDependencyOrder: false);
+            ensureDependencyOrder: false,
+            refreshQualityReport: false);
         return BuildCascadeMovePreviewFromSchedule(moved, matchName, lockedMatchNames);
     }
 
@@ -411,7 +426,8 @@ public sealed class ScheduleWorkflow
             startTime,
             court,
             lockedMatchNames,
-            ensureDependencyOrder: false);
+            ensureDependencyOrder: false,
+            refreshQualityReport: false);
         var root = working.Matches.FirstOrDefault(match => string.Equals(match.MatchName, matchName, StringComparison.Ordinal))
             ?? throw new DrawValidationException("找不到需要连锁移动的比赛。");
         var movedItems = new List<ScheduleBoardCascadeMovedItem>();
@@ -480,8 +496,9 @@ public sealed class ScheduleWorkflow
             throw new DrawValidationException($"无法连锁移动：{severeIssue.Message}");
         }
 
+        var refreshed = working with { QualityReport = ScheduleService.EvaluateScheduleQuality(working) };
         return new ScheduleBoardCascadeMoveResult<SchedulePlan>(
-            working,
+            refreshed,
             movedItems,
             movedItems.Count == 0 ? ["当前位置已经满足连锁依赖，无需移动后续场次。"] : []);
     }
@@ -785,13 +802,18 @@ public sealed class ScheduleWorkflow
         {
             return string.Join("；", settings.Days.Select(day =>
             {
-                var minutes = (day.DayEnd - day.DayStart).TotalMinutes;
-                var slots = Math.Max(0, (int)Math.Floor(minutes / minutesPerMatch));
-                var concurrentLimit = GetEffectiveConcurrentMatchLimit(day, settings.RefereeCount);
+                var capacityMinutes = ScheduleResourceCalculator.CalculateDayCapacityMinutes(
+                    day,
+                    settings.RefereeCount,
+                    slotMinutes: 1);
+                var capacityMatches = Math.Max(0, capacityMinutes / Math.Max(1, minutesPerMatch));
                 var refereeText = settings.RefereeCount is > 0
                     ? $"{settings.RefereeCount.Value}名裁判/"
                     : "";
-                return $"{day.DayLabel} {day.Courts.Count}片/{refereeText}{slots * concurrentLimit}场";
+                var resourceText = day.RefereeCapacityWindows is { Count: > 0 } || day.UnavailableCourtWindows is { Count: > 0 }
+                    ? "资源日历/"
+                    : "";
+                return $"{day.DayLabel} {day.Courts.Count}片/{refereeText}{resourceText}{capacityMatches}场";
             }));
         }
 
@@ -803,14 +825,6 @@ public sealed class ScheduleWorkflow
         return $"{BuildScheduleStrategyText(settings.AutoSchedulingStrategy)}；"
             + $"分界线前每日上限{settings.BeforeBoundaryTiming!.MaxMatchesPerEntrantPerDay}场、每场{settings.BeforeBoundaryTiming.MatchMinutes}分钟：{BuildCapacity(settings.BeforeBoundaryTiming.MatchMinutes)}；"
             + $"分界线后每日上限{settings.MaxMatchesPerEntrantPerDay}场、每场{settings.MatchMinutes}分钟：{BuildCapacity(settings.MatchMinutes)}";
-    }
-
-    private static int GetEffectiveConcurrentMatchLimit(ScheduleDaySettings day, int? refereeCount)
-    {
-        var courtCount = Math.Max(1, day.Courts.Count);
-        return refereeCount is > 0
-            ? Math.Max(1, Math.Min(courtCount, refereeCount.Value))
-            : courtCount;
     }
 
     public static string BuildScheduleStrategyText(ScheduleAutoSchedulingStrategy strategy)
@@ -1102,11 +1116,43 @@ public sealed class ScheduleWorkflow
             return false;
         }
 
+        if (!ScheduleResourceCalculator.IsCourtAvailable(day, court, startTime, endTime)
+            || WouldExceedRefereeCapacity(schedule, matchName, dayLabel, startTime, endTime))
+        {
+            return false;
+        }
+
         return !schedule.Matches.Any(other =>
             !string.Equals(other.MatchName, matchName, StringComparison.Ordinal)
             && string.Equals(other.DayLabel, dayLabel, StringComparison.Ordinal)
             && string.Equals(other.Court, court, StringComparison.OrdinalIgnoreCase)
             && HasTimeOverlap(startTime, endTime, other.StartTime, other.EndTime));
+    }
+
+    private static bool WouldExceedRefereeCapacity(
+        SchedulePlan schedule,
+        string movingMatchName,
+        string dayLabel,
+        TimeOnly startTime,
+        TimeOnly endTime)
+    {
+        var day = schedule.Settings.Days.FirstOrDefault(item => string.Equals(item.DayLabel, dayLabel, StringComparison.Ordinal));
+        if (day is null)
+        {
+            return true;
+        }
+
+        var limit = ScheduleResourceCalculator.GetConcurrentMatchLimit(day, schedule.Settings.RefereeCount, startTime, endTime);
+        if (limit <= 0)
+        {
+            return true;
+        }
+
+        var overlapping = schedule.Matches.Count(other =>
+            !string.Equals(other.MatchName, movingMatchName, StringComparison.Ordinal)
+            && string.Equals(other.DayLabel, dayLabel, StringComparison.Ordinal)
+            && HasTimeOverlap(startTime, endTime, other.StartTime, other.EndTime));
+        return overlapping + 1 > limit;
     }
 
     private static SchedulePlan ApplyScheduledMatchPlacement(
