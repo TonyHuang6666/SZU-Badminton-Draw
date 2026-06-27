@@ -223,6 +223,10 @@ public partial class MainWindow : Window
         CrossEventScheduleBoard Board,
         string? DayLabel);
 
+    private sealed record ScheduleResourceListItem(
+        int Index,
+        string DisplayText);
+
     public MainWindow()
     {
         InitializeComponent();
@@ -230,6 +234,7 @@ public partial class MainWindow : Window
         SeedBox.Text = DrawWorkflow.GenerateSeed();
         ScheduleDatePicker.SelectedDate = DateTime.Today;
         ScheduleDaysList.ItemsSource = _scheduleDays;
+        RefreshScheduleResourcePanel();
         CrossEventCustomSchedulingPanel.IsVisible = false;
         UpdateScheduleUndoButtons();
         UpdateCrossEventUndoButtons();
@@ -607,8 +612,72 @@ public partial class MainWindow : Window
         if (ScheduleDaysList.SelectedItem is ScheduleDayWorkflowRequest selectedDay)
         {
             _scheduleDays.Remove(selectedDay);
+            RefreshScheduleResourcePanel();
             ClearSchedulePreview();
             SetStatus("已删除选中的赛程日。");
+        }
+    }
+
+    private void ScheduleDaysList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        RefreshScheduleResourcePanel();
+    }
+
+    private void AddScheduleCourtBlock_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var selectedDay = GetSelectedScheduleDayForResources();
+            var start = ParseScheduleResourceTime(ScheduleResourceStartBox.Text, "资源时段开始时间");
+            var end = ParseScheduleResourceTime(ScheduleResourceEndBox.Text, "资源时段结束时间");
+            ValidateScheduleResourceTimeRange(start, end);
+            var courts = string.IsNullOrWhiteSpace(ScheduleUnavailableCourtsBox.Text)
+                ? Array.Empty<string>()
+                : ScheduleWorkflow.ParseCourts(ScheduleUnavailableCourtsBox.Text).ToArray();
+
+            var blocks = (selectedDay.UnavailableCourtWindows ?? [])
+                .ToList();
+            blocks.Add(new ScheduleCourtAvailabilityBlock(start, end, courts));
+
+            UpdateSelectedScheduleDayResources(selectedDay with
+            {
+                UnavailableCourtWindows = blocks
+                    .OrderBy(block => block.StartTime)
+                    .ThenBy(block => block.EndTime)
+                    .ToList()
+            });
+            SetStatus($"{selectedDay.Date:yyyy-MM-dd} 已添加不可用场地时段，请重新生成赛程预览。", isWarning: true);
+        }
+        catch (Exception ex) when (ex is DrawValidationException or InvalidOperationException)
+        {
+            SetStatus(ex.Message, isError: true);
+        }
+    }
+
+    private void RemoveScheduleResourceItem_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var selectedDay = GetSelectedScheduleDayForResources();
+            if (ScheduleResourceItemsList.SelectedItem is not ScheduleResourceListItem selectedResource)
+            {
+                throw new DrawValidationException("请选择要删除的资源项。");
+            }
+
+            var blocks = (selectedDay.UnavailableCourtWindows ?? []).ToList();
+            if (selectedResource.Index < 0 || selectedResource.Index >= blocks.Count)
+            {
+                throw new DrawValidationException("所选不可用场地时段已经变化，请重新选择。");
+            }
+
+            blocks.RemoveAt(selectedResource.Index);
+            UpdateSelectedScheduleDayResources(selectedDay with { UnavailableCourtWindows = blocks });
+
+            SetStatus($"{selectedDay.Date:yyyy-MM-dd} 已删除资源项，请重新生成赛程预览。", isWarning: true);
+        }
+        catch (Exception ex) when (ex is DrawValidationException or InvalidOperationException)
+        {
+            SetStatus(ex.Message, isError: true);
         }
     }
 
@@ -4424,21 +4493,99 @@ public partial class MainWindow : Window
             ? item.Content?.ToString() ?? "自定义"
             : "自定义";
         var existing = _scheduleDays.FirstOrDefault(day => day.Date == date);
+        var unavailableCourtWindows = existing?.UnavailableCourtWindows;
         if (existing is not null)
         {
             _scheduleDays.Remove(existing);
         }
 
-        _scheduleDays.Add(new ScheduleDayWorkflowRequest(
+        var addedDay = new ScheduleDayWorkflowRequest(
             date,
             start,
             end,
             venue,
-            courtsText));
+            courtsText,
+            unavailableCourtWindows);
+        _scheduleDays.Add(addedDay);
+        ScheduleDaysList.SelectedItem = addedDay;
+        RefreshScheduleResourcePanel();
         ClearSchedulePreview();
         if (showStatus)
         {
             SetStatus("已添加赛程日。");
+        }
+    }
+
+    private ScheduleDayWorkflowRequest GetSelectedScheduleDayForResources()
+    {
+        if (ScheduleDaysList.SelectedItem is ScheduleDayWorkflowRequest selectedDay)
+        {
+            return selectedDay;
+        }
+
+        throw new DrawValidationException("请先在赛程日列表中选择一个比赛日。");
+    }
+
+    private void UpdateSelectedScheduleDayResources(ScheduleDayWorkflowRequest updatedDay)
+    {
+        if (ScheduleDaysList.SelectedItem is not ScheduleDayWorkflowRequest selectedDay)
+        {
+            throw new DrawValidationException("请先在赛程日列表中选择一个比赛日。");
+        }
+
+        var index = _scheduleDays.IndexOf(selectedDay);
+        if (index < 0)
+        {
+            throw new DrawValidationException("所选赛程日已经变化，请重新选择。");
+        }
+
+        _scheduleDays[index] = updatedDay;
+        ScheduleDaysList.SelectedItem = updatedDay;
+        RefreshScheduleResourcePanel();
+        ClearSchedulePreview();
+    }
+
+    private void RefreshScheduleResourcePanel()
+    {
+        if (ScheduleDaysList.SelectedItem is not ScheduleDayWorkflowRequest selectedDay)
+        {
+            ScheduleResourceSelectedDayText.Text = "未选择赛程日";
+            ScheduleResourceItemsList.ItemsSource = Array.Empty<ScheduleResourceListItem>();
+            return;
+        }
+
+        var items = new List<ScheduleResourceListItem>();
+        var courtBlocks = selectedDay.UnavailableCourtWindows ?? [];
+        for (var i = 0; i < courtBlocks.Count; i++)
+        {
+            var block = courtBlocks[i];
+            var courtsText = block.Courts.Count == 0
+                ? "全部场地"
+                : string.Join("、", block.Courts);
+            items.Add(new ScheduleResourceListItem(
+                i,
+                $"{block.StartTime:HH:mm}-{block.EndTime:HH:mm} · 不可用场地 {courtsText}"));
+        }
+
+        ScheduleResourceSelectedDayText.Text = $"{selectedDay.Date:MM-dd} · 不可用 {items.Count} 条";
+        ScheduleResourceItemsList.ItemsSource = items;
+    }
+
+    private static TimeOnly ParseScheduleResourceTime(string? value, string fieldName)
+    {
+        if (!TimeOnly.TryParse(value?.Trim(), out var time))
+        {
+            throw new DrawValidationException($"{fieldName}必须形如 14:00。");
+        }
+
+        return time;
+    }
+
+    private static void ValidateScheduleResourceTimeRange(TimeOnly start, TimeOnly end)
+    {
+        if (end <= start)
+        {
+            throw new DrawValidationException("资源时段结束时间必须晚于开始时间。");
         }
     }
 
@@ -6014,8 +6161,12 @@ public partial class MainWindow : Window
                 day.DayStart,
                 day.DayEnd,
                 "赛事存档",
-                string.Join("，", day.Courts)));
+                string.Join("，", day.Courts),
+                day.UnavailableCourtWindows));
         }
+
+        ScheduleDaysList.SelectedItem = _scheduleDays.FirstOrDefault();
+        RefreshScheduleResourcePanel();
 
         ScheduleMatchMinutesBox.Text = settings.MatchMinutes.ToString();
         SelectComboBoxText(ScheduleMaxMatchesBox, settings.MaxMatchesPerEntrantPerDay.ToString());

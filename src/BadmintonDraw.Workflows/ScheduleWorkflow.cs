@@ -546,7 +546,13 @@ public sealed class ScheduleWorkflow
                     throw new DrawValidationException("赛程结束时间必须晚于开始时间。");
                 }
 
-                return new ScheduleDaySettings(day.Date, day.Start, day.End, ParseCourts(day.CourtsText));
+                return new ScheduleDaySettings(
+                    day.Date,
+                    day.Start,
+                    day.End,
+                    ParseCourts(day.CourtsText),
+                    null,
+                    day.UnavailableCourtWindows);
             })
             .ToList();
 
@@ -810,7 +816,7 @@ public sealed class ScheduleWorkflow
                 var refereeText = settings.RefereeCount is > 0
                     ? $"{settings.RefereeCount.Value}名裁判/"
                     : "";
-                var resourceText = day.RefereeCapacityWindows is { Count: > 0 } || day.UnavailableCourtWindows is { Count: > 0 }
+                var resourceText = day.UnavailableCourtWindows is { Count: > 0 }
                     ? "资源日历/"
                     : "";
                 return $"{day.DayLabel} {day.Courts.Count}片/{refereeText}{resourceText}{capacityMatches}场";
@@ -1406,7 +1412,8 @@ public sealed record ScheduleDayWorkflowRequest(
     TimeOnly Start,
     TimeOnly End,
     string Venue,
-    string CourtsText)
+    string CourtsText,
+    IReadOnlyList<ScheduleCourtAvailabilityBlock>? UnavailableCourtWindows = null)
 {
     public string DateText => Date.ToString("yyyy-MM-dd");
 
@@ -1419,7 +1426,9 @@ public sealed record ScheduleDayWorkflowRequest(
         get
         {
             var courts = Courts;
-            return $"{courts.Count}片：" + string.Join("、", courts.Take(8)) + (courts.Count > 8 ? "…" : "");
+            var resourceCount = UnavailableCourtWindows?.Count ?? 0;
+            var resourceText = resourceCount > 0 ? $"；资源 {resourceCount} 条" : "";
+            return $"{courts.Count}片：" + string.Join("、", courts.Take(8)) + (courts.Count > 8 ? "…" : "") + resourceText;
         }
     }
 }
