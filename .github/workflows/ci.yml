@@ -28,11 +28,8 @@ jobs:
       - name: Test
         run: dotnet test BadmintonDraw.sln --no-build --verbosity normal
 
-      - name: Restore Windows publish target
-        run: dotnet restore src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj --locked-mode -r win-x64
-
       - name: Publish smoke test
-        run: dotnet publish src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
+        run: dotnet publish src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
 
   macos-build-test-publish:
     runs-on: macos-14
