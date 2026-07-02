@@ -1296,6 +1296,48 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void ScheduleWorkflowPassesUnavailableCourtWindowsIntoScheduleSettings()
+    {
+        var block = new ScheduleCourtAvailabilityBlock(new TimeOnly(14, 0), new TimeOnly(16, 0), ["B1"]);
+        var settings = ScheduleWorkflow.BuildSettings(
+            [
+                new ScheduleDayWorkflowRequest(
+                    new DateOnly(2026, 6, 13),
+                    new TimeOnly(14, 0),
+                    new TimeOnly(16, 0),
+                    "运动广场东馆羽毛球场",
+                    "B1-B2",
+                    [block])
+            ],
+            matchMinutes: 20,
+            maxMatchesPerEntrantPerDay: 4,
+            refereeCount: 2);
+
+        Assert.Single(settings.Days);
+        Assert.Same(block, settings.Days[0].UnavailableCourtWindows!.Single());
+        Assert.Contains("资源 1 条", new ScheduleDayWorkflowRequest(
+            new DateOnly(2026, 6, 13),
+            new TimeOnly(14, 0),
+            new TimeOnly(16, 0),
+            "运动广场东馆羽毛球场",
+            "B1-B2",
+            [block]).CourtSummary);
+
+        var participants = CreateParticipants(4);
+        var result = new DrawService().Generate(participants, CreateSettings(
+            groupCount: 1,
+            mode: CompetitionMode.SinglesKnockout,
+            knockoutGoal: KnockoutGoal.Champion));
+        var schedule = new ScheduleService().Generate(result, settings);
+
+        Assert.True(schedule.IsComplete);
+        Assert.DoesNotContain(schedule.Matches, match =>
+            string.Equals(match.Court, "B1", StringComparison.OrdinalIgnoreCase)
+            && match.StartTime < block.EndTime
+            && block.StartTime < match.EndTime);
+    }
+
+    [Fact]
     public void SingleEventAutoSchedulingStrategySpreadsLoadWhenBalancedRelaxed()
     {
         var participants = CreateParticipants(32);
@@ -3168,6 +3210,48 @@ public sealed class DrawWorkflowTests
             "2026-06-13",
             new TimeOnly(14, 0),
             "B1"));
+    }
+
+    [Fact]
+    public void ScheduleWorkflowRejectsMoveIntoUnavailableCourtWindow()
+    {
+        var schedule = new SchedulePlan(
+            [
+                new ScheduledMatch(1, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B1", 1, "A组", "首轮赛", "男单1", "张三", "李四"),
+                new ScheduledMatch(2, "2026-06-13", new TimeOnly(14, 0), new TimeOnly(14, 30), "B2", 1, "A组", "首轮赛", "男单2", "王五", "赵六")
+            ],
+            new ScheduleSettings(
+                [
+                    new ScheduleDaySettings(
+                        new DateOnly(2026, 6, 13),
+                        new TimeOnly(14, 0),
+                        new TimeOnly(16, 0),
+                        ["B1", "B2"],
+                        UnavailableCourtWindows:
+                        [
+                            new ScheduleCourtAvailabilityBlock(new TimeOnly(14, 30), new TimeOnly(15, 0), ["B1"])
+                        ])
+                ],
+                MatchMinutes: 30,
+                MaxMatchesPerEntrantPerDay: 2));
+
+        var validation = ScheduleWorkflow.ValidateScheduledMatchMove(
+            schedule,
+            "男单2",
+            "2026-06-13",
+            new TimeOnly(14, 30),
+            "B1");
+
+        Assert.False(validation.CanDrop);
+        Assert.Equal(ScheduleBoardMoveValidationSeverity.Blocked, validation.Severity);
+        Assert.Contains("不可用", validation.Message);
+        var exception = Assert.Throws<DrawValidationException>(() => ScheduleWorkflow.MoveScheduledMatch(
+            schedule,
+            "男单2",
+            "2026-06-13",
+            new TimeOnly(14, 30),
+            "B1"));
+        Assert.Contains("不可用", exception.Message);
     }
 
     [Fact]
