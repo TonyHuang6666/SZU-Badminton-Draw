@@ -653,11 +653,40 @@
                                         <ComboBoxItem Content="紧凑完成" Tag="Compact" />
                                         <ComboBoxItem Content="均衡宽松（推荐）" Tag="BalancedRelaxed" />
                                         <ComboBoxItem Content="决赛日友好" Tag="FinalsDayFriendly" />
+                                        <ComboBoxItem Content="自定义" Tag="Custom" />
                                     </ComboBox>
                                     <TextBlock Text="策略会影响单项目生成时每日负载和重要场次位置；切换后会按当前抽签结果重新生成赛程。"
                                                Foreground="{DynamicResource AppMutedTextBrush}"
                                                TextWrapping="Wrap"
                                                Margin="0,6,0,0" />
+                                    <Border x:Name="ScheduleCustomSchedulingPanel"
+                                            Background="{DynamicResource AppSurfaceBrush}"
+                                            BorderBrush="{DynamicResource AppPanelBorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Padding="10"
+                                            IsVisible="False">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="自定义编排参数"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource AppTitleBrush}" />
+                                            <TextBlock x:Name="ScheduleCustomHintText"
+                                                       Text="生成抽签或赛程后，这里会显示系统推荐参数；每次调整都会以当前控件为锚点重新生成单项目赛程。"
+                                                       Foreground="{DynamicResource AppMutedTextBrush}"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="每日目标场地负载率"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource AppButtonTextBrush}" />
+                                            <StackPanel x:Name="ScheduleCustomDayLoadPanel" Spacing="8" />
+                                            <CheckBox x:Name="ScheduleStageWaveBox"
+                                                      Content="统一按阶段波次推进"
+                                                      IsChecked="True" />
+                                            <StackPanel x:Name="ScheduleStageWavePanel" Spacing="8" />
+                                            <Button Classes="secondary"
+                                                    Content="恢复推荐分布"
+                                                    Click="ResetScheduleCustomDefaults_Click" />
+                                        </StackPanel>
+                                    </Border>
 
                                     <TextBlock Classes="field-label" Text="高级约束提醒" />
                                     <ComboBox x:Name="ScheduleConstraintProfileBox" SelectedIndex="0">

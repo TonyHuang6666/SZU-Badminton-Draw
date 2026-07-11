@@ -21,6 +21,14 @@ public sealed class ScheduleWorkflow
         return _scheduleService.Generate(result, settings);
     }
 
+    public ScheduleSchedulingOptions CreateSchedulingOptions(
+        DrawResult result,
+        ScheduleSettings settings,
+        ScheduleAutoSchedulingStrategy strategy)
+    {
+        return _scheduleService.CreateSchedulingOptions(result, settings, strategy);
+    }
+
     public void ExportExcel(string outputPath, SchedulePlan schedule)
     {
         _scheduleWriter.Write(outputPath, schedule);
@@ -838,6 +846,7 @@ public sealed class ScheduleWorkflow
         return strategy switch
         {
             ScheduleAutoSchedulingStrategy.Compact => "紧凑完成",
+            ScheduleAutoSchedulingStrategy.Custom => "自定义",
             ScheduleAutoSchedulingStrategy.FinalsDayFriendly => "决赛日友好",
             _ => "均衡宽松"
         };

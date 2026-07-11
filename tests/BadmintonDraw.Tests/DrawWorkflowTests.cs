@@ -1380,6 +1380,76 @@ public sealed class DrawWorkflowTests
     }
 
     [Fact]
+    public void SingleEventCustomDayLoadTargetsRebalanceScheduleAcrossDays()
+    {
+        var participants = CreateParticipants(64);
+        var result = new DrawService().Generate(
+            participants,
+            CreateSettings(
+                groupCount: 1,
+                mode: CompetitionMode.SinglesKnockout,
+                knockoutGoal: KnockoutGoal.Champion));
+        var days = new[]
+        {
+            new ScheduleDayWorkflowRequest(new DateOnly(2026, 6, 13), new TimeOnly(14, 0), new TimeOnly(18, 0), "运动广场东馆羽毛球场", "B1-B2"),
+            new ScheduleDayWorkflowRequest(new DateOnly(2026, 6, 14), new TimeOnly(14, 0), new TimeOnly(18, 0), "运动广场东馆羽毛球场", "B1-B2"),
+            new ScheduleDayWorkflowRequest(new DateOnly(2026, 6, 15), new TimeOnly(14, 0), new TimeOnly(18, 0), "运动广场东馆羽毛球场", "B1-B2")
+        };
+        var baseSettings = ScheduleWorkflow.BuildSettings(
+            days,
+            matchMinutes: 20,
+            maxMatchesPerEntrantPerDay: 10,
+            autoSchedulingStrategy: ScheduleAutoSchedulingStrategy.Custom);
+        var frontLoaded = new ScheduleService().Generate(
+            result,
+            baseSettings with
+            {
+                DayLoadTargets =
+                [
+                    new ScheduleDayLoadTarget("2026-06-13", 1.0, 1.0),
+                    new ScheduleDayLoadTarget("2026-06-14", 1.0, 1.0),
+                    new ScheduleDayLoadTarget("2026-06-15", 0.75, 0.9)
+                ],
+                SynchronizeStageWaves = true,
+                StageWaveTargets =
+                [
+                    new ScheduleStageWaveTarget("2026-06-13", 0.70),
+                    new ScheduleStageWaveTarget("2026-06-14", 0.90),
+                    new ScheduleStageWaveTarget("2026-06-15", 1.0)
+                ]
+            });
+        var backLoaded = new ScheduleService().Generate(
+            result,
+            baseSettings with
+            {
+                DayLoadTargets =
+                [
+                    new ScheduleDayLoadTarget("2026-06-13", 0.20, 0.35),
+                    new ScheduleDayLoadTarget("2026-06-14", 1.0, 1.0),
+                    new ScheduleDayLoadTarget("2026-06-15", 1.0, 1.0)
+                ],
+                SynchronizeStageWaves = true,
+                StageWaveTargets =
+                [
+                    new ScheduleStageWaveTarget("2026-06-13", 0.30),
+                    new ScheduleStageWaveTarget("2026-06-14", 0.75),
+                    new ScheduleStageWaveTarget("2026-06-15", 1.0)
+                ]
+            });
+
+        var frontFirstDay = frontLoaded.Matches.Count(match => match.DayLabel == "2026-06-13");
+        var backFirstDay = backLoaded.Matches.Count(match => match.DayLabel == "2026-06-13");
+
+        Assert.True(frontLoaded.IsComplete);
+        Assert.True(backLoaded.IsComplete);
+        Assert.Equal(ScheduleAutoSchedulingStrategy.Custom, frontLoaded.Settings.AutoSchedulingStrategy);
+        Assert.Equal(ScheduleAutoSchedulingStrategy.Custom, backLoaded.Settings.AutoSchedulingStrategy);
+        Assert.True(frontFirstDay > backFirstDay);
+        Assert.Empty(ScheduleDependencyGraph.Build(frontLoaded).FindOrderViolations());
+        Assert.Empty(ScheduleDependencyGraph.Build(backLoaded).FindOrderViolations());
+    }
+
+    [Fact]
     public void SingleEventBalancedRelaxedSpreadsMatchesWithinEachDayWhenCapacityIsAbundant()
     {
         var participants = CreateParticipants(159);

@@ -6,8 +6,52 @@ public enum ScheduleAutoSchedulingStrategy
 {
     Compact = 0,
     BalancedRelaxed = 1,
-    FinalsDayFriendly = 2
+    FinalsDayFriendly = 2,
+    Custom = 3
 }
+
+public sealed record ScheduleDayLoadTarget(
+    string DayLabel,
+    double TargetUtilization,
+    double WarningUtilization)
+{
+    public double TargetUtilization { get; init; } = ClampRatio(TargetUtilization);
+
+    public double WarningUtilization { get; init; } = ClampRatio(Math.Max(WarningUtilization, TargetUtilization));
+
+    private static double ClampRatio(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return 0.6;
+        }
+
+        return Math.Clamp(value, 0.05, 1.0);
+    }
+}
+
+public sealed record ScheduleStageWaveTarget(
+    string DayLabel,
+    double CumulativeProgress)
+{
+    public double CumulativeProgress { get; init; } = ClampProgress(CumulativeProgress);
+
+    private static double ClampProgress(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return 1.0;
+        }
+
+        return Math.Clamp(value, 0.05, 1.0);
+    }
+}
+
+public sealed record ScheduleSchedulingOptions(
+    ScheduleAutoSchedulingStrategy Strategy,
+    IReadOnlyList<ScheduleDayLoadTarget> DayLoadTargets,
+    bool SynchronizeStageWaves,
+    IReadOnlyList<ScheduleStageWaveTarget> StageWaveTargets);
 
 [method: JsonConstructor]
 public sealed record ScheduleSettings(
@@ -21,6 +65,12 @@ public sealed record ScheduleSettings(
     public ScheduleConstraintProfile ConstraintProfile { get; init; } = ScheduleConstraintProfile.Campus;
 
     public ScheduleAutoSchedulingStrategy AutoSchedulingStrategy { get; init; } = ScheduleAutoSchedulingStrategy.Compact;
+
+    public IReadOnlyList<ScheduleDayLoadTarget> DayLoadTargets { get; init; } = Array.Empty<ScheduleDayLoadTarget>();
+
+    public bool SynchronizeStageWaves { get; init; }
+
+    public IReadOnlyList<ScheduleStageWaveTarget> StageWaveTargets { get; init; } = Array.Empty<ScheduleStageWaveTarget>();
 
     public bool HasKnockoutTimingSplit => KnockoutTimingBoundaryEntrants is > 0 && BeforeBoundaryTiming is not null;
 

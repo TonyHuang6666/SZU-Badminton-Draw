@@ -17,6 +17,34 @@ public sealed class ScheduleService
         return AssignTimeAndCourts(unscheduled, settings);
     }
 
+    public ScheduleSchedulingOptions CreateSchedulingOptions(
+        DrawResult result,
+        ScheduleSettings settings,
+        ScheduleAutoSchedulingStrategy strategy)
+    {
+        Validate(settings);
+
+        var matches = result.Settings.IsRoundRobin
+            ? BuildRoundRobinMatches(result)
+            : BuildKnockoutMatches(result);
+        var orderedDays = settings.Days.OrderBy(day => day.Date).ToList();
+        var capacities = orderedDays.ToDictionary(
+            day => day.DayLabel,
+            day => (double)CalculateDayCapacityMinutes(day, settings.RefereeCount),
+            StringComparer.Ordinal);
+        var totalMinutes = matches.Sum(match => ResolveTiming(match, settings).MatchMinutes);
+        var dayLoadTargets = BuildDefaultDayLoadTargets(orderedDays, capacities, totalMinutes, strategy);
+        var stageWaveTargets = BuildDefaultStageWaveTargets(orderedDays, strategy);
+
+        return new ScheduleSchedulingOptions(
+            strategy,
+            dayLoadTargets,
+            SynchronizeStageWaves: strategy is ScheduleAutoSchedulingStrategy.BalancedRelaxed
+                or ScheduleAutoSchedulingStrategy.FinalsDayFriendly
+                or ScheduleAutoSchedulingStrategy.Custom,
+            stageWaveTargets);
+    }
+
     private static List<UnscheduledMatch> BuildKnockoutMatches(DrawResult result)
     {
         var matches = new List<UnscheduledMatch>();
@@ -634,6 +662,7 @@ public sealed class ScheduleService
         var scheduledById = new Dictionary<int, ScheduledAssignment>();
         var scheduled = new List<ScheduledMatch>(matches.Count);
         var dayLoadTargets = BuildDayLoadTargets(matches, settings);
+        var stageWaveTargets = BuildStageWaveTargets(settings);
         var scheduledMinutesByDay = settings.Days.ToDictionary(day => day.DayLabel, _ => 0, StringComparer.Ordinal);
         var order = 1;
 
@@ -679,7 +708,8 @@ public sealed class ScheduleService
                                 dayLoadTargets,
                                 settings.MaximumMatchMinutes,
                                 settings.RefereeCount))
-                        .OrderBy(candidate => GetSchedulingStageRank(candidate.Match))
+                        .OrderBy(candidate => GetStageWaveSortKey(candidate.Match, day, stageWaveTargets, settings))
+                        .ThenBy(candidate => GetSchedulingStageRank(candidate.Match))
                         .ThenBy(candidate => GetRestSortKey(candidate.Match, currentStart, dailyAssignments))
                         .ThenBy(candidate => candidate.Match.Id)
                         .FirstOrDefault();
@@ -838,6 +868,7 @@ public sealed class ScheduleService
         {
             ScheduleAutoSchedulingStrategy.BalancedRelaxed => "均衡宽松",
             ScheduleAutoSchedulingStrategy.FinalsDayFriendly => "决赛日友好",
+            ScheduleAutoSchedulingStrategy.Custom => "自定义",
             _ => "紧凑完成"
         };
     }
@@ -1225,23 +1256,69 @@ public sealed class ScheduleService
             day => day.DayLabel,
             day => (double)CalculateDayCapacityMinutes(day, settings.RefereeCount),
             StringComparer.Ordinal);
+
+        if (settings.AutoSchedulingStrategy == ScheduleAutoSchedulingStrategy.Custom
+            && settings.DayLoadTargets.Count > 0)
+        {
+            var customTargets = settings.DayLoadTargets
+                .GroupBy(target => target.DayLabel, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal);
+            var resolvedTargets = orderedDays.ToDictionary(
+                day => day.DayLabel,
+                day => capacities[day.DayLabel] * (customTargets.TryGetValue(day.DayLabel, out var target)
+                    ? target.TargetUtilization
+                    : 0.75),
+                StringComparer.Ordinal);
+            EnsureTotalTargetCapacity(
+                orderedDays,
+                capacities,
+                resolvedTargets,
+                matches.Sum(match => ResolveTiming(match, settings).MatchMinutes));
+            return resolvedTargets;
+        }
+
         if (settings.AutoSchedulingStrategy == ScheduleAutoSchedulingStrategy.Compact || orderedDays.Count <= 1)
         {
             return capacities;
         }
 
         var totalMinutes = matches.Sum(match => ResolveTiming(match, settings).MatchMinutes);
+        return BuildDefaultDayLoadTargets(orderedDays, capacities, totalMinutes, settings.AutoSchedulingStrategy)
+            .ToDictionary(
+                target => target.DayLabel,
+                target => capacities[target.DayLabel] * target.TargetUtilization,
+                StringComparer.Ordinal);
+    }
+
+    private static IReadOnlyList<ScheduleDayLoadTarget> BuildDefaultDayLoadTargets(
+        IReadOnlyList<ScheduleDaySettings> orderedDays,
+        IReadOnlyDictionary<string, double> capacities,
+        double totalMinutes,
+        ScheduleAutoSchedulingStrategy strategy)
+    {
+        if (orderedDays.Count == 0)
+        {
+            return [];
+        }
+
+        if (strategy == ScheduleAutoSchedulingStrategy.Compact || orderedDays.Count <= 1)
+        {
+            return orderedDays
+                .Select(day => new ScheduleDayLoadTarget(day.DayLabel, 0.95, 1.0))
+                .ToList();
+        }
+
         var totalCapacity = Math.Max(1d, capacities.Values.Sum());
         var totalUtilization = totalMinutes / totalCapacity;
-        var targets = new Dictionary<string, double>(StringComparer.Ordinal);
+        var targetMinutesByDay = new Dictionary<string, double>(StringComparer.Ordinal);
 
-        if (settings.AutoSchedulingStrategy == ScheduleAutoSchedulingStrategy.FinalsDayFriendly)
+        if (strategy == ScheduleAutoSchedulingStrategy.FinalsDayFriendly)
         {
             var lastDay = orderedDays.Last().DayLabel;
             var regularUtilization = Math.Clamp(totalUtilization * 0.95, 0.25, 0.70);
             foreach (var day in orderedDays)
             {
-                targets[day.DayLabel] = string.Equals(day.DayLabel, lastDay, StringComparison.Ordinal)
+                targetMinutesByDay[day.DayLabel] = string.Equals(day.DayLabel, lastDay, StringComparison.Ordinal)
                     ? capacities[day.DayLabel]
                     : capacities[day.DayLabel] * regularUtilization;
             }
@@ -1251,12 +1328,73 @@ public sealed class ScheduleService
             var balancedUtilization = Math.Clamp(totalUtilization * 1.15, 0.35, 0.85);
             foreach (var day in orderedDays)
             {
-                targets[day.DayLabel] = capacities[day.DayLabel] * balancedUtilization;
+                targetMinutesByDay[day.DayLabel] = capacities[day.DayLabel] * balancedUtilization;
             }
         }
 
-        EnsureTotalTargetCapacity(orderedDays, capacities, targets, totalMinutes);
-        return targets;
+        EnsureTotalTargetCapacity(orderedDays, capacities, targetMinutesByDay, totalMinutes);
+        return orderedDays
+            .Select(day =>
+            {
+                var capacity = Math.Max(1d, capacities[day.DayLabel]);
+                var target = Math.Clamp(targetMinutesByDay[day.DayLabel] / capacity, 0.05, 1.0);
+                return new ScheduleDayLoadTarget(day.DayLabel, target, Math.Min(1.0, target + 0.15));
+            })
+            .ToList();
+    }
+
+    private static IReadOnlyList<ScheduleStageWaveTarget> BuildDefaultStageWaveTargets(
+        IReadOnlyList<ScheduleDaySettings> orderedDays,
+        ScheduleAutoSchedulingStrategy strategy)
+    {
+        if (orderedDays.Count == 0)
+        {
+            return [];
+        }
+
+        if (strategy == ScheduleAutoSchedulingStrategy.Compact)
+        {
+            return orderedDays
+                .Select((day, index) => new ScheduleStageWaveTarget(day.DayLabel, (index + 1d) / orderedDays.Count))
+                .ToList();
+        }
+
+        var result = new List<ScheduleStageWaveTarget>();
+        for (var index = 0; index < orderedDays.Count; index++)
+        {
+            var isLast = index == orderedDays.Count - 1;
+            double progress;
+            if (isLast)
+            {
+                progress = 1.0;
+            }
+            else if (strategy == ScheduleAutoSchedulingStrategy.FinalsDayFriendly)
+            {
+                progress = Math.Clamp(0.45 + (index * 0.25), 0.3, 0.82);
+            }
+            else
+            {
+                progress = Math.Clamp(0.55 + (index * 0.28), 0.35, 0.9);
+            }
+
+            result.Add(new ScheduleStageWaveTarget(orderedDays[index].DayLabel, progress));
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyDictionary<string, double> BuildStageWaveTargets(ScheduleSettings settings)
+    {
+        if (settings.AutoSchedulingStrategy != ScheduleAutoSchedulingStrategy.Custom
+            || !settings.SynchronizeStageWaves
+            || settings.StageWaveTargets.Count == 0)
+        {
+            return new Dictionary<string, double>(StringComparer.Ordinal);
+        }
+
+        return settings.StageWaveTargets
+            .GroupBy(target => target.DayLabel, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Last().CumulativeProgress, StringComparer.Ordinal);
     }
 
     private static void EnsureTotalTargetCapacity(
@@ -1465,6 +1603,93 @@ public sealed class ScheduleService
         }
 
         return 5_000;
+    }
+
+    private static int GetStageWaveSortKey(
+        UnscheduledMatch match,
+        ScheduleDaySettings day,
+        IReadOnlyDictionary<string, double> stageWaveTargets,
+        ScheduleSettings settings)
+    {
+        if (settings.AutoSchedulingStrategy != ScheduleAutoSchedulingStrategy.Custom
+            || !settings.SynchronizeStageWaves
+            || stageWaveTargets.Count == 0
+            || !stageWaveTargets.TryGetValue(day.DayLabel, out var target))
+        {
+            return 0;
+        }
+
+        var progress = EstimateStageProgress(match);
+        if (progress <= target)
+        {
+            return 0;
+        }
+
+        return (int)Math.Round((progress - target) * 10_000);
+    }
+
+    private static double EstimateStageProgress(UnscheduledMatch match)
+    {
+        var text = $"{match.Phase} {match.MatchName}";
+        if (match.IsChampionshipFinal
+            || text.Contains("决赛", StringComparison.Ordinal)
+            || text.Contains("3/4名", StringComparison.Ordinal))
+        {
+            return 1.0;
+        }
+
+        if (text.Contains("5-8名", StringComparison.Ordinal)
+            || text.Contains("5/6名", StringComparison.Ordinal)
+            || text.Contains("7/8名", StringComparison.Ordinal))
+        {
+            return 0.88;
+        }
+
+        if (text.Contains("半决赛", StringComparison.Ordinal) || text.Contains("4进2", StringComparison.Ordinal))
+        {
+            return 0.82;
+        }
+
+        if (text.Contains("8进4", StringComparison.Ordinal))
+        {
+            return 0.72;
+        }
+
+        if (text.Contains("16进8", StringComparison.Ordinal))
+        {
+            return 0.65;
+        }
+
+        if (text.Contains("32进16", StringComparison.Ordinal))
+        {
+            return 0.48;
+        }
+
+        if (text.Contains("64进32", StringComparison.Ordinal))
+        {
+            return 0.32;
+        }
+
+        if (text.Contains("128进64", StringComparison.Ordinal) || text.Contains("首轮", StringComparison.Ordinal))
+        {
+            return 0.16;
+        }
+
+        if (match.KnockoutEntrantCount is >= 2)
+        {
+            return match.KnockoutEntrantCount.Value switch
+            {
+                <= 2 => 1.0,
+                <= 4 => 0.82,
+                <= 8 => 0.72,
+                <= 16 => 0.65,
+                <= 32 => 0.48,
+                <= 64 => 0.32,
+                _ => 0.16
+            };
+        }
+
+        return 0.5;
     }
 
     private static int GetPlacementStageRank(string phase)
