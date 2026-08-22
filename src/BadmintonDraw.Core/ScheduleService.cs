@@ -47,6 +47,8 @@ public sealed class ScheduleService
 
     private static List<UnscheduledMatch> BuildKnockoutMatches(DrawResult result)
     {
+        // Match ids and dependencies created here are the authoritative knockout graph.
+        // Scheduling, manual moves, reminders and exports must not infer progression from display text.
         var matches = new List<UnscheduledMatch>();
         var groupQualifierEntries = new List<ScheduleBracketEntry>();
         var championshipBracketMatches = new List<ScheduleBracketMatch>();
@@ -689,6 +691,8 @@ public sealed class ScheduleService
 
                 foreach (var court in currentCourts)
                 {
+                    // IsEligible is the hard-constraint gate. Strategy ordering below only ranks
+                    // already legal candidates and must never make an ineligible match schedulable.
                     var candidate = remaining.Values
                         .Select(match => new CandidateMatch(match, ResolveTiming(match, settings)))
                         .Where(candidate => IsEligible(
@@ -782,6 +786,8 @@ public sealed class ScheduleService
             return plan with { QualityReport = BuildScheduleQualityReport(plan, spreadApplied: false) };
         }
 
+        // Spreading is a reversible post-process over a complete legal plan. Any dependency or
+        // resource failure keeps the original compact plan as the stable fallback.
         var finalPlan = TrySpreadMatchesWithinDays(plan, out var spreadPlan)
             ? spreadPlan
             : plan;

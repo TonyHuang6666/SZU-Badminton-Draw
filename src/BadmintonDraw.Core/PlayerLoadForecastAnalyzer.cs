@@ -12,6 +12,8 @@ public sealed class PlayerLoadForecastAnalyzer
         int dailyLimit,
         double winProbability = 0.5)
     {
+        // Exact enumeration is exponential in unresolved match outcomes. Treat an unlimited
+        // request as the largest exact model we allow, then fall back to a conservative envelope.
         var projectionDepth = maxProjectedDepth == int.MaxValue
             ? MaxExactOutcomeVariables
             : Math.Max(0, maxProjectedDepth);
@@ -79,6 +81,8 @@ public sealed class PlayerLoadForecastAnalyzer
         var variableIndex = variables
             .Select((matchId, index) => (matchId, index))
             .ToDictionary(item => item.matchId, item => item.index, StringComparer.Ordinal);
+        // One unresolved match is one Bernoulli variable shared by every dependent appearance.
+        // An appearance contributes only when all of its winner/loser conditions hold.
         var outcomeCount = 1 << variables.Count;
         var distribution = new Dictionary<int, double>();
         for (var mask = 0; mask < outcomeCount; mask++)
@@ -112,6 +116,8 @@ public sealed class PlayerLoadForecastAnalyzer
     private static IReadOnlyDictionary<int, double> BuildApproximateDistribution(
         IReadOnlyList<PlayerLoadForecastAppearance> appearances)
     {
+        // This fallback is a bounded risk signal, not a calibrated probability model: it keeps
+        // the confirmed count and the maximum compatible count without enumerating 2^N outcomes.
         var confirmed = appearances.Count(appearance => appearance.Conditions.Count == 0);
         var maximum = CountMaximumCompatibleMatches(appearances);
         return maximum == confirmed

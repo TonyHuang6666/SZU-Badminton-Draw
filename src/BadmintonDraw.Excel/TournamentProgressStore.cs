@@ -31,6 +31,8 @@ public sealed class TournamentProgressStore
         var tempPath = Path.Combine(directory, $".{Path.GetFileName(filePath)}.{Guid.NewGuid():N}.tmp");
         try
         {
+            // Build and integrity-check a separate database first. The requested path is replaced
+            // only after the complete snapshot has committed successfully.
             using (var connection = OpenConnection(tempPath, SqliteOpenMode.ReadWriteCreate))
             {
                 InitializeSchema(connection);
@@ -129,6 +131,8 @@ public sealed class TournamentProgressStore
             }
 
             var drawResult = Deserialize<DrawResult>(snapshotReader.GetString(1));
+            // Legacy archives may lack structured dependency fields. Backfill them in memory from
+            // the stored draw result; persistence changes only through an explicit schedule update.
             var schedule = ScheduleDependencyBackfill.EnrichFromDrawResult(
                 drawResult,
                 Deserialize<SchedulePlan>(snapshotReader.GetString(4)));
@@ -172,6 +176,8 @@ public sealed class TournamentProgressStore
         IEnumerable<string> recordFilePaths,
         bool allowCorrections = false)
     {
+        // Evaluate the complete batch before touching SQLite. Once accepted, one transaction
+        // applies results, history, logs and pending-state changes together or not at all.
         var evaluation = EvaluateImport(filePath, recordFilePaths);
         if (evaluation.Preview.Corrections.Count > 0 && !allowCorrections)
         {
@@ -259,6 +265,8 @@ public sealed class TournamentProgressStore
         }
 
         var state = Read(filePath);
+        // A schedule update may move matches but cannot change tournament identity: completeness
+        // and the exact match-name set are validated before the backup and write transaction.
         ValidateScheduleReplacement(state.Snapshot.Schedule, schedule);
         var backupPath = CreateBackup(filePath);
         try
@@ -863,6 +871,7 @@ public sealed class TournamentProgressStore
         var backupPath = Path.Combine(
             backupDirectory,
             $"{stem}_{DateTime.Now:yyyyMMdd_HHmmss_fff}.szbd");
+        // Every mutation gets a recoverable pre-write snapshot; retention is bounded per archive.
         File.Copy(filePath, backupPath, overwrite: false);
 
         foreach (var oldBackup in Directory

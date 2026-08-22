@@ -6,6 +6,9 @@ public sealed class ScheduleConstraintAnalyzer
 {
     public ScheduleConstraintReport Analyze(SchedulePlan schedule)
     {
+        // Scope describes certainty (confirmed, direct dependency or speculative); severity
+        // describes operational impact. Keeping them independent prevents a remote projection
+        // from being presented as a confirmed on-site conflict.
         var rules = ScheduleConstraintRules.For(schedule.Settings.ConstraintProfile);
         var issues = new List<ScheduleConstraintIssue>();
         var appearances = BuildAppearances(schedule.Matches, rules.MaxProjectedDepth);
@@ -41,6 +44,8 @@ public sealed class ScheduleConstraintAnalyzer
             for (var index = 1; index < ordered.Count; index++)
             {
                 var current = ordered[index];
+                // Mutually exclusive winner/loser branches cannot both happen for one player.
+                // Compare only appearances whose structured outcome conditions are compatible.
                 var previous = FindLatestCompatiblePreviousAppearance(ordered, index);
                 if (previous is null)
                 {
@@ -108,6 +113,8 @@ public sealed class ScheduleConstraintAnalyzer
         var forecastDepth = rules.MaxProjectedDepth == int.MaxValue
             ? int.MaxValue
             : Math.Max(rules.MaxProjectedDepth, 4);
+        // Forecasting follows the dependency graph and combines only compatible advancement
+        // paths; simply summing every theoretical future appearance would grossly overstate load.
         var forecasts = new PlayerLoadForecastAnalyzer().Analyze(schedule, forecastDepth, dailyLimit);
         foreach (var forecast in forecasts)
         {
