@@ -282,9 +282,160 @@ public sealed partial class CrossEventConflictWorkflow
         {
             entry.DependencyKeys.Sort(StringComparer.Ordinal);
             entry.DependentKeys.Sort(StringComparer.Ordinal);
+            entry.PlayerPaths = ResolveGlobalPlayerPaths(entry, matchIdLookup, []);
+            entry.PlayerPathsByKey = entry.PlayerPaths
+                .GroupBy(path => path.PlayerKey, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlyList<GlobalPlayerPath>)group.ToList(),
+                    StringComparer.OrdinalIgnoreCase);
         }
 
+        CalculatePlayerConflictDegrees(entries);
+
         return entries;
+    }
+
+    private static void CalculatePlayerConflictDegrees(IReadOnlyList<GlobalScheduleEntry> entries)
+    {
+        var conflictingEntryKeys = entries.ToDictionary(
+            entry => entry.Key,
+            _ => new HashSet<string>(StringComparer.Ordinal),
+            StringComparer.Ordinal);
+        foreach (var playerGroup in entries
+                     .SelectMany(entry => entry.PlayerPaths.Select(path => (Entry: entry, Path: path)))
+                     .GroupBy(item => item.Path.PlayerKey, StringComparer.OrdinalIgnoreCase))
+        {
+            var appearances = playerGroup.ToList();
+            for (var firstIndex = 0; firstIndex < appearances.Count; firstIndex++)
+            {
+                var first = appearances[firstIndex];
+                for (var secondIndex = firstIndex + 1; secondIndex < appearances.Count; secondIndex++)
+                {
+                    var second = appearances[secondIndex];
+                    if (string.Equals(first.Entry.Key, second.Entry.Key, StringComparison.Ordinal)
+                        || !AreGlobalOutcomeConditionsCompatible(first.Path.Conditions, second.Path.Conditions))
+                    {
+                        continue;
+                    }
+
+                    conflictingEntryKeys[first.Entry.Key].Add(second.Entry.Key);
+                    conflictingEntryKeys[second.Entry.Key].Add(first.Entry.Key);
+                }
+            }
+        }
+
+        foreach (var entry in entries)
+        {
+            entry.PlayerConflictDegree = conflictingEntryKeys[entry.Key].Count;
+        }
+    }
+
+    private static IReadOnlyList<GlobalPlayerPath> ResolveGlobalPlayerPaths(
+        GlobalScheduleEntry entry,
+        IReadOnlyDictionary<string, GlobalScheduleEntry> matchIdLookup,
+        HashSet<string> visiting)
+    {
+        if (!visiting.Add(entry.Key))
+        {
+            return [];
+        }
+
+        var paths = ResolveGlobalSidePlayerPaths(entry, ScheduleMatchSide.SideA, matchIdLookup, visiting)
+            .Concat(ResolveGlobalSidePlayerPaths(entry, ScheduleMatchSide.SideB, matchIdLookup, visiting))
+            .GroupBy(BuildGlobalPlayerPathKey, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToList();
+        visiting.Remove(entry.Key);
+        return paths;
+    }
+
+    private static IReadOnlyList<GlobalPlayerPath> ResolveGlobalSidePlayerPaths(
+        GlobalScheduleEntry entry,
+        ScheduleMatchSide side,
+        IReadOnlyDictionary<string, GlobalScheduleEntry> matchIdLookup,
+        HashSet<string> visiting)
+    {
+        var confirmedIdentities = side == ScheduleMatchSide.SideA
+            ? entry.Match.SideAPlayerIdentities
+            : entry.Match.SideBPlayerIdentities;
+        if (confirmedIdentities.Count > 0)
+        {
+            return CreateGlobalPlayerPaths(confirmedIdentities);
+        }
+
+        var dependencies = entry.Match.Dependencies
+            .Where(dependency => dependency.TargetSide == side)
+            .ToList();
+        if (dependencies.Count > 0)
+        {
+            return dependencies
+                .SelectMany(dependency =>
+                {
+                    var dependencyKey = BuildSourceMatchIdKey(entry.Source.SourceId, dependency.SourceMatchId);
+                    if (!matchIdLookup.TryGetValue(dependencyKey, out var sourceEntry))
+                    {
+                        return [];
+                    }
+
+                    return ResolveGlobalPlayerPaths(sourceEntry, matchIdLookup, visiting)
+                        .Select(path => TryAddGlobalOutcomeCondition(path, dependencyKey, dependency.Outcome))
+                        .Where(path => path is not null)
+                        .Select(path => path!);
+                })
+                .GroupBy(BuildGlobalPlayerPathKey, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .ToList();
+        }
+
+        var possibleIdentities = side == ScheduleMatchSide.SideA
+            ? entry.Match.SideAPossiblePlayerIdentities
+            : entry.Match.SideBPossiblePlayerIdentities;
+        return CreateGlobalPlayerPaths(possibleIdentities);
+    }
+
+    private static IReadOnlyList<GlobalPlayerPath> CreateGlobalPlayerPaths(
+        IEnumerable<CrossEventPlayerIdentity> identities)
+    {
+        return identities
+            .Select(identity => identity.IdentityKey)
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(key => new GlobalPlayerPath(key, []))
+            .ToList();
+    }
+
+    private static GlobalPlayerPath? TryAddGlobalOutcomeCondition(
+        GlobalPlayerPath path,
+        string matchKey,
+        ScheduleMatchDependencyOutcome outcome)
+    {
+        var existing = path.Conditions.FirstOrDefault(condition =>
+            string.Equals(condition.MatchKey, matchKey, StringComparison.Ordinal));
+        if (existing is not null && existing.Outcome != outcome)
+        {
+            return null;
+        }
+
+        if (existing is not null)
+        {
+            return path;
+        }
+
+        return path with
+        {
+            Conditions = path.Conditions
+                .Append(new GlobalOutcomeCondition(matchKey, outcome))
+                .OrderBy(condition => condition.MatchKey, StringComparer.Ordinal)
+                .ThenBy(condition => condition.Outcome)
+                .ToList()
+        };
+    }
+
+    private static string BuildGlobalPlayerPathKey(GlobalPlayerPath path)
+    {
+        var conditions = string.Join(",", path.Conditions.Select(condition => $"{condition.MatchKey}:{(int)condition.Outcome}"));
+        return $"{path.PlayerKey}|{conditions}";
     }
 
     private static IReadOnlyList<GlobalScheduleEntry> BuildGlobalScheduleOrder(IReadOnlyList<GlobalScheduleEntry> entries)
@@ -303,7 +454,8 @@ public sealed partial class CrossEventConflictWorkflow
             var next = indegrees
                 .Where(pair => pair.Value == 0)
                 .Select(pair => pending[pair.Key])
-                .OrderBy(entry => entry.Match.DayLabel, StringComparer.Ordinal)
+                .OrderByDescending(entry => entry.PlayerConflictDegree)
+                .ThenBy(entry => entry.Match.DayLabel, StringComparer.Ordinal)
                 .ThenBy(entry => entry.Match.StartTime)
                 .ThenBy(entry => IsImportantMatch(entry) ? 0 : 1)
                 .ThenBy(entry => entry.Source.EventName, StringComparer.Ordinal)

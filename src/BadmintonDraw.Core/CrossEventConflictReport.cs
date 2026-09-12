@@ -81,7 +81,9 @@ public sealed record CrossEventScheduledMatch(
     string MatchId = "",
     IReadOnlyList<ScheduleMatchDependency>? Dependencies = null,
     IReadOnlyList<CrossEventPlayerIdentity>? SideAPlayerIdentities = null,
-    IReadOnlyList<CrossEventPlayerIdentity>? SideBPlayerIdentities = null)
+    IReadOnlyList<CrossEventPlayerIdentity>? SideBPlayerIdentities = null,
+    IReadOnlyList<CrossEventPlayerIdentity>? SideAPossiblePlayerIdentities = null,
+    IReadOnlyList<CrossEventPlayerIdentity>? SideBPossiblePlayerIdentities = null)
 {
     public string MatchId { get; init; } = string.IsNullOrWhiteSpace(MatchId) ? MatchName : MatchId;
 
@@ -90,6 +92,16 @@ public sealed record CrossEventScheduledMatch(
     public IReadOnlyList<CrossEventPlayerIdentity> SideAPlayerIdentities { get; init; } = NormalizeIdentities(SideAPlayerIdentities, SideAPlayers);
 
     public IReadOnlyList<CrossEventPlayerIdentity> SideBPlayerIdentities { get; init; } = NormalizeIdentities(SideBPlayerIdentities, SideBPlayers);
+
+    public IReadOnlyList<CrossEventPlayerIdentity> SideAPossiblePlayerIdentities { get; init; } = NormalizePossibleIdentities(
+        SideAPossiblePlayerIdentities,
+        SideAPlayerIdentities,
+        SideAPlayers);
+
+    public IReadOnlyList<CrossEventPlayerIdentity> SideBPossiblePlayerIdentities { get; init; } = NormalizePossibleIdentities(
+        SideBPossiblePlayerIdentities,
+        SideBPlayerIdentities,
+        SideBPlayers);
 
     public string TimeRange => $"{StartTime:HH:mm}-{EndTime:HH:mm}";
 
@@ -105,6 +117,26 @@ public sealed record CrossEventScheduledMatch(
                 .Where(name => !string.IsNullOrWhiteSpace(name))
                 .Select(name => CrossEventPlayerIdentity.FromName(name))
                 .ToList();
+        return source
+            .Where(identity => !string.IsNullOrWhiteSpace(identity.Name))
+            .GroupBy(identity => identity.IdentityKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+    }
+
+    private static IReadOnlyList<CrossEventPlayerIdentity> NormalizePossibleIdentities(
+        IReadOnlyList<CrossEventPlayerIdentity>? identities,
+        IReadOnlyList<CrossEventPlayerIdentity>? confirmedIdentities,
+        IReadOnlyList<string> fallbackNames)
+    {
+        var source = identities is { Count: > 0 }
+            ? identities
+            : confirmedIdentities is { Count: > 0 }
+                ? confirmedIdentities
+                : fallbackNames
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Select(name => CrossEventPlayerIdentity.FromName(name))
+                    .ToList();
         return source
             .Where(identity => !string.IsNullOrWhiteSpace(identity.Name))
             .GroupBy(identity => identity.IdentityKey, StringComparer.OrdinalIgnoreCase)

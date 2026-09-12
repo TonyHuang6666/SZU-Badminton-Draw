@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.104.2" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.24" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/BadmintonDraw.Core/BadmintonDraw.Core.csproj" />
+    <ProjectReference Include="../../src/BadmintonDraw.Excel/BadmintonDraw.Excel.csproj" />
+    <ProjectReference Include="../../src/BadmintonDraw.Workflows/BadmintonDraw.Workflows.csproj" />
+  </ItemGroup>
+</Project>

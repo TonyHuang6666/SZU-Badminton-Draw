@@ -870,6 +870,294 @@ public sealed partial class DrawWorkflowTests
     }
 
     [Fact]
+    public void CrossEventAutoAdjustKeepsMinimumRestForRepeatedPlayerInUnresolvedSameEventMatches()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-same-event-rest-{Guid.NewGuid():N}");
+        var doublesPath = Path.Combine(directory, "男双.szbd");
+        var blockerPath = Path.Combine(directory, "已完成项目.szbd");
+        var blockerRecordPath = Path.Combine(directory, "已完成项目记录表.xlsx");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var day = new ScheduleDaySettings(
+                new DateOnly(2026, 6, 13),
+                new TimeOnly(14, 0),
+                new TimeOnly(17, 20),
+                ["B1", "B2"]);
+            var settings = new ScheduleSettings([day], MatchMinutes: 20, MaxMatchesPerEntrantPerDay: 6);
+            var repeatedPlayer = new CrossEventPlayerIdentity("张三");
+            var firstSchedule = new SchedulePlan(
+                [
+                    new ScheduledMatch(
+                        1,
+                        day.DayLabel,
+                        new TimeOnly(14, 0),
+                        new TimeOnly(14, 20),
+                        "B1",
+                        1,
+                        "A组",
+                        "首轮赛",
+                        "A组首轮赛1",
+                        "[张三 李四]",
+                        "[王五 赵六]",
+                        MatchId: "a1",
+                        SideAPlayerIdentities: [repeatedPlayer, new CrossEventPlayerIdentity("李四")],
+                        SideBPlayerIdentities: [new CrossEventPlayerIdentity("王五"), new CrossEventPlayerIdentity("赵六")]),
+                    new ScheduledMatch(
+                        2,
+                        day.DayLabel,
+                        new TimeOnly(15, 0),
+                        new TimeOnly(15, 20),
+                        "B1",
+                        2,
+                        "B组",
+                        "首轮赛",
+                        "B组首轮赛1",
+                        "[张三 郑七]",
+                        "[钱八 孙九]",
+                        MatchId: "b1",
+                        SideAPlayerIdentities: [repeatedPlayer, new CrossEventPlayerIdentity("郑七")],
+                        SideBPlayerIdentities: [new CrossEventPlayerIdentity("钱八"), new CrossEventPlayerIdentity("孙九")]),
+                    new ScheduledMatch(
+                        3,
+                        day.DayLabel,
+                        new TimeOnly(16, 0),
+                        new TimeOnly(16, 20),
+                        "B1",
+                        1,
+                        "A组",
+                        "决赛",
+                        "A组决赛1",
+                        "A组首轮赛1胜者",
+                        "[周十 吴一]",
+                        MatchId: "a2",
+                        Dependencies: [Dependency("a1", "A组首轮赛1", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)],
+                        SideAPlayerIdentities:
+                        [
+                            repeatedPlayer,
+                            new CrossEventPlayerIdentity("李四"),
+                            new CrossEventPlayerIdentity("王五"),
+                            new CrossEventPlayerIdentity("赵六")
+                        ],
+                        SideBPlayerIdentities: [new CrossEventPlayerIdentity("周十"), new CrossEventPlayerIdentity("吴一")]),
+                    new ScheduledMatch(
+                        4,
+                        day.DayLabel,
+                        new TimeOnly(16, 40),
+                        new TimeOnly(17, 0),
+                        "B1",
+                        2,
+                        "B组",
+                        "决赛",
+                        "B组决赛1",
+                        "B组首轮赛1胜者",
+                        "[冯二 陈三]",
+                        MatchId: "b2",
+                        Dependencies: [Dependency("b1", "B组首轮赛1", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)],
+                        SideAPlayerIdentities:
+                        [
+                            repeatedPlayer,
+                            new CrossEventPlayerIdentity("郑七"),
+                            new CrossEventPlayerIdentity("钱八"),
+                            new CrossEventPlayerIdentity("孙九")
+                        ],
+                        SideBPlayerIdentities: [new CrossEventPlayerIdentity("冯二"), new CrossEventPlayerIdentity("陈三")])
+                ],
+                settings);
+            var blockerSchedule = new SchedulePlan(
+                [
+                    new ScheduledMatch(
+                        1,
+                        day.DayLabel,
+                        new TimeOnly(16, 40),
+                        new TimeOnly(17, 0),
+                        "B1",
+                        1,
+                        "A组",
+                        "首轮赛",
+                        "已完成项目1",
+                        "甲",
+                        "乙"),
+                    new ScheduledMatch(
+                        2,
+                        day.DayLabel,
+                        new TimeOnly(16, 40),
+                        new TimeOnly(17, 0),
+                        "B2",
+                        1,
+                        "A组",
+                        "首轮赛",
+                        "已完成项目2",
+                        "丙",
+                        "丁")
+                ],
+                settings);
+            var store = new TournamentProgressStore();
+            store.Create(
+                doublesPath,
+                CreateManualProgressSnapshot(
+                    "男双",
+                    [
+                        new DrawParticipant("[张三 李四]", PrimaryName: "张三", PartnerName: "李四"),
+                        new DrawParticipant("[王五 赵六]", PrimaryName: "王五", PartnerName: "赵六"),
+                        new DrawParticipant("[张三 郑七]", PrimaryName: "张三", PartnerName: "郑七"),
+                        new DrawParticipant("[钱八 孙九]", PrimaryName: "钱八", PartnerName: "孙九"),
+                        new DrawParticipant("[周十 吴一]", PrimaryName: "周十", PartnerName: "吴一"),
+                        new DrawParticipant("[冯二 陈三]", PrimaryName: "冯二", PartnerName: "陈三")
+                    ],
+                    firstSchedule));
+            var blockerState = store.Create(
+                blockerPath,
+                CreateManualProgressSnapshot(
+                    "已完成项目",
+                    [new DrawParticipant("甲"), new DrawParticipant("乙"), new DrawParticipant("丙"), new DrawParticipant("丁")],
+                    blockerSchedule));
+            new ScheduleExcelWriter().WriteMatchRecord(
+                blockerRecordPath,
+                blockerSchedule,
+                day.DayLabel,
+                tournamentId: blockerState.Snapshot.TournamentId);
+            FillMatchRecordWinners(blockerRecordPath, winnerOptionColumn: 15);
+            store.Import(blockerPath, [blockerRecordPath]);
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([doublesPath, blockerPath], minimumRestMinutes: 30);
+            var adjustment = workflow.AutoAdjustScheduleBoard(
+                board,
+                workflow.CreateSchedulingOptions(board, CrossEventSchedulingStrategy.BalancedRelaxed));
+            var adjusted = adjustment.Board;
+            var firstFinal = adjusted.Items.Single(item => item.EventName == "男双" && item.MatchName == "A组决赛1");
+            var secondFinal = adjusted.Items.Single(item => item.EventName == "男双" && item.MatchName == "B组决赛1");
+            var firstStartMinutes = (int)firstFinal.StartTime.ToTimeSpan().TotalMinutes;
+            var firstEndMinutes = (int)firstFinal.EndTime.ToTimeSpan().TotalMinutes;
+            var secondStartMinutes = (int)secondFinal.StartTime.ToTimeSpan().TotalMinutes;
+            var secondEndMinutes = (int)secondFinal.EndTime.ToTimeSpan().TotalMinutes;
+            var restMinutes = firstEndMinutes <= secondStartMinutes
+                ? secondStartMinutes - firstEndMinutes
+                : secondEndMinutes <= firstStartMinutes
+                    ? firstStartMinutes - secondEndMinutes
+                    : -Math.Min(firstEndMinutes, secondEndMinutes) + Math.Max(firstStartMinutes, secondStartMinutes);
+
+            Assert.True(restMinutes >= 30, $"同一选手可能参加的两场未决比赛仅间隔 {restMinutes} 分钟。");
+            Assert.Equal(0, adjustment.RemainingBlockingConflictItemCount);
+
+            workflow.SaveScheduleBoard(adjusted);
+            var reopenedSchedule = store.Read(doublesPath).Snapshot.Schedule;
+            var reopenedReport = new ScheduleConstraintAnalyzer().Analyze(reopenedSchedule);
+            Assert.DoesNotContain(
+                reopenedReport.Issues,
+                issue => issue.Severity is ScheduleConstraintSeverity.Severe or ScheduleConstraintSeverity.Warning);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
+    public void CrossEventAutoAdjustAllowsMutuallyExclusiveWinnerAndLoserBranchesToOverlap()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-exclusive-paths-{Guid.NewGuid():N}");
+        var progressPath = Path.Combine(directory, "男单.szbd");
+        var otherProgressPath = Path.Combine(directory, "混双.szbd");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var day = new ScheduleDaySettings(
+                new DateOnly(2026, 6, 13),
+                new TimeOnly(14, 0),
+                new TimeOnly(15, 0),
+                ["B1", "B2"]);
+            var settings = new ScheduleSettings([day], MatchMinutes: 20, MaxMatchesPerEntrantPerDay: 6);
+            var firstPlayer = new CrossEventPlayerIdentity("张三");
+            var secondPlayer = new CrossEventPlayerIdentity("李四");
+            var schedule = new SchedulePlan(
+                [
+                    new ScheduledMatch(
+                        1,
+                        day.DayLabel,
+                        new TimeOnly(14, 0),
+                        new TimeOnly(14, 20),
+                        "B1",
+                        1,
+                        "A组",
+                        "首轮赛",
+                        "A组首轮赛1",
+                        "张三",
+                        "李四",
+                        MatchId: "a1",
+                        SideAPlayerIdentities: [firstPlayer],
+                        SideBPlayerIdentities: [secondPlayer]),
+                    new ScheduledMatch(
+                        2,
+                        day.DayLabel,
+                        new TimeOnly(14, 40),
+                        new TimeOnly(15, 0),
+                        "B1",
+                        1,
+                        "A组",
+                        "胜者组",
+                        "胜者后续赛",
+                        "A组首轮赛1胜者",
+                        "王五",
+                        MatchId: "winner",
+                        Dependencies: [Dependency("a1", "A组首轮赛1", ScheduleMatchDependencyOutcome.Winner, ScheduleMatchSide.SideA)],
+                        SideAPlayerIdentities: [firstPlayer, secondPlayer],
+                        SideBPlayerIdentities: [new CrossEventPlayerIdentity("王五")]),
+                    new ScheduledMatch(
+                        3,
+                        day.DayLabel,
+                        new TimeOnly(14, 40),
+                        new TimeOnly(15, 0),
+                        "B2",
+                        1,
+                        "A组",
+                        "负者组",
+                        "负者后续赛",
+                        "A组首轮赛1负者",
+                        "赵六",
+                        MatchId: "loser",
+                        Dependencies: [Dependency("a1", "A组首轮赛1", ScheduleMatchDependencyOutcome.Loser, ScheduleMatchSide.SideA)],
+                        SideAPlayerIdentities: [firstPlayer, secondPlayer],
+                        SideBPlayerIdentities: [new CrossEventPlayerIdentity("赵六")])
+                ],
+                settings);
+            var store = new TournamentProgressStore();
+            store.Create(
+                progressPath,
+                CreateManualProgressSnapshot(
+                    "男单",
+                    [new DrawParticipant("张三"), new DrawParticipant("李四"), new DrawParticipant("王五"), new DrawParticipant("赵六")],
+                    schedule));
+            store.Create(
+                otherProgressPath,
+                CreateManualProgressSnapshot(
+                    "混双",
+                    [new DrawParticipant("钱七"), new DrawParticipant("孙八")],
+                    new SchedulePlan(
+                        [new ScheduledMatch(1, day.DayLabel, new TimeOnly(14, 0), new TimeOnly(14, 20), "B2", 1, "A组", "首轮赛", "混双首轮赛1", "钱七", "孙八")],
+                        settings)));
+
+            var workflow = new CrossEventConflictWorkflow();
+            var board = workflow.LoadScheduleBoard([progressPath, otherProgressPath], minimumRestMinutes: 20);
+            var adjusted = workflow.AutoAdjustScheduleBoard(
+                board,
+                workflow.CreateSchedulingOptions(board, CrossEventSchedulingStrategy.Compact)).Board;
+            var winnerBranch = adjusted.Items.Single(item => item.MatchName == "胜者后续赛");
+            var loserBranch = adjusted.Items.Single(item => item.MatchName == "负者后续赛");
+
+            Assert.Equal(winnerBranch.DayLabel, loserBranch.DayLabel);
+            Assert.Equal(winnerBranch.StartTime, loserBranch.StartTime);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
+    [Fact]
     public void CrossEventCustomDayLoadTargetsRebalanceFromSameBaseBoard()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"badminton-cross-event-load-targets-{Guid.NewGuid():N}");

@@ -162,7 +162,9 @@ public sealed partial class CrossEventConflictWorkflow
                     match.MatchId,
                     match.Dependencies,
                     sideAPlayerIdentities,
-                    sideBPlayerIdentities);
+                    sideBPlayerIdentities,
+                    match.SideAPlayerIdentities,
+                    match.SideBPlayerIdentities);
             })
             .ToList();
 
@@ -670,10 +672,25 @@ public sealed partial class CrossEventConflictWorkflow
 
         public IReadOnlyList<string> PlayerKeys { get; } = playerKeys;
 
+        public IReadOnlyList<GlobalPlayerPath> PlayerPaths { get; set; } = [];
+
+        public IReadOnlyDictionary<string, IReadOnlyList<GlobalPlayerPath>> PlayerPathsByKey { get; set; }
+            = new Dictionary<string, IReadOnlyList<GlobalPlayerPath>>(StringComparer.OrdinalIgnoreCase);
+
+        public int PlayerConflictDegree { get; set; }
+
         public List<string> DependencyKeys { get; } = [];
 
         public List<string> DependentKeys { get; } = [];
     }
+
+    private sealed record GlobalPlayerPath(
+        string PlayerKey,
+        IReadOnlyList<GlobalOutcomeCondition> Conditions);
+
+    private sealed record GlobalOutcomeCondition(
+        string MatchKey,
+        ScheduleMatchDependencyOutcome Outcome);
 
     private sealed record GlobalSchedulePlacement(
         string DayLabel,

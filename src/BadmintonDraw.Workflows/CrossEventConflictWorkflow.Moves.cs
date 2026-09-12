@@ -643,9 +643,36 @@ public sealed partial class CrossEventConflictWorkflow
 
     private static bool SharesPlayer(GlobalScheduleEntry first, GlobalScheduleEntry second)
     {
-        return first.PlayerKeys.Count > 0
-            && second.PlayerKeys.Count > 0
-            && first.PlayerKeys.Intersect(second.PlayerKeys, StringComparer.OrdinalIgnoreCase).Any();
+        var smaller = first.PlayerPathsByKey.Count <= second.PlayerPathsByKey.Count
+            ? first.PlayerPathsByKey
+            : second.PlayerPathsByKey;
+        var larger = ReferenceEquals(smaller, first.PlayerPathsByKey)
+            ? second.PlayerPathsByKey
+            : first.PlayerPathsByKey;
+        foreach (var playerGroup in smaller)
+        {
+            if (!larger.TryGetValue(playerGroup.Key, out var otherPaths))
+            {
+                continue;
+            }
+
+            if (playerGroup.Value.Any(firstPath => otherPaths.Any(secondPath =>
+                    AreGlobalOutcomeConditionsCompatible(firstPath.Conditions, secondPath.Conditions))))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool AreGlobalOutcomeConditionsCompatible(
+        IReadOnlyList<GlobalOutcomeCondition> first,
+        IReadOnlyList<GlobalOutcomeCondition> second)
+    {
+        return !first.Any(left => second.Any(right =>
+            string.Equals(left.MatchKey, right.MatchKey, StringComparison.Ordinal)
+            && left.Outcome != right.Outcome));
     }
 
     private static IReadOnlyList<string> NormalizePlayerKeys(IEnumerable<CrossEventPlayerIdentity> players)
@@ -718,8 +745,8 @@ public sealed partial class CrossEventConflictWorkflow
                 match.SameUnit,
                 match.MatchId,
                 match.Dependencies,
-                match.SideAPlayerIdentities,
-                match.SideBPlayerIdentities))
+                match.SideAPossiblePlayerIdentities,
+                match.SideBPossiblePlayerIdentities))
             .ToList();
         return new SchedulePlan(matches, BuildScheduleSettings(source.ScheduleSettings, matches));
     }
