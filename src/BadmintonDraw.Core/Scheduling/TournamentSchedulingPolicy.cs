@@ -1,6 +1,6 @@
 using BadmintonDraw.Core.Tournaments;
 namespace BadmintonDraw.Core.Scheduling;
-public sealed record TournamentSchedulingPolicy(CrossEventSchedulingStrategy Strategy,
+public sealed record TournamentSchedulingPolicy(ScheduleAutoSchedulingStrategy Strategy,
     IReadOnlyList<CrossEventDayLoadTarget> DayLoadTargets, bool SynchronizeStageWaves,
     IReadOnlyList<CrossEventStageWaveTarget> StageWaveTargets, IReadOnlyList<CrossEventFinalDayRule> FinalDayRules)
 {

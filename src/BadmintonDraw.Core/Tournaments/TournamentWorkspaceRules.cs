@@ -93,8 +93,8 @@ public static class TournamentWorkspaceRules
         Require(!string.IsNullOrWhiteSpace(reason), "draw.reason", "请填写解除确认原因。");
         var project = workspace.Projects.SingleOrDefault(p => p.Id == projectId);
         Require(project?.Draw?.ConfirmedAt is not null, "draw.confirmed", "项目不存在或抽签尚未确认。");
-        var candidate = workspace with { Stage = TournamentStage.RostersReady, Schedule = null,
-            Projects = workspace.Projects.Select(p => p.Id == projectId ? p with { MatchGraph = null, Draw = p.Draw! with { ConfirmedAt = null } } : p).ToArray(),
+        var candidate = workspace with { Stage = TournamentStage.RostersReady, Schedule = null, Resources = null,
+            Projects = workspace.Projects.Select(p => p.Id == projectId ? p with { MatchGraph = null, Draw = null } : p).ToArray(),
             AuditEvents = [..workspace.AuditEvents, new(Guid.NewGuid(), "DrawReopened", DateTimeOffset.UtcNow, projectId, Detail: reason)] };
         Validate(candidate);
         return candidate;
@@ -110,9 +110,9 @@ public static class TournamentWorkspaceRules
         if (project.Roster is { } roster)
         {
             Require(roster.Participants.Count >= 2 && !string.IsNullOrWhiteSpace(roster.SourceFileName) && !string.IsNullOrWhiteSpace(roster.ContentHash), "roster.required", "名单至少需要两个参赛方，并保留来源文件和哈希。");
-            Require(roster.Participants.All(p => !string.IsNullOrWhiteSpace(p.DisplayName)) &&
-                roster.Participants.Select(p => p.NormalizedDisplayName).Distinct(StringComparer.Ordinal).Count() == roster.Participants.Count,
-                "roster.identity", "名单参赛方名称不能为空或重复。");
+            var entrants = roster.Participants.Select(p => ProjectEntrantIdentity.Create(project.Discipline, p)).ToArray();
+            Require(entrants.Select(p => p.IdentityKey).Distinct(StringComparer.Ordinal).Count() == entrants.Length,
+                "roster.identity", "名单参赛方身份不能重复。");
             Require(roster.Warnings.All(w => !string.IsNullOrWhiteSpace(w.Code) && !string.IsNullOrWhiteSpace(w.Message) && (w.RowNumber is null or > 0)), "roster.warning", "名单警告无效。");
         }
         if (project.Draw is { } draw)
@@ -125,7 +125,7 @@ public static class TournamentWorkspaceRules
             Require(draw.ConfirmedAt is null || draw.ConfirmedAt >= draw.Result.Audit.GeneratedAt, "draw.time", "抽签确认时间早于生成时间。");
         }
         Require((project.MatchGraph is not null) == (project.Draw?.ConfirmedAt is not null), "draw.graph", "确认抽签必须同时存在比赛关系图，未确认抽签不能有比赛关系图。");
-        if (project.MatchGraph is { } graph) ValidateGraph(project.Id, graph);
+        if (project.MatchGraph is { } graph) ValidateGraph(project, graph);
     }
 
     private static void ValidateParticipant(EntrantSource.Participant participant)
@@ -151,8 +151,10 @@ public static class TournamentWorkspaceRules
         return null;
     }
 
-    private static void ValidateGraph(Guid projectId, MatchGraph graph)
+    private static void ValidateGraph(TournamentProject project, MatchGraph graph)
     {
+        var projectId = project.Id;
+        var rosterIdentities = project.Roster!.Participants.Select(p => ProjectEntrantIdentity.Create(project.Discipline, p).IdentityKey).ToHashSet(StringComparer.Ordinal);
         Require(graph.ProjectId == projectId && !string.IsNullOrWhiteSpace(graph.Revision) && graph.Matches.Count > 0, "graph.identity", "比赛关系图项目、版本或场次无效。");
         Require(graph.Matches.Select(n => n.Id).Distinct().Count() == graph.Matches.Count &&
             graph.Matches.Select(n => n.OriginalMatchId).Distinct().Count() == graph.Matches.Count, "graph.duplicate", "比赛标识重复。");
@@ -166,7 +168,10 @@ public static class TournamentWorkspaceRules
             foreach (var side in new[] { node.SideA, node.SideB })
                 switch (side)
                 {
-                    case EntrantSource.Participant p: ValidateParticipant(p); break;
+                    case EntrantSource.Participant p:
+                        ValidateParticipant(p);
+                        Require(rosterIdentities.Contains(ProjectEntrantIdentity.IdentityKey(p.Players)), "graph.roster", "比赛参赛方必须完整匹配项目名单中的选手身份和搭档。");
+                        break;
                     case EntrantSource.WinnerOf w: references.Add(w.MatchId); break;
                     case EntrantSource.LoserOf l: references.Add(l.MatchId); break;
                     case EntrantSource.Bye: break;
