@@ -22,8 +22,7 @@ public sealed class TournamentScheduler
         if (lockedIssues.Length > 0) return Fail(context, placements, lockedIssues);
         var scorer = new TournamentPlacementScorer(context);
         var pending = context.Nodes.Keys.Except(placements.Keys).ToHashSet();
-        var degree = context.Nodes.Keys.ToDictionary(id => id, id => context.Nodes.Keys.Count(other => other != id &&
-            ConditionalPlayerPaths.SharesPlayer(context.Paths[id], context.Paths[other])));
+        var degree = context.Nodes.Keys.ToDictionary(id => id, context.PlayerConflictDegree);
         var projectOrder = request.MatchGraphs.Select((g, i) => (g.ProjectId, i)).ToDictionary(x => x.ProjectId, x => x.i);
         while (pending.Count > 0)
         {

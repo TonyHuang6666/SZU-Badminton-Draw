@@ -68,7 +68,7 @@ public sealed class TournamentPlacementValidator
             var overlap = start < otherEnd && otherStart < end;
             if (overlap && string.Equals(placement.Court, other.Court, StringComparison.OrdinalIgnoreCase))
                 Issue(SchedulingConstraintCode.CourtOverlap, "同一场地有重叠场次。", other.MatchId);
-            if (!ConditionalPlayerPaths.SharesPlayer(Context.Paths[node.Id], Context.Paths[other.MatchId])) continue;
+            if (!Context.ShareCompatiblePlayer(node.Id, other.MatchId)) continue;
             if (overlap) Issue(SchedulingConstraintCode.PlayerOverlap, "确定或兼容晋级路径的同一选手撞场。", other.MatchId);
             else if (Math.Max(start - otherEnd, otherStart - end) < resources.MinimumRestMinutes)
                 Issue(SchedulingConstraintCode.MinimumRest, "确定或兼容晋级路径的休息时间不足。", other.MatchId);

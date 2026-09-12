@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using BadmintonDraw.Core.Matches;
 using BadmintonDraw.Core.Tournaments;
 
@@ -5,6 +6,7 @@ namespace BadmintonDraw.Core.Scheduling;
 
 internal sealed class GraphSchedulingCandidates
 {
+    private readonly FrozenDictionary<Guid, FrozenSet<Guid>> playerConflicts = FrozenDictionary<Guid, FrozenSet<Guid>>.Empty;
     internal TournamentSchedulingRequest Request { get; }
     internal Dictionary<Guid, MatchNode> Nodes { get; } = [];
     internal Dictionary<Guid, IReadOnlyList<ConditionalPlayerPath>> Paths { get; } = [];
@@ -134,7 +136,24 @@ internal sealed class GraphSchedulingCandidates
             Paths[node.Id] = paths.All;
             Durations[node.Id] = ScheduleTimingResolver.Resolve(node, policy);
         }
+        if (InputViolations.Count != 0) return;
+        // Compatibility depends only on this captured graph/result snapshot, not a
+        // candidate's time or court. Freeze it before publishing the validator so
+        // concurrent readers never populate a mutable, or cross-request, cache.
+        var ids = Nodes.Keys.ToArray();
+        var conflicts = ids.ToDictionary(id => id, _ => new HashSet<Guid>());
+        for (var i = 0; i < ids.Length; i++)
+        for (var j = i + 1; j < ids.Length; j++)
+        {
+            if (!ConditionalPlayerPaths.SharesPlayer(Paths[ids[i]], Paths[ids[j]])) continue;
+            conflicts[ids[i]].Add(ids[j]);
+            conflicts[ids[j]].Add(ids[i]);
+        }
+        playerConflicts = conflicts.ToFrozenDictionary(pair => pair.Key, pair => pair.Value.ToFrozenSet());
     }
+
+    internal bool ShareCompatiblePlayer(Guid first, Guid second) => playerConflicts[first].Contains(second);
+    internal int PlayerConflictDegree(Guid matchId) => playerConflicts[matchId].Count;
 
     private static bool Ratio(double value) => double.IsFinite(value) && value is >= 0 and <= 1;
     private static bool SameEntrant(EntrantSource.Participant a, EntrantSource.Participant b) =>
