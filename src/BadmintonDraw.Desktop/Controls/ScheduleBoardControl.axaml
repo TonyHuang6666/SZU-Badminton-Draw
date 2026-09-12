@@ -9,7 +9,7 @@
         <Button Content="+" Click="ZoomIn" AutomationProperties.Name="放大赛程板" />
       </StackPanel>
     </Grid>
-    <TextBlock x:Name="Feedback" Grid.Row="1" Text="拖到日期标签切换比赛日，然后在具体时间和场地格松开。选中比赛后也可用手动移动。" TextWrapping="Wrap" Margin="0,0,0,8" />
+    <TextBlock x:Name="Feedback" Grid.Row="1" TextWrapping="Wrap" Margin="0,0,0,8" />
     <ScrollViewer x:Name="BoardScroll" Grid.Row="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
       <Grid x:Name="BoardGrid" />
     </ScrollViewer>

@@ -47,7 +47,7 @@ public partial class ScheduleBoardControl
         {
             ClearHover(); hoverIntent = intent; hoverCell = cell;
             if (hoverCache.TryGetValue(intent, out var feedback)) ApplyFeedback(cell, feedback);
-            else { Feedback.Text = "正在检查目标位置…松开后仍需预览确认。"; QueueHover(intent, cell); }
+            else { Feedback.Text = "正在检查目标位置…松开后再次校验，合法普通移动自动保存；受阻时只显示原因。"; QueueHover(intent, cell); }
         }
         // Drop is only an intent. A blocked target opens read-only reasons/cascade preview; it never saves directly.
         e.DragEffects = DragDropEffects.Move;
@@ -95,6 +95,7 @@ public partial class ScheduleBoardControl
         hoverCancellation?.Cancel(); hoverCancellation?.Dispose(); hoverCancellation = null;
         if (hoverCell is { } cell) { cell.Background = Brush("AppSurfaceBrush"); cell.BorderBrush = Brush("AppSoftBorderBrush"); cell.BorderThickness = new Thickness(0, 0, 1, 1); ToolTip.SetTip(cell, null); }
         hoverCell = null; hoverIntent = null;
+        Feedback.Text = DragInstructions;
     }
     private void ClearDragState()
     {
