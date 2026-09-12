@@ -1,0 +1,37 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" x:Class="BadmintonDraw.Desktop.Views.StartPage" x:DataType="vm:StartPageViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="40" Spacing="24" MaxWidth="900" HorizontalAlignment="Stretch">
+      <StackPanel Spacing="10">
+        <TextBlock Text="从一场赛事开始" FontSize="30" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" />
+        <TextBlock Text="一份工作区，保存赛事信息、各项目名单、公开抽签和后续赛程。" FontSize="16" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+      </StackPanel>
+      <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="28">
+        <StackPanel Spacing="18">
+          <TextBlock Text="开始筹备" FontSize="20" FontWeight="SemiBold" />
+          <TextBlock Text="可以先完成线上公开抽签，以后再安排比赛时间和场地。" TextWrapping="Wrap" />
+          <WrapPanel Orientation="Horizontal">
+            <Button Content="新建赛事工作区" Command="{Binding NewCommand}" Padding="20,12" Margin="0,0,12,8" />
+            <Button Content="打开赛事工作区" Command="{Binding OpenCommand}" Padding="20,12" Margin="0,0,0,8" />
+          </WrapPanel>
+        </StackPanel>
+      </Border>
+      <StackPanel Spacing="12" IsVisible="{Binding HasRecentWorkspaces}">
+        <TextBlock Text="最近工作区" FontSize="20" FontWeight="SemiBold" />
+        <ItemsControl ItemsSource="{Binding RecentWorkspaces}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:RecentWorkspaceViewModel">
+              <Button Command="{Binding OpenCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="18,14" Margin="0,0,0,8">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                  <TextBlock Text="{Binding Path}" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+                </StackPanel>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+      <TextBlock Text="4.x 存档请使用 v4.6.0 打开。v5 不转换旧版存档。" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

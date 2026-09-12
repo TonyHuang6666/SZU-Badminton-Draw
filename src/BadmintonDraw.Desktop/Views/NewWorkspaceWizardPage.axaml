@@ -1,0 +1,56 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" x:Class="BadmintonDraw.Desktop.Views.NewWorkspaceWizardPage" x:DataType="vm:NewWorkspaceWizardViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="36" Spacing="24" MaxWidth="900" HorizontalAlignment="Stretch">
+      <TextBlock Text="新建赛事工作区" FontSize="28" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" />
+      <TextBlock Text="1  赛事信息    →    2  参赛项目    →    3  保存与创建" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+      <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="28">
+        <StackPanel Spacing="22">
+          <StackPanel IsVisible="{Binding IsStepOne}" Spacing="14">
+            <TextBlock Text="赛事名称" FontWeight="SemiBold" />
+            <TextBox Text="{Binding Name}" PlaceholderText="例如：校长杯羽毛球赛" />
+            <TextBlock Text="赛事类型" FontWeight="SemiBold" Margin="0,10,0,0" />
+            <StackPanel Orientation="Horizontal" Spacing="24">
+              <RadioButton Content="团体赛" GroupName="kind" IsChecked="{Binding IsTeam}" />
+              <RadioButton Content="单项赛" GroupName="kind" IsChecked="{Binding IsIndividual}" />
+            </StackPanel>
+            <TextBlock Text="本次工作目标" FontWeight="SemiBold" Margin="0,10,0,0" />
+            <RadioButton Content="仅公开抽签" GroupName="purpose" IsChecked="{Binding IsDrawOnly}" />
+            <TextBlock Text="先导入名单、公开抽签并确认；之后可继续筹备完整赛事。" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+            <RadioButton Content="完整赛事筹备" GroupName="purpose" IsChecked="{Binding IsFullTournament}" />
+            <TextBlock Text="各项目抽签确认后，再统一安排时间、场地与赛程。" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+          </StackPanel>
+          <StackPanel IsVisible="{Binding IsStepTwo}" Spacing="16">
+            <TextBlock Text="选择项目与赛制" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="单项赛选择 1–5 个项目；团体赛包含一个团体项目。" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+            <ItemsControl ItemsSource="{Binding Projects}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:WorkspaceProjectOptionViewModel">
+                  <Grid ColumnDefinitions="*,180" Margin="0,0,0,12">
+                    <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" IsEnabled="{Binding IsOptional}" />
+                    <ComboBox Grid.Column="1" ItemsSource="{Binding CompetitionModes}" SelectedIndex="{Binding CompetitionModeIndex}" IsEnabled="{Binding IsSelected}" HorizontalAlignment="Stretch" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+          <StackPanel IsVisible="{Binding IsStepThree}" Spacing="16">
+            <TextBlock Text="确认并选择保存位置" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+            <TextBlock Text="工作区文件（.szbd）" FontWeight="SemiBold" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Text="{Binding WorkspacePath}" PlaceholderText="选择本地保存位置" />
+              <Button Grid.Column="1" Content="选择位置…" Command="{Binding BrowsePathCommand}" Margin="12,0,0,0" />
+            </Grid>
+            <TextBlock Text="创建后进入赛事信息。准备好名单时，再按项目导入。" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+      <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
+        <Button Content="上一步" Command="{Binding BackCommand}" />
+        <Button Content="下一步" Command="{Binding NextCommand}" IsVisible="{Binding !IsStepThree}" />
+        <Button Content="创建赛事工作区" Command="{Binding CreateCommand}" IsVisible="{Binding IsStepThree}" />
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

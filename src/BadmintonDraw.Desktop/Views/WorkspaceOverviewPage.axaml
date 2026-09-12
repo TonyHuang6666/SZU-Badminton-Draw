@@ -1,0 +1,67 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" x:Class="BadmintonDraw.Desktop.Views.WorkspaceOverviewPage" x:DataType="vm:WorkspaceOverviewPageViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="32" Spacing="22" MaxWidth="1050" HorizontalAlignment="Stretch">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="8">
+          <TextBlock Text="赛事信息" FontSize="28" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" />
+          <TextBlock Text="{Binding Revision}" Foreground="{DynamicResource AppMutedTextBrush}" />
+        </StackPanel>
+        <Button Grid.Column="1" Content="编辑赛事信息" Command="{Binding BeginEditCommand}" VerticalAlignment="Center" />
+      </Grid>
+      <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="24">
+        <StackPanel Spacing="16">
+          <TextBlock Text="{Binding Name}" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" />
+          <WrapPanel>
+            <TextBlock Text="{Binding Kind}" Margin="0,0,24,8" />
+            <TextBlock Text="{Binding Purpose}" Margin="0,0,24,8" />
+            <TextBlock Text="{Binding Stage}" Foreground="{DynamicResource AppAccentBrush}" />
+          </WrapPanel>
+          <TextBlock Text="{Binding NextStep}" TextWrapping="Wrap" />
+          <WrapPanel>
+            <Button Content="前往下一步" Command="{Binding NextCommand}" Margin="0,0,12,8" />
+            <Button Content="继续筹备完整赛事" Command="{Binding UpgradeCommand}" IsVisible="{Binding CanUpgrade}" Margin="0,0,0,8" />
+          </WrapPanel>
+        </StackPanel>
+      </Border>
+      <StackPanel Spacing="12" IsVisible="{Binding !IsEditing}">
+        <TextBlock Text="各项目进度" FontSize="20" FontWeight="SemiBold" />
+        <ItemsControl ItemsSource="{Binding ProjectProgress}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:WorkspaceProjectProgress">
+              <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,0,8">
+                <Grid ColumnDefinitions="*,*,*">
+                  <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                  <TextBlock Grid.Column="1" Text="{Binding RosterStatus}" TextWrapping="Wrap" />
+                  <TextBlock Grid.Column="2" Text="{Binding DrawStatus}" TextWrapping="Wrap" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+      <Border IsVisible="{Binding IsEditing}" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="24">
+        <StackPanel Spacing="16">
+          <TextBlock Text="赛事配置" FontSize="20" FontWeight="SemiBold" />
+          <TextBox Text="{Binding EditableName}" IsEnabled="{Binding CanEditFields}" PlaceholderText="赛事名称" />
+          <ItemsControl ItemsSource="{Binding Projects}" IsEnabled="{Binding CanEditFields}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:WorkspaceProjectOptionViewModel">
+                <Grid ColumnDefinitions="140,*,140" Margin="0,0,0,12">
+                  <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" IsEnabled="{Binding IsOptional}" />
+                  <TextBox Grid.Column="1" Text="{Binding DisplayName}" IsEnabled="{Binding IsSelected}" Margin="8,0" />
+                  <ComboBox Grid.Column="2" ItemsSource="{Binding CompetitionModes}" SelectedIndex="{Binding CompetitionModeIndex}" IsEnabled="{Binding IsSelected}" HorizontalAlignment="Stretch" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
+            <Button Content="取消编辑" Command="{Binding CancelEditCommand}" />
+            <Button Content="保存赛事信息" Command="{Binding SaveCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+      <TextBlock Text="{Binding EditHint}" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

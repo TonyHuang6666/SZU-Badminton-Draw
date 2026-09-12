@@ -1,0 +1,56 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BadmintonDraw.Desktop.ViewModels"
+        xmlns:views="using:BadmintonDraw.Desktop.Views"
+        x:Class="BadmintonDraw.Desktop.AppShellWindow"
+        x:DataType="vm:AppShellViewModel"
+        Title="{Binding Title}" Width="1200" Height="820" MinWidth="880" MinHeight="620"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource AppTextBrush}">
+  <Window.DataTemplates>
+    <DataTemplate DataType="{x:Type vm:StartPageViewModel}"><views:StartPage /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:NewWorkspaceWizardViewModel}"><views:NewWorkspaceWizardPage /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:WorkspaceOverviewPageViewModel}"><views:WorkspaceOverviewPage /></DataTemplate>
+  </Window.DataTemplates>
+  <Grid RowDefinitions="Auto,*,Auto">
+    <Border Background="{DynamicResource AppHeaderBackgroundBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,0,0,1" Padding="24,18">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <Image Source="/Assets/szuba-red-logo.png" Width="46" Height="46" Margin="0,0,16,0" />
+        <StackPanel Grid.Column="1" Spacing="4">
+          <TextBlock Text="{Binding Title}" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding StageText}" Foreground="{DynamicResource AppMutedTextBrush}" />
+        </StackPanel>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <Button Content="开始" Command="{Binding HomeCommand}" />
+          <Button Content="新建赛事" Command="{Binding NewCommand}" />
+          <Button Content="打开工作区" Command="{Binding OpenCommand}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,*">
+      <Border IsVisible="{Binding HasWorkspace}" Width="190" Padding="16,24" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,0,1,0">
+        <StackPanel Spacing="16">
+          <TextBlock Text="赛事阶段" FontWeight="SemiBold" Foreground="{DynamicResource AppMutedTextBrush}" />
+          <ItemsControl ItemsSource="{Binding NavigationItems}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:WorkspaceNavigationItemViewModel">
+                <Button Content="{Binding Label}" Command="{Binding Command}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Margin="0,0,0,8" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Text="操作成功后自动保存" FontSize="12" Foreground="{DynamicResource AppMutedTextBrush}" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+      <ContentControl Grid.Column="1" Content="{Binding CurrentPage}" IsEnabled="{Binding !IsBusy}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+    </Grid>
+    <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,1,0,0" Padding="20,12">
+      <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
+        <ProgressBar Grid.ColumnSpan="2" IsVisible="{Binding IsBusy}" IsIndeterminate="True" Height="3" Margin="0,0,0,8" />
+        <ScrollViewer Grid.Row="1" MaxHeight="140">
+          <SelectableTextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+        </ScrollViewer>
+        <Button Grid.Row="1" Grid.Column="1" Content="重新载入" Command="{Binding ReloadCommand}" IsVisible="{Binding HasWorkspace}" Margin="16,0,0,0" VerticalAlignment="Top" />
+        <SelectableTextBlock Grid.Row="2" Text="{Binding WorkspacePath}" IsVisible="{Binding HasWorkspace}" FontSize="11" Foreground="{DynamicResource AppMutedTextBrush}" TextWrapping="Wrap" Margin="0,6,0,0" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>
