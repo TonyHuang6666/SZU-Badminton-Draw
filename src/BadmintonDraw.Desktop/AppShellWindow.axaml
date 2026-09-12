@@ -12,6 +12,8 @@
     <DataTemplate DataType="{x:Type vm:WorkspaceOverviewPageViewModel}"><views:WorkspaceOverviewPage /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:RostersPageViewModel}"><views:RostersPage /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:PublicDrawPageViewModel}"><views:PublicDrawPage /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ScheduleSetupPageViewModel}"><views:ScheduleSetupPage /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ScheduleBoardPageViewModel}"><views:ScheduleBoardPage /></DataTemplate>
   </Window.DataTemplates>
   <Grid RowDefinitions="Auto,*,Auto">
     <Border Background="{DynamicResource AppHeaderBackgroundBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,0,0,1" Padding="24,18">

@@ -49,8 +49,8 @@ public sealed class ProjectRosterViewModel : ViewModelBase
             { IsSeedEditing = false; LoadRows(); }
         }, () => CanEdit && !IsSeedEditing, page.Shell.ReportError);
         ExportTemplateCommand = new(ExportTemplateAsync, () => page.Shell.CanMutate, page.Shell.ReportError);
-        BeginSeedEditCommand = new(() => { LoadRows(); IsSeedEditing = true; }, () => CanEdit && project.Roster is not null && !IsSeedEditing);
-        ResetSeedsCommand = new(LoadRows, () => !page.Shell.IsBusy && project.Roster is not null);
+        BeginSeedEditCommand = new(() => { LoadRows(); IsSeedEditing = true; }, () => CanEdit && this.project.Roster is not null && !IsSeedEditing);
+        ResetSeedsCommand = new(LoadRows, () => !page.Shell.IsBusy && this.project.Roster is not null);
         CancelSeedEditCommand = new(() => { IsSeedEditing = false; LoadRows(); }, () => !page.Shell.IsBusy && IsSeedEditing);
         SaveSeedsCommand = new(async () =>
         {
@@ -113,8 +113,9 @@ public sealed class RosterSeedRowViewModel(int sourceIndex, DrawParticipant part
     public string Note => participant.Note ?? "";
     public bool CanEdit => canEdit;
     internal void SetEditable(bool value) { if (canEdit != value) { canEdit = value; OnPropertyChanged(nameof(CanEdit)); } }
-    public bool IsSeed { get => isSeed; set => SetProperty(ref isSeed, value); }
-    public string SeedRankText { get => seedRankText; set => SetProperty(ref seedRankText, value); }
+    public bool IsSeed { get => isSeed; set { if (SetProperty(ref isSeed, value)) OnPropertyChanged(nameof(SeedIssue)); } }
+    public string SeedRankText { get => seedRankText; set { if (SetProperty(ref seedRankText, value)) OnPropertyChanged(nameof(SeedIssue)); } }
+    public string SeedIssue => !IsSeed && !string.IsNullOrWhiteSpace(SeedRankText) ? "取消种子时请同时清空序号。" : "";
     internal RosterSeedEdit ToEdit()
     {
         int? rank = null;

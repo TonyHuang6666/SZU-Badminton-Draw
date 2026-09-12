@@ -1,0 +1,108 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" x:Class="BadmintonDraw.Desktop.Views.ScheduleSetupPage" x:DataType="vm:ScheduleSetupPageViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="28" Spacing="18">
+      <TextBlock Text="全局赛程设置" FontSize="28" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" />
+      <TextBlock Text="所有项目直接使用同一份资源与策略，不先生成各项目的临时赛程。" TextWrapping="Wrap" />
+      <TextBlock Text="{Binding EditHint}" TextWrapping="Wrap" Foreground="{DynamicResource AppAccentBrush}" />
+      <WrapPanel>
+        <Button Content="生成 / 重新编排全局赛程" Command="{Binding GenerateCommand}" Classes="primary" Margin="0,0,10,8" />
+        <Button Content="载入最新设置" Command="{Binding ResetCommand}" Margin="0,0,10,8" />
+        <Button Content="查看赛程板" Command="{Binding BoardCommand}" Margin="0,0,10,8" />
+      </WrapPanel>
+      <SelectableTextBlock Text="{Binding FailureDetails}" TextWrapping="Wrap" Foreground="{DynamicResource AppErrorTextBrush}" />
+      <StackPanel Spacing="18" IsEnabled="{Binding CanEdit}">
+        <Border Classes="card" Padding="18" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="8">
+          <StackPanel Spacing="10">
+            <TextBlock Text="{Binding PolicyLabel}" FontSize="20" FontWeight="SemiBold" />
+            <ComboBox ItemsSource="{Binding Strategies}" SelectedIndex="{Binding StrategyIndex}" HorizontalAlignment="Stretch" />
+            <Button Content="使用所选策略默认值（清空负载、阶段和决赛日覆盖项）" Command="{Binding UseStrategyDefaultsCommand}" />
+            <TextBlock Text="策略、负载、阶段推进和决赛日均为软目标；场地、裁判、休息与每日场次是硬约束。只有点击生成才会执行。" TextWrapping="Wrap" FontSize="12" />
+            <WrapPanel>
+              <StackPanel Width="180" Margin="0,0,12,8"><TextBlock Text="裁判人数（留空按场地数）" /><TextBox Text="{Binding RefereeCountText}" AutomationProperties.Name="全局裁判人数" /></StackPanel>
+              <StackPanel Width="180" Margin="0,0,12,8"><TextBlock Text="选手最小休息（分钟）" /><TextBox Text="{Binding MinimumRestText}" AutomationProperties.Name="全局最小休息分钟" /></StackPanel>
+              <StackPanel Width="180" Margin="0,0,12,8"><TextBlock Text="选手每日最多场次" /><TextBox Text="{Binding DailyMaximumText}" AutomationProperties.Name="全局每日场次上限" /></StackPanel>
+            </WrapPanel>
+            <CheckBox Content="同步各项目阶段推进波次" IsChecked="{Binding SynchronizeStageWaves}" />
+            <TextBlock Text="阶段推进仅在开启同步且使用非紧凑策略时参与评分；各目标都不会覆盖硬约束。" FontSize="12" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Grid ColumnDefinitions="*,Auto"><TextBlock Text="比赛日与共享资源" FontSize="22" FontWeight="SemiBold" /><Button Grid.Column="1" Content="添加比赛日" Command="{Binding AddDayCommand}" /></Grid>
+        <TextBlock Text="场地名用逗号分隔；不可用时段的场地留空表示所有场地。百分比留空使用策略默认值，0 是明确的零目标。删除比赛日也删除该日目标。" FontSize="12" TextWrapping="Wrap" />
+        <ItemsControl ItemsSource="{Binding Days}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ScheduleDayEditorViewModel">
+              <Border Padding="16" Margin="0,0,0,12" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="12">
+                  <WrapPanel>
+                    <StackPanel Width="140" Margin="0,0,10,8"><TextBlock Text="日期 yyyy-MM-dd" /><TextBox Text="{Binding DateText}" AutomationProperties.Name="比赛日期" /></StackPanel>
+                    <StackPanel Width="120" Margin="0,0,10,8"><TextBlock Text="开始时间" /><TextBox Text="{Binding StartText}" AutomationProperties.Name="比赛日开始时间" /></StackPanel>
+                    <StackPanel Width="120" Margin="0,0,10,8"><TextBlock Text="结束时间" /><TextBox Text="{Binding EndText}" AutomationProperties.Name="比赛日结束时间" /></StackPanel>
+                    <Button Content="删除此日" Command="{Binding RemoveCommand}" VerticalAlignment="Bottom" Margin="0,0,0,8" />
+                  </WrapPanel>
+                  <TextBlock Text="可用场地" /><TextBox Text="{Binding CourtsText}" AutomationProperties.Name="比赛日可用场地" />
+                  <WrapPanel>
+                    <StackPanel Width="150" Margin="0,0,10,8"><TextBlock Text="目标负载 %" /><TextBox Text="{Binding TargetLoadText}" PlaceholderText="策略默认" AutomationProperties.Name="每日目标负载百分比" /></StackPanel>
+                    <StackPanel Width="150" Margin="0,0,10,8"><TextBlock Text="警戒负载 %" /><TextBox Text="{Binding WarningLoadText}" PlaceholderText="目标 + 15" AutomationProperties.Name="每日警戒负载百分比" /></StackPanel>
+                    <StackPanel Width="150" Margin="0,0,10,8"><TextBlock Text="累计阶段进度 %" /><TextBox Text="{Binding StageProgressText}" PlaceholderText="策略默认" AutomationProperties.Name="累计阶段进度百分比" /></StackPanel>
+                  </WrapPanel>
+                  <Expander Header="不可用场地时段" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="8">
+                      <ItemsControl ItemsSource="{Binding Unavailable}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ScheduleUnavailableEditorViewModel">
+                        <Grid ColumnDefinitions="100,100,*,Auto" Margin="0,0,0,6">
+                          <TextBox Text="{Binding StartText}" Margin="0,0,6,0" AutomationProperties.Name="不可用时段开始" />
+                          <TextBox Grid.Column="1" Text="{Binding EndText}" Margin="0,0,6,0" AutomationProperties.Name="不可用时段结束" />
+                          <TextBox Grid.Column="2" Text="{Binding CourtsText}" PlaceholderText="全部场地" Margin="0,0,6,0" AutomationProperties.Name="不可用场地" />
+                          <Button Grid.Column="3" Content="删除" Command="{Binding RemoveCommand}" />
+                        </Grid>
+                      </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                      <Button Content="添加不可用时段" Command="{Binding AddUnavailableCommand}" />
+                    </StackPanel>
+                  </Expander>
+                  <Expander Header="分时段裁判人数" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="8">
+                      <ItemsControl ItemsSource="{Binding RefereeWindows}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ScheduleRefereeEditorViewModel">
+                        <Grid ColumnDefinitions="120,120,*,Auto" Margin="0,0,0,6">
+                          <TextBox Text="{Binding StartText}" Margin="0,0,6,0" AutomationProperties.Name="裁判时段开始" />
+                          <TextBox Grid.Column="1" Text="{Binding EndText}" Margin="0,0,6,0" AutomationProperties.Name="裁判时段结束" />
+                          <TextBox Grid.Column="2" Text="{Binding CountText}" Margin="0,0,6,0" AutomationProperties.Name="时段裁判人数" />
+                          <Button Grid.Column="3" Content="删除" Command="{Binding RemoveCommand}" />
+                        </Grid>
+                      </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                      <Button Content="添加裁判时段" Command="{Binding AddRefereeWindowCommand}" />
+                    </StackPanel>
+                  </Expander>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Text="项目时长与全局决赛日目标" FontSize="22" FontWeight="SemiBold" />
+        <TextBlock Text="末日指全赛事最后一个比赛日；这些目标始终服从共享资源，不代表各项目独立编排。" TextWrapping="Wrap" FontSize="12" />
+        <ItemsControl ItemsSource="{Binding ProjectTimings}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ScheduleProjectTimingViewModel">
+              <Border Padding="16" Margin="0,0,0,12" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="8">
+                <StackPanel Spacing="10">
+                  <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" />
+                  <Grid ColumnDefinitions="180,*"><TextBlock Text="预计单场时长（分钟）" VerticalAlignment="Center" /><TextBox Grid.Column="1" Text="{Binding MinutesText}" AutomationProperties.Name="项目预计单场时长" /></Grid>
+                  <CheckBox Content="淘汰赛分段时长" IsChecked="{Binding UseTimingSplit}" IsVisible="{Binding SupportsTimingSplit}" />
+                  <WrapPanel IsVisible="{Binding UseTimingSplit}">
+                    <StackPanel Width="180" Margin="0,0,10,8"><TextBlock Text="进入前 N 名后用默认时长" /><TextBox Text="{Binding BoundaryText}" AutomationProperties.Name="淘汰赛时长分界人数" /></StackPanel>
+                    <StackPanel Width="180" Margin="0,0,10,8"><TextBlock Text="此前单场时长（分钟）" /><TextBox Text="{Binding BeforeMinutesText}" AutomationProperties.Name="分界前单场时长" /></StackPanel>
+                  </WrapPanel>
+                  <WrapPanel>
+                    <StackPanel Width="220" Margin="0,0,10,8"><TextBlock Text="决赛" /><ComboBox ItemsSource="{Binding Preferences}" SelectedIndex="{Binding FinalPreferenceIndex}" HorizontalAlignment="Stretch" /></StackPanel>
+                    <StackPanel Width="220" Margin="0,0,10,8"><TextBlock Text="半决赛" /><ComboBox ItemsSource="{Binding Preferences}" SelectedIndex="{Binding SemifinalPreferenceIndex}" HorizontalAlignment="Stretch" /></StackPanel>
+                    <StackPanel Width="220" Margin="0,0,10,8"><TextBlock Text="季军赛" /><ComboBox ItemsSource="{Binding Preferences}" SelectedIndex="{Binding BronzePreferenceIndex}" HorizontalAlignment="Stretch" /></StackPanel>
+                    <StackPanel Width="220" Margin="0,0,10,8"><TextBlock Text="5–8 名排位赛" /><ComboBox ItemsSource="{Binding Preferences}" SelectedIndex="{Binding PlacementPreferenceIndex}" HorizontalAlignment="Stretch" /></StackPanel>
+                  </WrapPanel>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

@@ -111,6 +111,37 @@ public sealed class AppShellViewModel : ViewModelBase, IDisposable
             return command(workflow, expectedSession.Workspace.Revision);
         }), successMessage);
 
+    /// <summary>Read-only work has no save result. Background hover checks must not disable the active drag surface.</summary>
+    public async Task<WorkspaceQueryResult<T>> RunWorkspaceQueryAsync<T>(WorkspaceSession expectedSession,
+        Func<TournamentWorkspaceWorkflow, long, T> query, bool background = false) where T : class
+    {
+        var ownsBusy = !background && !disposed && Interlocked.CompareExchange(ref busy, 1, 0) == 0;
+        if (disposed || (!background && !ownsBusy) || (background && IsBusy))
+            return new(false, null, new("desktop.query-busy", "当前操作尚未完成。"));
+        if (ownsBusy) { LastError = null; Status = "正在检查，尚未保存…"; RefreshAvailability(); }
+        try
+        {
+            void CheckSession()
+            {
+                if (disposed || !ReferenceEquals(workflow.CurrentSession, expectedSession))
+                    throw new WorkspaceCommandException(new("workspace.session-changed", "工作区已更新或切换，请重新检查目标位置。"));
+                if (expectedSession.RequiresReload)
+                    throw new WorkspaceCommandException(new("workspace.reload-required", "请重新载入工作区后再操作。"));
+            }
+            var value = await Task.Run(() => { CheckSession(); var result = query(workflow, expectedSession.Workspace.Revision); CheckSession(); return result; });
+            CheckSession();
+            if (ownsBusy) Status = "检查完成，尚未保存任何修改。";
+            return new(true, value, null);
+        }
+        catch (Exception exception)
+        {
+            var error = exception is WorkspaceCommandException command ? command.Error : new WorkspaceError("desktop.query-failed", "检查失败：" + exception.Message);
+            if (ownsBusy && !disposed) ReportError(new WorkspaceCommandException(error, exception));
+            return new(false, null, error);
+        }
+        finally { if (ownsBusy) { Interlocked.Exchange(ref busy, 0); if (!disposed) RefreshAvailability(); } }
+    }
+
     private async Task<bool> RunCommandAsync(Func<Task<WorkspaceCommandResult?>> command, string successMessage,
         bool remember = false, bool forceOverview = false, bool ensureWorkspacePage = false)
     {
@@ -199,6 +230,8 @@ public sealed class AppShellViewModel : ViewModelBase, IDisposable
         if (CurrentPage is IDisposable disposable) disposable.Dispose();
     }
 }
+
+public sealed record WorkspaceQueryResult<T>(bool Succeeded, T? Value, WorkspaceError? Error) where T : class;
 
 public sealed class WorkspaceNavigationItemViewModel : ViewModelBase
 {

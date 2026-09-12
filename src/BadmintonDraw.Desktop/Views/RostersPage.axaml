@@ -64,12 +64,13 @@
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:RosterSeedRowViewModel">
                         <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,0,0,1" Padding="10">
-                          <Grid ColumnDefinitions="40,2*,2*,65,80">
+                          <Grid ColumnDefinitions="40,2*,2*,65,80" RowDefinitions="Auto,Auto">
                             <TextBlock Text="{Binding Order}" VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1" Spacing="4" Margin="0,0,12,0"><SelectableTextBlock Text="{Binding Name}" TextWrapping="Wrap" /><SelectableTextBlock Text="{Binding Identity}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AppMutedTextBrush}" /></StackPanel>
                             <StackPanel Grid.Column="2" Spacing="4" Margin="0,0,12,0"><SelectableTextBlock Text="{Binding Partner}" TextWrapping="Wrap" /><TextBlock Text="{Binding Note}" TextWrapping="Wrap" FontSize="12" /></StackPanel>
                             <CheckBox Grid.Column="3" IsChecked="{Binding IsSeed}" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="种子标记" />
                             <TextBox Grid.Column="4" Text="{Binding SeedRankText}" IsEnabled="{Binding CanEdit}" PlaceholderText="可留空" AutomationProperties.Name="种子序号" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="4" Text="{Binding SeedIssue}" TextWrapping="Wrap" Foreground="{DynamicResource AppErrorTextBrush}" />
                           </Grid>
                         </Border>
                       </DataTemplate>

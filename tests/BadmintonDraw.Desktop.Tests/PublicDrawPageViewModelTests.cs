@@ -19,6 +19,37 @@ public sealed class PublicDrawPageViewModelTests : IDisposable
     private string PathFor(string name) => Path.Combine(directory, name);
 
     [Fact]
+    public async Task ImportFromInitiallyEmptyPageEnablesSeedEditorAndSavesNewSeed()
+    {
+        var (workflow, shell) = Create(); Register(shell, () => Task.FromResult<string?>(WriteRoster("new.xlsx")));
+        shell.Navigate(WorkspaceRoute.Rosters);
+        var project = Assert.IsType<RostersPageViewModel>(shell.CurrentPage).Projects[0];
+        Assert.False(project.BeginSeedEditCommand.CanExecute(null));
+        await project.ImportCommand.ExecuteAsync();
+        Assert.True(project.BeginSeedEditCommand.CanExecute(null)); Assert.True(project.ResetSeedsCommand.CanExecute(null));
+        project.BeginSeedEditCommand.Execute(null); project.Rows[0].IsSeed = true; project.Rows[0].SeedRankText = "1";
+        await project.SaveSeedsCommand.ExecuteAsync();
+        Assert.True(workflow.CurrentSession!.Workspace.Projects[0].Roster!.Participants[0].IsSeed);
+        Assert.Equal(1, workflow.CurrentSession.Workspace.Projects[0].Roster!.Participants[0].SeedRank);
+    }
+
+    [Fact]
+    public async Task UncheckedSeedWithRetainedRankShowsLocalGuidanceAndRequiresExplicitClear()
+    {
+        var (workflow, shell) = Ready(); Register(shell); shell.Navigate(WorkspaceRoute.Rosters);
+        var project = Assert.IsType<RostersPageViewModel>(shell.CurrentPage).Projects[0];
+        project.BeginSeedEditCommand.Execute(null); var row = project.Rows[0];
+        row.IsSeed = true; row.SeedRankText = "1"; row.IsSeed = false;
+        Assert.NotEmpty(row.SeedIssue); Assert.Equal("1", row.SeedRankText);
+        var before = workflow.CurrentSession;
+        await project.SaveSeedsCommand.ExecuteAsync(); Assert.Same(before, workflow.CurrentSession);
+        row.SeedRankText = ""; Assert.Empty(row.SeedIssue);
+        await project.SaveSeedsCommand.ExecuteAsync();
+        Assert.False(workflow.CurrentSession!.Workspace.Projects[0].Roster!.Participants[0].IsSeed);
+        Assert.Null(workflow.CurrentSession.Workspace.Projects[0].Roster!.Participants[0].SeedRank);
+    }
+
+    [Fact]
     public async Task RosterImportAndNavigationNeverDrawAndLastRosterEnablesExplicitPreview()
     {
         var (workflow, shell) = Create(2);

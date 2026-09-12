@@ -19,6 +19,8 @@ public partial class AppShellWindow : Window
             new RecentWorkspaceStore(RecentWorkspaceStore.DefaultPath), action => Dispatcher.UIThread.Post(action));
         shell.RegisterPageFactory(WorkspaceRoute.Rosters, session => new RostersPageViewModel(shell, session, PickRosterPathAsync, PickTemplatePathAsync));
         shell.RegisterPageFactory(WorkspaceRoute.PublicDraw, session => new PublicDrawPageViewModel(shell, session, PickDrawOutputDirectoryAsync));
+        shell.RegisterPageFactory(WorkspaceRoute.ScheduleSetup, session => new ScheduleSetupPageViewModel(shell, session));
+        shell.RegisterPageFactory(WorkspaceRoute.ScheduleBoard, session => new ScheduleBoardPageViewModel(shell, session));
         DataContext = shell;
         Closed += (_, _) => shell.Dispose();
         try
@@ -41,7 +43,7 @@ public partial class AppShellWindow : Window
         var safeName = string.Concat(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "保存新的赛事工作区", SuggestedFileName = safeName + ".szbd", DefaultExtension = "szbd",
+            Title = "保存新的赛事工作区", SuggestedFileName = safeName, DefaultExtension = "szbd",
             FileTypeChoices = [WorkspaceFileType]
         });
         return LocalPath(file);
@@ -58,7 +60,7 @@ public partial class AppShellWindow : Window
     {
         var safeName = string.Concat(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
         return LocalPath(await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        { Title = "导出名单模板", SuggestedFileName = safeName + ".xlsx", DefaultExtension = "xlsx", FileTypeChoices = [RosterFileType] }));
+        { Title = "导出名单模板", SuggestedFileName = safeName, DefaultExtension = "xlsx", FileTypeChoices = [RosterFileType] }));
     }
     private async Task<string?> PickDrawOutputDirectoryAsync()
     {

@@ -1,0 +1,17 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="BadmintonDraw.Desktop.Controls.ScheduleBoardControl">
+  <Grid RowDefinitions="Auto,Auto,*">
+    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+      <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"><StackPanel x:Name="DayTabs" Orientation="Horizontal" Spacing="6" /></ScrollViewer>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="8,0,0,0">
+        <Button Content="−" Click="ZoomOut" AutomationProperties.Name="缩小赛程板" />
+        <Button x:Name="ZoomLabel" Content="100%" Click="ResetZoom" AutomationProperties.Name="重置赛程板缩放" />
+        <Button Content="+" Click="ZoomIn" AutomationProperties.Name="放大赛程板" />
+      </StackPanel>
+    </Grid>
+    <TextBlock x:Name="Feedback" Grid.Row="1" Text="拖到日期标签切换比赛日，然后在具体时间和场地格松开。选中比赛后也可用手动移动。" TextWrapping="Wrap" Margin="0,0,0,8" />
+    <ScrollViewer x:Name="BoardScroll" Grid.Row="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+      <Grid x:Name="BoardGrid" />
+    </ScrollViewer>
+  </Grid>
+</UserControl>
