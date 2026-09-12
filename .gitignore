@@ -41,3 +41,4 @@ obj/
 *.nupkg
 TestResults/
 artifacts/
+.worktrees/
