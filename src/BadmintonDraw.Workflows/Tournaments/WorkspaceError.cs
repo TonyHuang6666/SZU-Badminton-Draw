@@ -1,4 +1,5 @@
 using BadmintonDraw.Core;
+using BadmintonDraw.Core.Scheduling;
 using BadmintonDraw.Core.Tournaments;
 using BadmintonDraw.Excel;
 using BadmintonDraw.Persistence;
@@ -6,7 +7,7 @@ using BadmintonDraw.Persistence;
 namespace BadmintonDraw.Workflows.Tournaments;
 
 public sealed record WorkspaceError(string Code, string Message, string? CandidatePath = null,
-    string? BackupPath = null, bool Committed = false);
+    string? BackupPath = null, bool Committed = false, SchedulingFailure? SchedulingFailure = null);
 
 public sealed class WorkspaceCommandException(WorkspaceError error, Exception? innerException = null)
     : Exception(error.Message, innerException)
@@ -32,6 +33,7 @@ public sealed class WorkspaceCommandException(WorkspaceError error, Exception? i
             _ when store is not null => (store.Code, store.Message),
             _ => ("workspace.operation-failed", "操作失败：" + exception.Message)
         };
-        return new(new(code, message, store?.CandidatePath, store?.BackupPath, store?.Committed ?? false), exception);
+        return new(new(code, message, store?.CandidatePath, store?.BackupPath, store?.Committed ?? false,
+            (cause as WorkspaceCommandException)?.Error.SchedulingFailure), exception);
     }
 }

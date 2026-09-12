@@ -122,7 +122,11 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
                 Stage = ready ? TournamentStage.RostersReady : TournamentStage.Draft }, "ConfigurationUpdated");
         });
 
-    private WorkspaceCommandResult Change(long expectedRevision, Func<TournamentWorkspace, TournamentWorkspace> mutation)
+    private WorkspaceCommandResult Change(long expectedRevision, Func<TournamentWorkspace, TournamentWorkspace> mutation) =>
+        WithCapturedSession(captured => CommitChange(captured, expectedRevision, mutation));
+
+    // Search and publication can share this boundary without opening a second command or releasing the session gate.
+    private WorkspaceCommandResult WithCapturedSession(Func<WorkspaceSession, WorkspaceCommandResult> command)
     {
         // Capture before waiting: a queued command must never migrate to a newly opened archive with the same revision.
         var captured = CurrentSession;
@@ -134,15 +138,7 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
                 Require(captured is not null, "workspace.not-open", "请先新建或打开赛事工作区。");
                 Require(ReferenceEquals(captured, currentSession), "workspace.session-changed", "当前工作区已切换，请在新工作区重新执行操作。");
                 Require(!captured!.RequiresReload, "workspace.reload-required", "工作区已保存但无法重新读取，请重新打开后再操作。");
-                var result = store.Mutate(captured.WorkspacePath, expectedRevision, workspace =>
-                {
-                    Require(workspace.Id == captured.Workspace.Id, "workspace.session-changed",
-                        "工作区文件已被其他赛事替换，请重新打开后再操作。");
-                    var candidate = mutation(workspace);
-                    TournamentWorkspaceRules.Validate(candidate);
-                    return candidate;
-                });
-                return Publish(result.Workspace, captured.WorkspacePath, result.BackupPath);
+                return command(captured);
             }
             catch (Exception exception)
             {
@@ -152,6 +148,23 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
             }
         }
     }
+
+    private WorkspaceCommandResult CommitChange(WorkspaceSession captured, long expectedRevision,
+        Func<TournamentWorkspace, TournamentWorkspace> mutation)
+    {
+        var result = store.Mutate(captured.WorkspacePath, expectedRevision, workspace =>
+        {
+            RequireWorkspaceIdentity(workspace, captured);
+            var candidate = mutation(workspace);
+            TournamentWorkspaceRules.Validate(candidate);
+            return candidate;
+        });
+        return Publish(result.Workspace, captured.WorkspacePath, result.BackupPath);
+    }
+
+    private static void RequireWorkspaceIdentity(TournamentWorkspace workspace, WorkspaceSession captured) =>
+        Require(workspace.Id == captured.Workspace.Id, "workspace.session-changed",
+            "工作区文件已被其他赛事替换，请重新打开后再操作。");
 
     private WorkspaceCommandResult Publish(TournamentWorkspace workspace, string path, string? backupPath)
     {
