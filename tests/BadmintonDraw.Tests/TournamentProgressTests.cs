@@ -23,7 +23,11 @@ public sealed partial class DrawWorkflowTests
             var snapshot = CreateTournamentProgressSnapshot("tournament-atomic-update");
             var store = new TournamentProgressStore();
             store.Create(progressPath, snapshot);
-            using (var connection = new SqliteConnection($"Data Source={progressPath}"))
+            using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                   {
+                       DataSource = progressPath,
+                       Pooling = false
+                   }.ToString()))
             {
                 connection.Open();
                 using var command = connection.CreateCommand();
