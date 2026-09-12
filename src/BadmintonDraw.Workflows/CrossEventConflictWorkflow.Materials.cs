@@ -37,20 +37,63 @@ public sealed partial class CrossEventConflictWorkflow
 
     public CrossEventScheduleSaveResult SaveScheduleBoard(CrossEventScheduleBoard board)
     {
-        // Each .szbd update is transactional and backed up individually. SQLite cannot provide a
-        // transaction across files, so the returned backup list is the recovery boundary for a
-        // partial multi-archive failure.
+        var updates = board.Sources
+            .Select(source => (source.SourcePath, Schedule: BuildSchedulePlan(source)))
+            .ToList();
+        foreach (var update in updates)
+        {
+            _progressStore.ValidateScheduleUpdate(update.SourcePath, update.Schedule);
+        }
+
         var updatedPaths = new List<string>();
         var backupPaths = new List<string>();
-        foreach (var source in board.Sources)
+        var completedUpdates = new List<(string FilePath, string BackupPath)>();
+        try
         {
-            var schedule = BuildSchedulePlan(source);
-            var outcome = _progressStore.UpdateSchedule(source.SourcePath, schedule);
-            updatedPaths.Add(source.SourcePath);
-            if (!string.IsNullOrWhiteSpace(outcome.BackupPath))
+            foreach (var update in updates)
             {
-                backupPaths.Add(outcome.BackupPath!);
+                var outcome = _progressStore.UpdateSchedule(update.SourcePath, update.Schedule);
+                updatedPaths.Add(update.SourcePath);
+                if (!string.IsNullOrWhiteSpace(outcome.BackupPath))
+                {
+                    backupPaths.Add(outcome.BackupPath!);
+                    completedUpdates.Add((update.SourcePath, outcome.BackupPath!));
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            var restoreFailures = new List<(string FilePath, string BackupPath, Exception Error)>();
+            foreach (var completed in completedUpdates.AsEnumerable().Reverse())
+            {
+                try
+                {
+                    _progressStore.RestoreBackup(completed.FilePath, completed.BackupPath);
+                }
+                catch (Exception restoreError)
+                {
+                    restoreFailures.Add((completed.FilePath, completed.BackupPath, restoreError));
+                }
+            }
+
+            if (restoreFailures.Count == 0)
+            {
+                var recoveryText = completedUpdates.Count == 0
+                    ? "未修改其他赛事存档"
+                    : $"已自动恢复之前更新的 {completedUpdates.Count} 个赛事存档";
+                throw new TournamentProgressException(
+                    $"保存多项目赛程失败，{recoveryText}。原始错误：{ex.Message}",
+                    ex);
+            }
+
+            var manualRecovery = string.Join(
+                Environment.NewLine,
+                restoreFailures.Select(failure => $"{failure.FilePath} ← {failure.BackupPath}"));
+            throw new TournamentProgressException(
+                $"保存多项目赛程失败，且有 {restoreFailures.Count} 个赛事存档未能自动恢复。"
+                + $"请使用以下备份手动恢复：{Environment.NewLine}{manualRecovery}"
+                + $"{Environment.NewLine}原始错误：{ex.Message}",
+                ex);
         }
 
         return new CrossEventScheduleSaveResult(updatedPaths, backupPaths);

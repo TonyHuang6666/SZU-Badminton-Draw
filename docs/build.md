@@ -22,6 +22,7 @@
 
 ```powershell
 dotnet restore
+bash scripts/check-vulnerable-packages.sh BadmintonDraw.sln
 dotnet build
 dotnet test
 dotnet run --project src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj
@@ -37,6 +38,8 @@ Avalonia 是当前唯一 GUI 主线，macOS、Windows 和 Linux 都使用这个�
 dotnet test tests\BadmintonDraw.Tests\BadmintonDraw.Tests.csproj -c Debug --no-restore -v minimal
 ```
 
+依赖恢复后可运行 `bash scripts/check-vulnerable-packages.sh BadmintonDraw.sln` 检查直接和传递 NuGet 依赖；Windows、macOS 的 GitHub Actions 都会执行同一检查，发现已知漏洞即停止构建。
+
 测试覆盖范围包括：
 
 - 单打、双打、团体名单导入。
@@ -49,6 +52,7 @@ dotnet test tests\BadmintonDraw.Tests\BadmintonDraw.Tests.csproj -c Debug --no-r
 - 对阵记录表导入、逐条提醒、赛事存档和重复导入保护。
 - 单项目时间场地窗口拖拽调整。
 - 多项目冲突检测、兼项明细、全局自动编排未完成赛程、合并材料包导出。
+- 多存档保存预检、部分写入后的自动恢复和手动恢复边界。
 - 内置 Noto CJK 字体的中文图片/PDF 导出。
 
 ## 发布单文件程序
@@ -86,11 +90,12 @@ artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
 
 正式发布到 GitHub Release 时，建议：
 
-1. 先跑 `dotnet test tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj --no-restore --verbosity minimal`。
-2. 再跑 `dotnet build BadmintonDraw.sln --no-restore --verbosity minimal`。
-3. macOS 包使用 `VERSION=x.y.z bash scripts/publish-macos.sh osx-arm64` 生成，并上传 `artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg`。
-4. Windows 版上传 Avalonia 单文件 `.exe`。4.2 起主线 release 发布 Avalonia 双平台包；4.5 后 WPF 项目已移除。
-5. Release 说明中列出规则化抽签、单项目/多项目赛程编排、多格式导出、赛事存档、记录表导入确认、合并材料包、深色模式和跨平台桌面版等重要变化。
+1. 先跑 `bash scripts/check-vulnerable-packages.sh BadmintonDraw.sln`。
+2. 再跑 `dotnet test tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj --no-restore --verbosity minimal`。
+3. 接着跑 `dotnet build BadmintonDraw.sln --no-restore --verbosity minimal`。
+4. macOS 包使用 `VERSION=x.y.z bash scripts/publish-macos.sh osx-arm64` 生成，并上传 `artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg`。
+5. Windows 版上传 Avalonia 单文件 `.exe`。4.2 起主线 release 发布 Avalonia 双平台包；4.5 后 WPF 项目已移除。
+6. Release 说明中列出规则化抽签、单项目/多项目赛程编排、多格式导出、赛事存档、记录表导入确认、合并材料包、深色模式和跨平台桌面版等重要变化。
 
 GitHub CLI 示例：
 

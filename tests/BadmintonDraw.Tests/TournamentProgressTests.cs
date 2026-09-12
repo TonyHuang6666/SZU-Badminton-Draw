@@ -2,6 +2,7 @@ using BadmintonDraw.Core;
 using BadmintonDraw.Excel;
 using BadmintonDraw.Workflows;
 using ClosedXML.Excel;
+using Microsoft.Data.Sqlite;
 using SkiaSharp;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -11,6 +12,69 @@ namespace BadmintonDraw.Tests;
 
 public sealed partial class DrawWorkflowTests
 {
+    [Fact]
+    public void TournamentProgressScheduleUpdateKeepsOriginalWhenCandidateValidationFails()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"badminton-progress-atomic-update-{Guid.NewGuid():N}");
+        var progressPath = Path.Combine(directory, "校长杯男单.szbd");
+
+        try
+        {
+            var snapshot = CreateTournamentProgressSnapshot("tournament-atomic-update");
+            var store = new TournamentProgressStore();
+            store.Create(progressPath, snapshot);
+            using (var connection = new SqliteConnection($"Data Source={progressPath}"))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText =
+                    """
+                    CREATE TRIGGER corrupt_candidate_after_schedule_update
+                    AFTER UPDATE ON metadata
+                    WHEN NEW.key = 'updated_at'
+                    BEGIN
+                        DELETE FROM snapshot;
+                    END;
+                    """;
+                command.ExecuteNonQuery();
+            }
+
+            var matchToMove = snapshot.Schedule.Matches[0];
+            var adjustedSchedule = snapshot.Schedule with
+            {
+                Matches = snapshot.Schedule.Matches
+                    .Select(match => match.MatchId == matchToMove.MatchId
+                        ? match with
+                        {
+                            DayLabel = snapshot.Schedule.Matches[^1].DayLabel,
+                            StartTime = new TimeOnly(15, 0),
+                            EndTime = new TimeOnly(15, 30),
+                            Court = "A1"
+                        }
+                        : match)
+                    .ToList()
+            };
+
+            _ = Assert.Throws<TournamentProgressException>(() => store.UpdateSchedule(progressPath, adjustedSchedule));
+            TournamentProgressState? reopened = null;
+            var readError = Record.Exception(() => reopened = store.Read(progressPath));
+
+            Assert.Null(readError);
+            Assert.NotNull(reopened);
+            var reopenedMatch = reopened.Snapshot.Schedule.Matches
+                .Single(match => match.MatchId == matchToMove.MatchId);
+            Assert.Equal(matchToMove.DayLabel, reopenedMatch.DayLabel);
+            Assert.Equal(matchToMove.StartTime, reopenedMatch.StartTime);
+            Assert.Equal(matchToMove.EndTime, reopenedMatch.EndTime);
+            Assert.Equal(matchToMove.Court, reopenedMatch.Court);
+            Assert.False(Directory.Exists(Path.Combine(directory, "Backups")));
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(directory);
+        }
+    }
+
     [Fact]
     public void TournamentProgressWorkflowExportsNextDayPackage()
     {

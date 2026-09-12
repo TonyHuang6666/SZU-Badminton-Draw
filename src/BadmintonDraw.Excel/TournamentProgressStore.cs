@@ -6,7 +6,7 @@ using Microsoft.Data.Sqlite;
 
 namespace BadmintonDraw.Excel;
 
-public sealed class TournamentProgressStore
+public sealed class TournamentProgressStore : ITournamentProgressStore
 {
     public const int CurrentSchemaVersion = 1;
 
@@ -258,6 +258,64 @@ public sealed class TournamentProgressStore
 
     public TournamentProgressScheduleUpdateOutcome UpdateSchedule(string filePath, SchedulePlan schedule)
     {
+        ValidateScheduleUpdate(filePath, schedule);
+        var directory = Path.GetDirectoryName(filePath) ?? ".";
+        var tempPath = Path.Combine(
+            directory,
+            $".{Path.GetFileNameWithoutExtension(filePath)}.{Guid.NewGuid():N}.update.szbd");
+        string? backupPath = null;
+        try
+        {
+            File.Copy(filePath, tempPath, overwrite: false);
+            using (var connection = OpenConnection(tempPath, SqliteOpenMode.ReadWrite))
+            {
+                using var transaction = connection.BeginTransaction();
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText =
+                    """
+                    UPDATE snapshot
+                    SET schedule_json = $schedule
+                    WHERE id = 1;
+                    """;
+                command.Parameters.AddWithValue("$schedule", Serialize(schedule));
+                command.ExecuteNonQuery();
+
+                WriteMetadata(connection, transaction, "updated_at", DateTimeOffset.UtcNow.ToString("O"));
+                transaction.Commit();
+
+                EnsureIntegrity(connection);
+            }
+
+            var updatedState = Read(tempPath);
+            backupPath = CreateBackup(filePath);
+            File.Move(tempPath, filePath, overwrite: true);
+            return new TournamentProgressScheduleUpdateOutcome(updatedState, backupPath);
+        }
+        catch (Exception ex) when (ex is TournamentProgressException
+                                   or IOException
+                                   or UnauthorizedAccessException
+                                   or SqliteException
+                                   or JsonException)
+        {
+            var backupText = string.IsNullOrWhiteSpace(backupPath)
+                ? "正式存档未修改"
+                : $"正式存档未修改，原存档备份：{backupPath}";
+            throw new TournamentProgressException(
+                $"更新赛事存档赛程失败，{backupText}。错误：{ex.Message}",
+                ex);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+        }
+    }
+
+    public void ValidateScheduleUpdate(string filePath, SchedulePlan schedule)
+    {
         ValidateProgressPath(filePath);
         if (!schedule.IsComplete)
         {
@@ -268,37 +326,46 @@ public sealed class TournamentProgressStore
         // A schedule update may move matches but cannot change tournament identity: completeness
         // and the exact match-name set are validated before the backup and write transaction.
         ValidateScheduleReplacement(state.Snapshot.Schedule, schedule);
-        var backupPath = CreateBackup(filePath);
+    }
+
+    public TournamentProgressState RestoreBackup(string filePath, string backupPath)
+    {
+        ValidateProgressPath(filePath);
+        ValidateProgressPath(backupPath);
+        if (!File.Exists(backupPath))
+        {
+            throw new TournamentProgressException($"找不到赛事存档备份：{backupPath}");
+        }
+
+        var restoredState = Read(backupPath);
+        var directory = Path.GetDirectoryName(filePath) ?? ".";
+        Directory.CreateDirectory(directory);
+        var tempPath = Path.Combine(
+            directory,
+            $".{Path.GetFileNameWithoutExtension(filePath)}.{Guid.NewGuid():N}.restore.szbd");
         try
         {
-            using var connection = OpenConnection(filePath, SqliteOpenMode.ReadWrite);
-            using var transaction = connection.BeginTransaction();
-            using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText =
-                """
-                UPDATE snapshot
-                SET schedule_json = $schedule
-                WHERE id = 1;
-                """;
-            command.Parameters.AddWithValue("$schedule", Serialize(schedule));
-            command.ExecuteNonQuery();
-
-            WriteMetadata(connection, transaction, "updated_at", DateTimeOffset.UtcNow.ToString("O"));
-            transaction.Commit();
-
-            EnsureIntegrity(connection);
-            return new TournamentProgressScheduleUpdateOutcome(Read(filePath), backupPath);
+            File.Copy(backupPath, tempPath, overwrite: false);
+            _ = Read(tempPath);
+            File.Move(tempPath, filePath, overwrite: true);
+            return restoredState;
         }
         catch (TournamentProgressException)
         {
             throw;
         }
-        catch (Exception ex) when (ex is IOException or SqliteException or JsonException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             throw new TournamentProgressException(
-                $"更新赛事存档赛程失败，原存档已保留备份：{backupPath}。错误：{ex.Message}",
+                $"无法从备份恢复赛事存档：{filePath}；备份：{backupPath}。错误：{ex.Message}",
                 ex);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
         }
     }
 

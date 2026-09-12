@@ -8,10 +8,21 @@ public sealed partial class CrossEventConflictWorkflow
 {
     private const char ItemKeySeparator = '\u001F';
 
-    private readonly TournamentProgressStore _progressStore = new();
+    private readonly ITournamentProgressStore _progressStore;
     private readonly CrossEventConflictDetector _detector = new();
     private readonly CrossEventConflictReportExcelWriter _writer = new();
     private readonly ScheduleWorkflow _scheduleWorkflow = new();
+
+    public CrossEventConflictWorkflow()
+        : this(new TournamentProgressStore())
+    {
+    }
+
+    public CrossEventConflictWorkflow(ITournamentProgressStore progressStore)
+    {
+        ArgumentNullException.ThrowIfNull(progressStore);
+        _progressStore = progressStore;
+    }
 
     public CrossEventConflictReport AnalyzeProgressFiles(
         IEnumerable<string> progressFilePaths,

@@ -22,6 +22,10 @@ jobs:
       - name: Restore
         run: dotnet restore BadmintonDraw.sln --locked-mode
 
+      - name: Audit NuGet dependencies
+        shell: bash
+        run: scripts/check-vulnerable-packages.sh BadmintonDraw.sln
+
       - name: Build
         run: dotnet build BadmintonDraw.sln --no-restore
 
@@ -48,6 +52,9 @@ jobs:
 
       - name: Restore tests
         run: dotnet restore tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj --locked-mode
+
+      - name: Audit NuGet dependencies
+        run: scripts/check-vulnerable-packages.sh BadmintonDraw.sln
 
       - name: Build desktop
         run: dotnet build src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj -c Debug --no-restore
