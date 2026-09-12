@@ -46,7 +46,11 @@ public sealed class DrawResultExcelWriter
 
         WriteAuditSheet(workbook, "抽签设置与审计信息", result, context);
         WriteRosterSheet(workbook, context is null ? "原始名单" : "当前名单", sourceParticipants);
-        if (context is not null) WriteWorkspaceContext(workbook.Worksheet("对阵表"), context, result.Settings.IsKnockout);
+        if (context is not null)
+        {
+            WriteWorkspaceContext(workbook.Worksheet("对阵表"), context, result.Settings.IsKnockout);
+            FormatWorkspaceRoster(workbook.Worksheet("当前名单"), sourceParticipants.Count);
+        }
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
         workbook.SaveAs(outputPath);
@@ -1601,7 +1605,7 @@ public sealed class DrawResultExcelWriter
         {
             EventKind.Doubles => "双打",
             EventKind.Team => "团体",
-            _ => "男单"
+            _ => "单打"
         };
     }
 
@@ -2131,6 +2135,23 @@ public sealed class DrawResultExcelWriter
         }
 
         ApplyTableStyle(sheet, 2, rows.Count + 1);
+        if (context is not null)
+        {
+            // Auto-fit depends on installed font metrics; these sheets must stay readable on every export host.
+            sheet.Column(1).Width = 26;
+            sheet.Column(2).Width = 92;
+            sheet.Columns(1, 2).Style.Alignment.WrapText = true;
+            sheet.Rows(1, rows.Count + 1).Height = 32;
+        }
+    }
+
+    private static void FormatWorkspaceRoster(IXLWorksheet sheet, int participantCount)
+    {
+        double[] widths = [18, 18, 24, 18, 18, 24, 12, 12, 40];
+        for (var column = 1; column <= widths.Length; column++) sheet.Column(column).Width = widths[column - 1];
+        sheet.Columns(1, widths.Length).Style.Alignment.WrapText = true;
+        sheet.Columns(1, widths.Length).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        sheet.Rows(1, participantCount + 1).Height = 36;
     }
 
     private static void WriteRosterSheet(XLWorkbook workbook, string sheetName, IReadOnlyList<DrawParticipant> participants)

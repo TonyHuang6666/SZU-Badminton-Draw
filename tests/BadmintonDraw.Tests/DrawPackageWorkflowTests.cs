@@ -75,6 +75,11 @@ public sealed class DrawPackageWorkflowTests : IDisposable
         Assert.Contains(result.AuditId.ToString(), auditCells);
         Assert.Contains(before.Projects[0].Roster!.ContentHash, auditCells);
         Assert.True(book.Worksheets.Contains("当前名单"));
+        Assert.True(book.Worksheet("抽签设置与审计信息").Column(1).Width >= 24,
+            "Audit labels must fit Chinese source-revision and source-hash labels without font-metric auto-fit.");
+        var rosterSheet = book.Worksheet("当前名单");
+        Assert.True(rosterSheet.Column(1).Width >= 16 && rosterSheet.Column(2).Width >= 16);
+        Assert.True(rosterSheet.Cell(1, 1).Style.Alignment.WrapText);
         foreach (var output in result.Outputs.Where(o => o.Format is WorkflowExportFormat.Png or WorkflowExportFormat.Jpeg))
         {
             using var bitmap = SKBitmap.Decode(output.Path);
@@ -108,6 +113,8 @@ public sealed class DrawPackageWorkflowTests : IDisposable
             using var book = new XLWorkbook(output.Path);
             Assert.Contains("已确认抽签结果", book.Worksheet("对阵表").Cell(1, 1).GetString());
             Assert.DoesNotContain("未确认抽签预览", book.Worksheet("对阵表").Cell(1, 1).GetString());
+            if (output.ProjectId == result.Command.Workspace.Projects[1].Id)
+                Assert.Equal("单打循环赛对阵表", book.Worksheet("对阵表").Cell(1, 1).GetString().Split('\n')[^1]);
         }
         var stored = ReadDrawGraphJson(result.Command.WorkspacePath);
         var reopenedWorkflow = new TournamentWorkspaceWorkflow();
