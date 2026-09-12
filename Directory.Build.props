@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <VersionPrefix>4.6.0</VersionPrefix>
   </PropertyGroup>
 </Project>

@@ -97,14 +97,16 @@ artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
 5. Windows 版上传 Avalonia 单文件 `.exe`。4.2 起主线 release 发布 Avalonia 双平台包；4.5 后 WPF 项目已移除。
 6. Release 说明中列出规则化抽签、单项目/多项目赛程编排、多格式导出、赛事存档、记录表导入确认、合并材料包、深色模式和跨平台桌面版等重要变化。
 
-GitHub CLI 示例：
+GitHub CLI 示例（先设置要发布的版本号）：
 
 ```bash
-gh release create v4.5.0 \
-  artifacts/release/SZU-Badminton-Draw_Avalonia_macOS_osx-arm64_v4.5.0.dmg \
-  artifacts/release/SZU-Badminton-Draw_Avalonia_Windows_win-x64_v4.5.0.exe \
-  --title "Release 4.5.0" \
-  --notes-file /tmp/szu-badminton-release-4.5.0.md
+release_version=4.6.0
+gh release create "v${release_version}" \
+  "artifacts/release/SZU-Badminton-Draw_Avalonia_macOS_osx-arm64_v${release_version}.dmg" \
+  "artifacts/release/SZU-Badminton-Draw_Avalonia_Windows_win-x64_v${release_version}.exe" \
+  artifacts/release/SHA256SUMS.txt \
+  --title "Release ${release_version}" \
+  --notes-file "docs/releases/v${release_version}.md"
 ```
 
 ## 示例名单
