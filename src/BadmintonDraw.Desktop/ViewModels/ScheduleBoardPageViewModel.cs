@@ -89,7 +89,7 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     {
         if (disposed) return;
         var expected = Session; var resetEpoch = editorEpoch;
-        var result = await shell.RunWorkspaceQueryAsync(expected, (workflow, _) => new EditorContext(workflow.CaptureScheduleEditBaseline(), workflow.CanUndoScheduleEdit));
+        var result = await shell.RunWorkspaceQueryAsync(expected, (workflow, _) => new EditorContext(workflow.CaptureScheduleEditBaseline(), workflow.CanUndoScheduleEdit), showStatus: false);
         if (disposed || resetEpoch != editorEpoch || !ReferenceEquals(expected, Session) || !result.Succeeded || result.Value is null) return;
         baseline = result.Value.Baseline; canUndo = result.Value.CanUndo; sourceIdentity = Source(Session); conflict = false; edited = false;
         LoadTarget(); RefreshAvailability();

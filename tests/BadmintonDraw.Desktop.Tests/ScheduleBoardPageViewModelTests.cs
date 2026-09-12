@@ -37,6 +37,31 @@ public sealed class ScheduleBoardPageViewModelTests
         Assert.Equal(original, fixture.Workflow.CurrentSession.Workspace.Schedule!.Placements[original.MatchId]);
     }
     [Fact]
+    public async Task InternalBaselineRefreshPreservesSavedStatusButManualPreviewReportsUnsaved()
+    {
+        using var fixture = new ScheduleUiFixture(); var page = await Page(fixture);
+        var revision = fixture.Workflow.CurrentSession!.Workspace.Revision;
+        page.TargetTimeText = "12:00";
+        await page.PreviewMoveCommand.ExecuteAsync();
+        Assert.Contains("尚未保存", fixture.Shell.Status);
+        Assert.Equal(revision, fixture.Workflow.CurrentSession!.Workspace.Revision);
+
+        await page.ConfirmMoveCommand.ExecuteAsync();
+        Assert.Equal(revision + 1, fixture.Workflow.CurrentSession!.Workspace.Revision);
+        Assert.StartsWith("赛程移动已保存。", fixture.Shell.Status);
+        Assert.Contains("备份：", fixture.Shell.Status);
+
+        await page.UndoCommand.ExecuteAsync();
+        Assert.Equal(revision + 2, fixture.Workflow.CurrentSession!.Workspace.Revision);
+        Assert.StartsWith("已撤销最近一次赛程编辑并保存。", fixture.Shell.Status);
+        Assert.Contains("备份：", fixture.Shell.Status);
+
+        page.TargetTimeText = "13:00";
+        await page.PreviewMoveCommand.ExecuteAsync();
+        Assert.Contains("尚未保存", fixture.Shell.Status);
+        Assert.Equal(revision + 2, fixture.Workflow.CurrentSession!.Workspace.Revision);
+    }
+    [Fact]
     public async Task EditedTargetCancelsOldPreviewAndBlockedCourtNeverSaves()
     {
         using var fixture = new ScheduleUiFixture(); var page = await Page(fixture);

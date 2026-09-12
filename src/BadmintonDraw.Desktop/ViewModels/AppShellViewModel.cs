@@ -111,14 +111,14 @@ public sealed class AppShellViewModel : ViewModelBase, IDisposable
             return command(workflow, expectedSession.Workspace.Revision);
         }), successMessage);
 
-    /// <summary>Read-only work has no save result. Background hover checks must not disable the active drag surface.</summary>
+    /// <summary>Read-only work has no save result. Background hover checks keep dragging enabled; quiet internal refreshes retain status but still own busy and report errors.</summary>
     public async Task<WorkspaceQueryResult<T>> RunWorkspaceQueryAsync<T>(WorkspaceSession expectedSession,
-        Func<TournamentWorkspaceWorkflow, long, T> query, bool background = false) where T : class
+        Func<TournamentWorkspaceWorkflow, long, T> query, bool background = false, bool showStatus = true) where T : class
     {
         var ownsBusy = !background && !disposed && Interlocked.CompareExchange(ref busy, 1, 0) == 0;
         if (disposed || (!background && !ownsBusy) || (background && IsBusy))
             return new(false, null, new("desktop.query-busy", "当前操作尚未完成。"));
-        if (ownsBusy) { LastError = null; Status = "正在检查，尚未保存…"; RefreshAvailability(); }
+        if (ownsBusy) { LastError = null; if (showStatus) Status = "正在检查，尚未保存…"; RefreshAvailability(); }
         try
         {
             void CheckSession()
@@ -130,7 +130,7 @@ public sealed class AppShellViewModel : ViewModelBase, IDisposable
             }
             var value = await Task.Run(() => { CheckSession(); var result = query(workflow, expectedSession.Workspace.Revision); CheckSession(); return result; });
             CheckSession();
-            if (ownsBusy) Status = "检查完成，尚未保存任何修改。";
+            if (ownsBusy && showStatus) Status = "检查完成，尚未保存任何修改。";
             return new(true, value, null);
         }
         catch (Exception exception)
