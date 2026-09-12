@@ -48,7 +48,8 @@ public static class TournamentWorkspaceRules
         Require(workspace.AuditEvents.Select(a => a.Id).Distinct().Count() == workspace.AuditEvents.Count, "audit.duplicate", "审计事件标识重复。");
         foreach (var audit in workspace.AuditEvents)
             Require(audit.Id != Guid.Empty && !string.IsNullOrWhiteSpace(audit.Action) && audit.OccurredAt != default &&
-                (audit.ProjectId is null || workspace.Projects.Any(p => p.Id == audit.ProjectId)) &&
+                // Audit references survive explicit removal of draft projects, just as match references survive reopening.
+                (audit.ProjectId is null || audit.ProjectId != Guid.Empty) &&
                 (audit.MatchId is null || (audit.MatchId != Guid.Empty && audit.ProjectId is not null)),
                 "audit.identity", "审计事件身份或引用无效。");
         if (workspace.Stage >= TournamentStage.RostersReady)
