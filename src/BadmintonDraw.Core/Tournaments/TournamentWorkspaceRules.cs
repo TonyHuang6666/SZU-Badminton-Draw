@@ -96,9 +96,10 @@ public static class TournamentWorkspaceRules
         Require(!string.IsNullOrWhiteSpace(reason), "draw.reason", "请填写解除确认原因。");
         var project = workspace.Projects.SingleOrDefault(p => p.Id == projectId);
         Require(project?.Draw?.ConfirmedAt is not null, "draw.confirmed", "项目不存在或抽签尚未确认。");
-        var candidate = workspace with { Stage = TournamentStage.RostersReady, Schedule = null, Resources = null,
-            Projects = workspace.Projects.Select(p => p.Id == projectId ? p with { MatchGraph = null, Draw = null } : p).ToArray(),
-            AuditEvents = [..workspace.AuditEvents, new(Guid.NewGuid(), "DrawReopened", DateTimeOffset.UtcNow, projectId, Detail: reason)] };
+        var audit = new WorkspaceAuditEvent(Guid.NewGuid(), "DrawReopened", DateTimeOffset.UtcNow, projectId, Detail: reason);
+        var candidate = WorkspaceOperationsRules.InvalidatePendingReceipts(workspace with
+            { Stage = TournamentStage.RostersReady, Schedule = null, Resources = null,
+                Projects = workspace.Projects.Select(p => p.Id == projectId ? p with { MatchGraph = null, Draw = null } : p).ToArray() }, audit, reason);
         Validate(candidate);
         return candidate;
     }

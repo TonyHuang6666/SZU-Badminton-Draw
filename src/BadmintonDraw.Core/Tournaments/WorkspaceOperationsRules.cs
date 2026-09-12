@@ -2,6 +2,28 @@ namespace BadmintonDraw.Core.Tournaments;
 
 public static class WorkspaceOperationsRules
 {
+    /// <summary>Attach the successful redraw/replan audit and void pending coverage in the same candidate.
+    /// Call before validating a candidate whose graphs or resource dates have just changed.</summary>
+    public static TournamentWorkspace InvalidatePendingReceipts(TournamentWorkspace candidate,
+        WorkspaceAuditEvent audit, string reason)
+    {
+        Require(candidate.Results.Count == 0 && candidate.ResultHistory.Count == 0 &&
+            audit.Id != Guid.Empty && audit.OccurredAt != default && audit.Action is "DrawReopened" or "ScheduleGenerated" &&
+            !string.IsNullOrWhiteSpace(reason), "import.void", "只有无赛果重抽或重排才能作废待处理记录。");
+        var active = candidate.ImportLogs.Where(log => log.VoidedAt is null).ToArray();
+        Require(active.All(log => log.Rows.All(row => !row.HadResult) && log.AddedResultCount == 0 && log.CorrectionCount == 0),
+            "import.void", "已包含赛果的导入记录不能作废。");
+        Require(active.All(log => log.ImportedAt <= audit.OccurredAt), "import.void-time",
+            "当前时间早于待处理记录的导入时间，请核对计算机时钟后再操作。");
+        return candidate with
+        {
+            ImportLogs = candidate.ImportLogs.Select(log => log.VoidedAt is not null ? log : log with
+                { VoidedAt = audit.OccurredAt, VoidReason = reason.Trim(), VoidedByAuditEventId = audit.Id }).ToArray(),
+            ProcessedDays = [],
+            AuditEvents = [.. candidate.AuditEvents, audit]
+        };
+    }
+
     public static IReadOnlyList<WorkspaceProcessedDay> BuildProcessedDays(IEnumerable<WorkspaceImportLog> logs) =>
         Array.AsReadOnly(logs.Where(log => log.VoidedAt is null).SelectMany(log => log.Rows.Select(row => (row, log.ImportedAt)))
             .GroupBy(item => item.row.RecordDay).OrderBy(group => group.Key).Select(group => new WorkspaceProcessedDay(group.Key,

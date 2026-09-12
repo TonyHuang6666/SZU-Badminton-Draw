@@ -46,12 +46,14 @@ public sealed partial class TournamentWorkspaceWorkflow
         return CommitChange(captured, expectedRevision, workspace =>
         {
             RequireSchedulingSource(workspace, sourceIdentity);
-            return Audit(workspace with
+            var audit = new WorkspaceAuditEvent(Guid.NewGuid(), "ScheduleGenerated", DateTimeOffset.UtcNow,
+                Detail: "赛程修订号：" + success.Schedule.Revision);
+            return WorkspaceOperationsRules.InvalidatePendingReceipts(workspace with
             {
                 Schedule = success.Schedule,
                 Resources = success.Schedule.Resources,
                 Stage = TournamentStage.ScheduleReady
-            }, "ScheduleGenerated", detail: "赛程修订号：" + success.Schedule.Revision);
+            }, audit, "赛程已重新生成，原待处理记录作废；请重新导出记录表。");
         });
     });
 
