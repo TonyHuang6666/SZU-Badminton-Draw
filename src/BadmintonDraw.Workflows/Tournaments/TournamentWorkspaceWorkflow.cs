@@ -35,7 +35,9 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
                 var projects = request.Projects.Select((p, i) => NewProject(p, i)).ToArray();
                 workspace = TournamentWorkspace.Create(request.Name.Trim(), request.Kind, request.Purpose, projects);
                 workspace = Audit(workspace, "WorkspaceCreated");
-                return Publish(store.Create(path, workspace), path, null);
+                var created = store.Create(path, workspace);
+                InvalidateScheduleEditingSession();
+                return Publish(created, path, null);
             }
             catch (Exception exception)
             {
@@ -54,7 +56,9 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
             {
                 RequireOutsideNotification();
                 var fullPath = Path.GetFullPath(path);
-                return Publish(store.Read(fullPath), fullPath, null);
+                var opened = store.Read(fullPath);
+                InvalidateScheduleEditingSession();
+                return Publish(opened, fullPath, null);
             }
             catch (Exception exception) { throw WorkspaceCommandException.From(exception); }
         }
@@ -126,7 +130,7 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
         WithCapturedSession(captured => CommitChange(captured, expectedRevision, mutation));
 
     // Search and publication can share this boundary without opening a second command or releasing the session gate.
-    private WorkspaceCommandResult WithCapturedSession(Func<WorkspaceSession, WorkspaceCommandResult> command)
+    private T WithCapturedSession<T>(Func<WorkspaceSession, T> command)
     {
         // Capture before waiting: a queued command must never migrate to a newly opened archive with the same revision.
         var captured = CurrentSession;
@@ -150,7 +154,7 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
     }
 
     private WorkspaceCommandResult CommitChange(WorkspaceSession captured, long expectedRevision,
-        Func<TournamentWorkspace, TournamentWorkspace> mutation)
+        Func<TournamentWorkspace, TournamentWorkspace> mutation, Action? afterCommit = null)
     {
         var result = store.Mutate(captured.WorkspacePath, expectedRevision, workspace =>
         {
@@ -159,6 +163,14 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
             TournamentWorkspaceRules.Validate(candidate);
             return candidate;
         });
+        // Ephemeral undo state must be visible to observers of the saved snapshot. It cannot undo
+        // durable publication or turn a committed save into a reported failure if a callback fails.
+        try { afterCommit?.Invoke(); }
+        catch (Exception exception)
+        {
+            undoScheduleEdits = [];
+            try { Trace.TraceError("赛程撤销状态刷新失败：{0}", exception); } catch { /* Best effort. */ }
+        }
         return Publish(result.Workspace, captured.WorkspacePath, result.BackupPath);
     }
 
@@ -175,6 +187,7 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
 
     private void RefreshAfterCommit(WorkspaceSession previous)
     {
+        undoScheduleEdits = [];
         WorkspaceSession next;
         try { next = new(store.Read(previous.WorkspacePath), previous.WorkspacePath); }
         catch { next = previous with { RequiresReload = true }; }
@@ -183,6 +196,7 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
 
     private void SetSession(WorkspaceSession session)
     {
+        ReconcileScheduleUndo(session);
         Volatile.Write(ref currentSession, session);
         if (SessionChanged is not { } handlers) return;
         notifyingSession = true;
