@@ -123,6 +123,92 @@ public sealed class AppShellViewModelTests : IDisposable
         Assert.Equal("未保存输入", page.EditableName);
         Assert.Equal(1, page.Session.Workspace.Revision);
         Assert.Equal(TournamentPurpose.FullTournament, shell.CurrentSession!.Workspace.Purpose);
+        Assert.True(page.SaveCommand.CanExecute(null));
+        await page.SaveCommand.ExecuteAsync();
+        Assert.Equal("未保存输入", workflow.CurrentSession!.Workspace.Name);
+        Assert.Equal(2, workflow.CurrentSession.Workspace.Revision);
+    }
+
+    [Fact]
+    public async Task ReloadWhileEditingCannotRemoveAnotherWindowsNewProjectUntilEditorIsExplicitlyReset()
+    {
+        var workflowA = new TournamentWorkspaceWorkflow();
+        using var shell = Shell(workflowA);
+        await shell.CreateWorkspaceAsync(Request());
+        var page = Assert.IsType<WorkspaceOverviewPageViewModel>(shell.CurrentPage);
+        page.BeginEditCommand.Execute(null);
+        page.EditableName = "A 的未保存输入";
+
+        var workflowB = new TournamentWorkspaceWorkflow();
+        var opened = workflowB.OpenWorkspace(Request().WorkspacePath);
+        var project = opened.Workspace.Projects[0];
+        workflowB.UpdateConfiguration(new("B 的最新赛事", [
+            new(project.Discipline, CompetitionMode.SinglesRoundRobin, "B 的项目名称", project.Id),
+            new(EventDiscipline.MixedDoubles, CompetitionMode.SinglesKnockout)
+        ]), opened.Workspace.Revision);
+
+        await shell.ReloadCommand.ExecuteAsync();
+        Assert.Same(page, shell.CurrentPage);
+        Assert.Equal("A 的未保存输入", page.EditableName);
+        await page.SaveCommand.ExecuteAsync();
+        var preserved = workflowB.OpenWorkspace(Request().WorkspacePath).Workspace;
+        Assert.Equal(2, preserved.Projects.Count);
+        Assert.Equal(1, preserved.Revision);
+        Assert.Equal("B 的最新赛事", preserved.Name);
+        Assert.Equal("B 的项目名称", preserved.Projects[0].DisplayName);
+        Assert.Equal(CompetitionMode.SinglesRoundRobin, preserved.Projects[0].CompetitionMode);
+        Assert.False(page.SaveCommand.CanExecute(null));
+        Assert.Contains("取消编辑", page.EditHint);
+
+        page.CancelEditCommand.Execute(null);
+        page.BeginEditCommand.Execute(null);
+        Assert.Equal("B 的最新赛事", page.EditableName);
+        Assert.True(page.Projects.Single(p => p.Discipline == EventDiscipline.MixedDoubles).IsSelected);
+        page.EditableName = "A 已核对最新配置";
+        await page.SaveCommand.ExecuteAsync();
+        var saved = workflowB.OpenWorkspace(Request().WorkspacePath).Workspace;
+        Assert.Equal(2, saved.Projects.Count);
+        Assert.Equal(2, saved.Revision);
+        Assert.Equal("A 已核对最新配置", saved.Name);
+        Assert.Equal(CompetitionMode.SinglesRoundRobin, saved.Projects[0].CompetitionMode);
+    }
+
+    [Theory]
+    [InlineData("name")]
+    [InlineData("mode")]
+    [InlineData("displayName")]
+    [InlineData("order")]
+    [InlineData("removal")]
+    public async Task ReloadDetectsEachConfigurationFieldChangedByAnotherWindow(string changedField)
+    {
+        var workflowA = new TournamentWorkspaceWorkflow();
+        using var shell = Shell(workflowA);
+        var request = Request() with { Projects = [
+            new(EventDiscipline.MenSingles, CompetitionMode.SinglesKnockout),
+            new(EventDiscipline.MixedDoubles, CompetitionMode.SinglesKnockout)
+        ] };
+        await shell.CreateWorkspaceAsync(request);
+        var page = Assert.IsType<WorkspaceOverviewPageViewModel>(shell.CurrentPage);
+        page.BeginEditCommand.Execute(null);
+        page.EditableName = "A 的未保存输入";
+        var workflowB = new TournamentWorkspaceWorkflow();
+        var opened = workflowB.OpenWorkspace(request.WorkspacePath);
+        var projects = opened.Workspace.Projects.Select(p => new WorkspaceProjectRequest(p.Discipline, p.CompetitionMode, p.DisplayName, p.Id)).ToArray();
+        var name = opened.Workspace.Name;
+        switch (changedField)
+        {
+            case "name": name = "B 的名称"; break;
+            case "mode": projects[0] = projects[0] with { CompetitionMode = CompetitionMode.SinglesRoundRobin }; break;
+            case "displayName": projects[0] = projects[0] with { DisplayName = "B 的项目名称" }; break;
+            case "order": Array.Reverse(projects); break;
+            case "removal": projects = [projects[0]]; break;
+        }
+        workflowB.UpdateConfiguration(new(name, projects), opened.Workspace.Revision);
+        await shell.ReloadCommand.ExecuteAsync();
+        Assert.Equal("A 的未保存输入", page.EditableName);
+        Assert.False(page.SaveCommand.CanExecute(null));
+        await page.SaveCommand.ExecuteAsync();
+        Assert.Equal(1, workflowB.OpenWorkspace(request.WorkspacePath).Workspace.Revision);
     }
 
     [Fact]
