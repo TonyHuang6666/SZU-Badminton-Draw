@@ -3,7 +3,9 @@ namespace BadmintonDraw.Core.Scheduling;
 /// <summary>One deterministic global search over time-free graph nodes. Failure never contains a partial schedule.</summary>
 public sealed class TournamentScheduler
 {
-    public TournamentSchedulingResult Generate(TournamentSchedulingRequest request)
+    public TournamentSchedulingResult Generate(TournamentSchedulingRequest request) => Generate(request, TournamentPlayerCapacity.DefaultWorkUnits);
+
+    internal TournamentSchedulingResult Generate(TournamentSchedulingRequest request, int capacityProofWorkUnits)
     {
         var validator = new TournamentPlacementValidator(request);
         var context = validator.Context;
@@ -20,6 +22,15 @@ public sealed class TournamentScheduler
         // as they are placed and by the final gate, while all other locked conflicts fail now.
         var lockedIssues = validator.ValidateSchedule(placements, false).Violations.Where(v => v.Code != SchedulingConstraintCode.MissingPlacement).ToArray();
         if (lockedIssues.Length > 0) return Fail(context, placements, lockedIssues);
+        if (TournamentPlayerCapacity.FindProvenOverload(context, new(capacityProofWorkUnits)) is { } overload)
+        {
+            var failure = Fail(context, placements, [overload]);
+            return new TournamentSchedulingResult.Failure(failure.Detail with
+            {
+                Message = overload.Message,
+                Suggestions = ["增加比赛日，或由赛事组织者明确复核每日场次上限。", "仅增加场地、裁判或延长每日时段不能解决该选手的总场次容量矛盾。"]
+            });
+        }
         var scorer = new TournamentPlacementScorer(context);
         var pending = context.Nodes.Keys.Except(placements.Keys).ToHashSet();
         var degree = context.Nodes.Keys.ToDictionary(id => id, context.PlayerConflictDegree);

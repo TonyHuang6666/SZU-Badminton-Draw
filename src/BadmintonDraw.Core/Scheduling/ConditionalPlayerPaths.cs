@@ -57,21 +57,44 @@ internal sealed class ConditionalPlayerPaths(IReadOnlyDictionary<Guid, MatchNode
 
     // Each group is ONE match with alternative paths. Branch on a path (or omit the match),
     // carrying a shared assignment; independent mutually exclusive branches are not double-counted.
-    internal static int MaximumAppearances(IReadOnlyList<IReadOnlyList<ConditionalPlayerPath>> matches, int stopAt = int.MaxValue)
+    internal static int MaximumAppearances(IReadOnlyList<IReadOnlyList<ConditionalPlayerPath>> matches, int stopAt = int.MaxValue) =>
+        SearchAppearances(matches, stopAt, null);
+
+    internal static AppearanceProof ProveAtLeast(IReadOnlyList<IReadOnlyList<ConditionalPlayerPath>> matches, int target, AppearanceProofBudget budget)
     {
+        // Unlike the unbounded exact validator, this optional proof must also bound
+        // recursion depth. Skipping an oversized proof says nothing about feasibility.
+        if (matches.Count > TournamentPlayerCapacity.MaximumProofGroups) return AppearanceProof.Unknown;
+        var best = SearchAppearances(matches, target, budget);
+        return best >= target ? AppearanceProof.ProvenAtLeast : budget.Exhausted ? AppearanceProof.Unknown : AppearanceProof.ProvenBelow;
+    }
+
+    private static int SearchAppearances(IReadOnlyList<IReadOnlyList<ConditionalPlayerPath>> matches, int stopAt, AppearanceProofBudget? budget)
+    {
+        if (budget is not null)
+        {
+            // Conservative sorting/materialization allowance, bounded to 256 groups;
+            // charge all Min key scans before OrderBy touches the alternatives.
+            if (!budget.TrySpend((long)matches.Count * matches.Count)) return 0;
+            foreach (var match in matches)
+                if (!budget.TrySpend(1L + match.Count)) return 0;
+        }
         var ordered = matches.OrderBy(x => x.Min(p => p.Conditions.Count)).ToArray();
         var best = 0;
         void Visit(int index, int count, Dictionary<Guid, bool> assignment)
         {
+            if (budget is not null && !budget.TrySpend(1)) return;
             if (best >= stopAt || count + ordered.Length - index <= best) return;
             if (index == ordered.Length) { best = Math.Max(best, count); return; }
             foreach (var path in ordered[index])
             {
+                if (budget is not null && !budget.TrySpend(1L + assignment.Count)) return;
                 if (!Compatible(assignment, path.Conditions)) continue;
+                if (budget is not null && !budget.TrySpend((long)assignment.Count + path.Conditions.Count)) return;
                 var merged = new Dictionary<Guid, bool>(assignment);
                 foreach (var pair in path.Conditions) merged[pair.Key] = pair.Value;
                 Visit(index + 1, count + 1, merged);
-                if (best >= stopAt) return;
+                if (best >= stopAt || budget?.Exhausted == true) return;
             }
             Visit(index + 1, count, assignment);
         }
