@@ -4,7 +4,7 @@ using Microsoft.Data.Sqlite;
 
 namespace BadmintonDraw.Persistence;
 
-public class TournamentWorkspaceStore(WorkspaceFileOperations? fileOperations = null) : ITournamentWorkspaceStore
+public partial class TournamentWorkspaceStore(WorkspaceFileOperations? fileOperations = null) : ITournamentWorkspaceStore
 {
     private readonly WorkspaceFileOperations files = fileOperations ?? new();
     private static readonly ConcurrentDictionary<string, object> Gates = new(StringComparer.OrdinalIgnoreCase);
@@ -51,29 +51,8 @@ public class TournamentWorkspaceStore(WorkspaceFileOperations? fileOperations = 
 
     public string CreateBackup(string path) => Locked(path, full => { Read(full); return Backup(full); });
 
-    public TournamentWorkspace RestoreBackup(string path, string backupPath) => Locked(path, full =>
-    {
-        var restored = Read(System.IO.Path.GetFullPath(backupPath));
-        var current = Read(full);
-        if (current.Id != restored.Id) throw new WorkspaceStoreException("WorkspaceIdentityMismatch", "备份属于其他赛事。");
-        return Commit(full, restored, current, null, true).Workspace;
-    });
-
-    /// <summary>Explicit recovery when the formal archive is unreadable. Its bytes are backed up before replacement.</summary>
-    public TournamentWorkspace RecoverFromBackup(string path, string backupPath) => Locked(path, full =>
-    {
-        var restored = Read(System.IO.Path.GetFullPath(backupPath));
-        try { Read(full); }
-        catch (WorkspaceStoreException ex) when (ex.Code == "InvalidWorkspace")
-        {
-            // Corruption removes the trusted current counter. A clock high-water jump invalidates ordinary
-            // pre-corruption sessions instead of reusing backup.Revision + 1 (the restore ABA problem).
-            return Commit(full, restored, restored, null, true, Math.Max(checked(restored.Revision + 1), DateTimeOffset.UtcNow.UtcTicks)).Workspace;
-        }
-        throw new WorkspaceStoreException("RecoveryNotRequired", "工作区可读，请使用正常恢复操作。");
-    });
-
-    private WorkspaceMutationResult Commit(string path, TournamentWorkspace? supplied, TournamentWorkspace? current, Func<TournamentWorkspace, TournamentWorkspace>? mutation, bool overwrite, long? recoveryRevision = null)
+    private WorkspaceMutationResult Commit(string path, TournamentWorkspace? supplied, TournamentWorkspace? current, Func<TournamentWorkspace, TournamentWorkspace>? mutation,
+        bool overwrite, long? recoveryRevision = null, Action<string?>? beforePublish = null)
     {
         var candidate = Sibling(path, "candidate"); string? backup = null; var committed = false;
         try
@@ -99,6 +78,7 @@ public class TournamentWorkspaceStore(WorkspaceFileOperations? fileOperations = 
             }
             Read(candidate); // Domain validation is deliberately after the candidate transaction, before publication.
             if (overwrite) backup = Backup(path);
+            beforePublish?.Invoke(backup);
             files.Publish(candidate, path, overwrite); committed = true;
             return new(Read(path), backup ?? "");
         }

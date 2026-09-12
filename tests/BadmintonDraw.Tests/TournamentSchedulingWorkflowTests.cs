@@ -439,8 +439,10 @@ public sealed class TournamentSchedulingWorkflowTests : IDisposable
             return inner.Mutate(path, expectedRevision, mutation);
         }
         public string CreateBackup(string path) => inner.CreateBackup(path);
-        public TournamentWorkspace RestoreBackup(string path, string backupPath) => inner.RestoreBackup(path, backupPath);
-        public TournamentWorkspace RecoverFromBackup(string path, string backupPath) => inner.RecoverFromBackup(path, backupPath);
+        public WorkspaceBackupSnapshot InspectBackup(string path) => inner.InspectBackup(path);
+        public WorkspaceRecoveryInspection InspectRecovery(string path, string backup) => inner.InspectRecovery(path, backup);
+        public WorkspaceMutationResult RestoreBackup(string path, WorkspaceRestoreRequest request) => inner.RestoreBackup(path, request);
+        public WorkspaceMutationResult RecoverFromBackup(string path, WorkspaceRecoveryRequest request) => inner.RecoverFromBackup(path, request);
     }
     private sealed class ControlledFiles : WorkspaceFileOperations
     {

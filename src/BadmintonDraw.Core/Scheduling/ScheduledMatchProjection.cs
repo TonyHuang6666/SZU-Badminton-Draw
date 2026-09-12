@@ -72,7 +72,7 @@ public static class ScheduledMatchProjection
                     ((Same(result.Winner, a.Participant) && Same(result.Loser, b.Participant)) ||
                      (Same(result.Winner, b.Participant) && Same(result.Loser, a.Participant))) &&
                     result.Winner.IdentityKey != result.Loser.IdentityKey &&
-                    !string.IsNullOrWhiteSpace(result.Score) && result.DurationMinutes > 0 && result.RecordedAt != default,
+                    TournamentResultRules.IsValidValue(result, schedule.Resources.Days.Select(d => d.Date)),
                     "result.entrant");
                 outcomes.Add(node.Id, result);
             }

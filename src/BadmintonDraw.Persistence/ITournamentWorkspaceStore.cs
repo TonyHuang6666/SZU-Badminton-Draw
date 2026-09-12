@@ -7,6 +7,8 @@ public interface ITournamentWorkspaceStore
     TournamentWorkspace Read(string path);
     WorkspaceMutationResult Mutate(string path, long expectedRevision, Func<TournamentWorkspace, TournamentWorkspace> mutation);
     string CreateBackup(string path);
-    TournamentWorkspace RestoreBackup(string path, string backupPath);
-    TournamentWorkspace RecoverFromBackup(string path, string backupPath);
+    WorkspaceBackupSnapshot InspectBackup(string backupPath);
+    WorkspaceRecoveryInspection InspectRecovery(string path, string backupPath);
+    WorkspaceMutationResult RestoreBackup(string path, WorkspaceRestoreRequest request);
+    WorkspaceMutationResult RecoverFromBackup(string path, WorkspaceRecoveryRequest request);
 }

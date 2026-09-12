@@ -37,8 +37,9 @@ public static class TournamentWorkspaceRules
             Require(node is not null && node.IsPlayable && key == result.Key, "result.match", "赛果必须引用本赛事中需要进行的比赛。");
             ValidateParticipant(result.Winner);
             ValidateParticipant(result.Loser);
-            Require(result.Winner.IdentityKey != result.Loser.IdentityKey && !string.IsNullOrWhiteSpace(result.Score) &&
-                result.DurationMinutes > 0 && result.RecordedAt != default, "result.value", "赛果胜负方、比分或时长无效。");
+            Require(result.Winner.IdentityKey != result.Loser.IdentityKey &&
+                TournamentResultRules.IsValidValue(result, workspace.Resources?.Days.Select(d => d.Date) ?? []),
+                "result.value", "赛果类型、比赛日期、胜负方、比分或时长无效。");
             var a = Resolve(node!.SideA, node.ProjectId, workspace.Results);
             var b = Resolve(node.SideB, node.ProjectId, workspace.Results);
             Require(a is not null && b is not null &&
@@ -66,6 +67,7 @@ public static class TournamentWorkspaceRules
         if (workspace.Stage == TournamentStage.Completed)
             Require(nodes.Where(n => n.IsPlayable).All(n => workspace.Results.ContainsKey(new(n.ProjectId, n.Id))),
                 "stage.completed", "全部需要进行的比赛均有有效赛果后才能完成赛事。");
+        WorkspaceOperationsRules.Validate(workspace);
     }
 
     public static TournamentWorkspace Transition(TournamentWorkspace workspace, TournamentStage target)

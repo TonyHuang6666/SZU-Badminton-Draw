@@ -11,7 +11,8 @@ internal static class WorkspaceSerializer
 {
     // Presence/count metadata detects removed rows even when the resulting domain object could otherwise be valid.
     private sealed record Header(Guid Id, string Name, TournamentKind Kind, TournamentPurpose Purpose, TournamentStage Stage,
-        DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, long Revision, int ProjectCount, int ResultCount, int AuditCount, bool HasResources, bool HasSchedule);
+        DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, long Revision, int ProjectCount, int ResultCount, int AuditCount,
+        bool HasResources, bool HasSchedule, int ProcessedDayCount, int ImportLogCount, int ResultHistoryCount);
     private sealed record ProjectHeader(Guid Id, EventDiscipline Discipline, string DisplayName, CompetitionMode CompetitionMode,
         int SortOrder, bool HasRoster, bool HasDraw, bool HasGraph);
     private sealed record ScheduleData(IReadOnlyDictionary<Guid, MatchPlacement> Placements, TournamentSchedulingPolicy Policy,
@@ -21,7 +22,9 @@ internal static class WorkspaceSerializer
     internal static void Write(SqliteConnection c, SqliteTransaction tx, TournamentWorkspace w)
     {
         foreach (var table in WorkspaceDatabaseSchema.Tables.Reverse()) Execute(c, tx, $"DELETE FROM {table}");
-        Insert(c, tx, "workspace", ["id", "json"], w.Id, Json(new Header(w.Id, w.Name, w.Kind, w.Purpose, w.Stage, w.CreatedAt, w.UpdatedAt, w.Revision, w.Projects.Count, w.Results.Count, w.AuditEvents.Count, w.Resources is not null, w.Schedule is not null)));
+        Insert(c, tx, "workspace", ["id", "json"], w.Id, Json(new Header(w.Id, w.Name, w.Kind, w.Purpose, w.Stage, w.CreatedAt, w.UpdatedAt, w.Revision,
+            w.Projects.Count, w.Results.Count, w.AuditEvents.Count, w.Resources is not null, w.Schedule is not null,
+            w.ProcessedDays.Count, w.ImportLogs.Count, w.ResultHistory.Count)));
         for (var i = 0; i < w.Projects.Count; i++)
         {
             var p = w.Projects[i];
@@ -33,6 +36,9 @@ internal static class WorkspaceSerializer
         if (w.Resources is not null) Insert(c, tx, "resource_plan", ["workspace_id", "json"], w.Id, Json(w.Resources));
         if (w.Schedule is { } s) Insert(c, tx, "schedule", ["workspace_id", "json"], w.Id, Json(new ScheduleData(s.Placements, s.Policy, s.GraphRevisions, s.Revision)));
         foreach (var (key, result) in w.Results) Insert(c, tx, "match_results", ["project_id", "match_id", "json"], key.ProjectId, key.MatchId, Json(result));
+        foreach (var day in w.ProcessedDays) Insert(c, tx, "processed_days", ["workspace_id", "day", "json"], w.Id, DayKey(day.Day), Json(day));
+        foreach (var log in w.ImportLogs) Insert(c, tx, "import_logs", ["id", "workspace_id", "json"], log.Id, w.Id, Json(log));
+        foreach (var history in w.ResultHistory) Insert(c, tx, "result_history", ["id", "workspace_id", "json"], history.Id, w.Id, Json(history));
         for (var i = 0; i < w.AuditEvents.Count; i++) Insert(c, tx, "audit_events", ["id", "workspace_id", "ordinal", "json"], w.AuditEvents[i].Id, w.Id, i, Json(w.AuditEvents[i]));
     }
 
@@ -40,8 +46,6 @@ internal static class WorkspaceSerializer
     {
         var heads = Rows(c, "workspace"); Require(heads.Count == 1, "缺少或重复工作区记录。");
         var h = Parse<Header>(heads[0]); Require(heads[0]["id"] == h.Id.ToString(), "工作区身份不匹配。");
-        // These contracts are introduced by the result import workflow. Never silently erase newer populated records.
-        foreach (var table in new[] { "processed_days", "import_logs", "result_history" }) Require(Rows(c, table).Count == 0, "当前版本不支持非空 " + table + " 数据。");
         var rosters = Rows(c, "project_rosters"); var draws = Rows(c, "project_draws"); var graphs = Rows(c, "match_graphs");
         var projects = Rows(c, "projects", "ordinal").Select(row =>
         {
@@ -55,14 +59,26 @@ internal static class WorkspaceSerializer
         var sd = Optional<ScheduleData>(Rows(c, "schedule"), "workspace_id", h.Id, h.HasSchedule);
         var results = Rows(c, "match_results").ToDictionary(row => new WorkspaceMatchKey(Guid.Parse(row["project_id"]), Guid.Parse(row["match_id"])), Parse<TournamentMatchResult>);
         var audit = Rows(c, "audit_events", "ordinal").Select(row => { var a = Parse<WorkspaceAuditEvent>(row); Require(row["id"] == a.Id.ToString() && row["workspace_id"] == h.Id.ToString(), "审计身份不匹配。"); return a; }).ToArray();
+        var days = Rows(c, "processed_days", "day").Select(row =>
+        { var day = Parse<WorkspaceProcessedDay>(row); Require(row["workspace_id"] == h.Id.ToString() && row["day"] == DayKey(day.Day), "处理比赛日身份不匹配。"); return day; }).ToArray();
+        var logs = Rows(c, "import_logs").Select(row =>
+        { var log = Parse<WorkspaceImportLog>(row); Require(row["workspace_id"] == h.Id.ToString() && row["id"] == log.Id.ToString(), "导入日志身份不匹配。"); return log; })
+            .OrderBy(log => log.ImportedAt).ThenBy(log => log.Id).ToArray();
+        var history = Rows(c, "result_history").Select(row =>
+        { var item = Parse<WorkspaceResultHistory>(row); Require(row["workspace_id"] == h.Id.ToString() && row["id"] == item.Id.ToString(), "更正历史身份不匹配。"); return item; })
+            .OrderBy(item => item.Sequence).ToArray();
         Require(results.Count == h.ResultCount && audit.Length == h.AuditCount, "赛果或审计记录缺失。");
+        Require(days.Length == h.ProcessedDayCount && logs.Length == h.ImportLogCount && history.Length == h.ResultHistoryCount,
+            "处理比赛日、导入日志或更正历史记录缺失。");
         var w = new TournamentWorkspace(h.Id, h.Name, h.Kind, h.Purpose, h.Stage, projects, resources,
-            sd is null ? null : new(sd.Placements, resources ?? throw new InvalidDataException("赛程缺少资源。"), sd.Policy, sd.GraphRevisions, sd.Revision), results, audit, h.CreatedAt, h.UpdatedAt, h.Revision);
+            sd is null ? null : new(sd.Placements, resources ?? throw new InvalidDataException("赛程缺少资源。"), sd.Policy, sd.GraphRevisions, sd.Revision), results, audit, h.CreatedAt, h.UpdatedAt, h.Revision)
+        { ProcessedDays = days, ImportLogs = logs, ResultHistory = history };
         TournamentWorkspaceRules.Validate(w); return w;
     }
     private static T? Optional<T>(List<Dictionary<string, string>> rows, string key, Guid id, bool expected) where T : class
     { var matches = rows.Where(r => r[key] == id.ToString()).ToArray(); Require(matches.Length == (expected ? 1 : 0), "聚合记录缺失或多余。"); return expected ? Parse<T>(matches[0]) : null; }
     private static string Json<T>(T value) => JsonSerializer.Serialize(value, Options);
+    private static string DayKey(DateOnly day) => day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
     private static T Parse<T>(Dictionary<string, string> row) => JsonSerializer.Deserialize<T>(row["json"], Options) ?? throw new InvalidDataException("JSON 不能为空。");
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidDataException(message); }
     private static List<Dictionary<string, string>> Rows(SqliteConnection c, string table, string? order = null)

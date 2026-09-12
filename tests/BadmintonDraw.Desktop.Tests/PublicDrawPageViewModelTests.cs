@@ -431,7 +431,9 @@ public sealed class PublicDrawPageViewModelTests : IDisposable
             return result;
         }
         public string CreateBackup(string path) => actual.CreateBackup(path);
-        public TournamentWorkspace RestoreBackup(string path, string backupPath) => actual.RestoreBackup(path, backupPath);
-        public TournamentWorkspace RecoverFromBackup(string path, string backupPath) => actual.RecoverFromBackup(path, backupPath);
+        public WorkspaceBackupSnapshot InspectBackup(string path) => actual.InspectBackup(path);
+        public WorkspaceRecoveryInspection InspectRecovery(string path, string backup) => actual.InspectRecovery(path, backup);
+        public WorkspaceMutationResult RestoreBackup(string path, WorkspaceRestoreRequest request) => actual.RestoreBackup(path, request);
+        public WorkspaceMutationResult RecoverFromBackup(string path, WorkspaceRecoveryRequest request) => actual.RecoverFromBackup(path, request);
     }
 }

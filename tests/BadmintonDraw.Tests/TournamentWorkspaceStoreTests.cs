@@ -44,7 +44,7 @@ public class TournamentWorkspaceStoreTests
         var changed = store.Mutate(temp.Path, 0, w => w with { Name = "新名称", Revision = 999 });
         Assert.Equal(1, changed.Workspace.Revision);
         Assert.Equal(initial.Name, store.Read(changed.BackupPath).Name);
-        var restored = store.RestoreBackup(temp.Path, changed.BackupPath);
+        var restored = store.RestoreBackup(temp.Path, WorkspaceRecoveryContractsTests.Request(store.InspectBackup(changed.BackupPath), 1)).Workspace;
         Assert.Equal(initial.Name, restored.Name);
         Assert.Equal(2, restored.Revision);
     }

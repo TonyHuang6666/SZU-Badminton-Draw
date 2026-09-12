@@ -103,19 +103,21 @@ public class TournamentWorkspaceStoreFailureTests
         var oldSession = store.Mutate(temp.Path, 0, w => w with { Name = "before corruption" }).Workspace;
         File.WriteAllText(temp.Path, "corrupt sqlite"); var before = Hash(temp.Path);
         Assert.Equal("InvalidWorkspace", Assert.Throws<WorkspaceStoreException>(() => store.Read(temp.Path)).Code);
-        Assert.Throws<WorkspaceStoreException>(() => store.RestoreBackup(temp.Path, backup)); Assert.Equal(before, Hash(temp.Path));
-        var recovered = store.RecoverFromBackup(temp.Path, backup); Assert.True(recovered.Revision > oldSession.Revision);
+        Assert.Throws<WorkspaceStoreException>(() => store.RestoreBackup(temp.Path, WorkspaceRecoveryContractsTests.Request(store.InspectBackup(backup), oldSession.Revision))); Assert.Equal(before, Hash(temp.Path));
+        var confirmation = WorkspaceRecoveryContractsTests.Recovery(store.InspectRecovery(temp.Path, backup));
+        var recovered = store.RecoverFromBackup(temp.Path, confirmation).Workspace; Assert.True(recovered.Revision > oldSession.Revision);
         Assert.Equal("RevisionConflict", Assert.Throws<WorkspaceStoreException>(() => store.Mutate(temp.Path, oldSession.Revision, w => w)).Code);
         Assert.Contains(Directory.GetFiles(temp.DirectoryPath, "*.backup.szbd"), p => Hash(p) == before);
-        Assert.Equal("RecoveryNotRequired", Assert.Throws<WorkspaceStoreException>(() => store.RecoverFromBackup(temp.Path, backup)).Code);
+        Assert.Equal("RecoveryNotRequired", Assert.Throws<WorkspaceStoreException>(() => store.RecoverFromBackup(temp.Path, confirmation)).Code);
     }
 
     [Fact]
     public void ForeignOrInvalidBackupCannotReplaceFormalFile()
     {
         using var temp = new WorkspaceStoreTemp(); using var other = new WorkspaceStoreTemp(); Initialize(temp); Initialize(other); var before = Hash(temp.Path); var store = new TournamentWorkspaceStore();
-        Assert.Equal("WorkspaceIdentityMismatch", Assert.Throws<WorkspaceStoreException>(() => store.RestoreBackup(temp.Path, other.Path)).Code);
-        File.WriteAllText(other.Path, "invalid"); Assert.Throws<WorkspaceStoreException>(() => store.RestoreBackup(temp.Path, other.Path)); Assert.Equal(before, Hash(temp.Path));
+        var confirmation = WorkspaceRecoveryContractsTests.Request(store.InspectBackup(other.Path), 0);
+        Assert.Equal("WorkspaceIdentityMismatch", Assert.Throws<WorkspaceStoreException>(() => store.RestoreBackup(temp.Path, confirmation)).Code);
+        File.WriteAllText(other.Path, "invalid"); Assert.Throws<WorkspaceStoreException>(() => store.RestoreBackup(temp.Path, confirmation)); Assert.Equal(before, Hash(temp.Path));
     }
 
     [Fact]

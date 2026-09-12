@@ -107,8 +107,8 @@ internal sealed class GraphSchedulingCandidates
         foreach (var pair in request.Results)
         {
             if (!Nodes.TryGetValue(pair.Key.MatchId, out var node) || node.ProjectId != pair.Key.ProjectId || pair.Value.Key != pair.Key ||
-                pair.Value.Winner.IdentityKey == pair.Value.Loser.IdentityKey || string.IsNullOrWhiteSpace(pair.Value.Score) ||
-                pair.Value.DurationMinutes <= 0 || pair.Value.RecordedAt == default)
+                pair.Value.Winner.IdentityKey == pair.Value.Loser.IdentityKey ||
+                !TournamentResultRules.IsValidValue(pair.Value, Days.Select(d => d.Date)))
             {
                 Issue(SchedulingConstraintCode.InvalidResult, "赛果项目、比赛或胜负双方身份无效。", related: pair.Key.MatchId);
                 continue;

@@ -596,8 +596,10 @@ public sealed class ScheduleEditingWorkflowTests : IDisposable
         public WorkspaceMutationResult Mutate(string path, long revision, Func<TournamentWorkspace, TournamentWorkspace> mutation)
         { Mutations++; var before = BeforeMutation; BeforeMutation = null; before?.Invoke(); return inner.Mutate(path, revision, mutation); }
         public string CreateBackup(string path) => inner.CreateBackup(path);
-        public TournamentWorkspace RestoreBackup(string path, string backup) => inner.RestoreBackup(path, backup);
-        public TournamentWorkspace RecoverFromBackup(string path, string backup) => inner.RecoverFromBackup(path, backup);
+        public WorkspaceBackupSnapshot InspectBackup(string path) => inner.InspectBackup(path);
+        public WorkspaceRecoveryInspection InspectRecovery(string path, string backup) => inner.InspectRecovery(path, backup);
+        public WorkspaceMutationResult RestoreBackup(string path, WorkspaceRestoreRequest request) => inner.RestoreBackup(path, request);
+        public WorkspaceMutationResult RecoverFromBackup(string path, WorkspaceRecoveryRequest request) => inner.RecoverFromBackup(path, request);
     }
     private sealed class ControlledFiles : WorkspaceFileOperations
     {
