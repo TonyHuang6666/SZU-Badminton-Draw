@@ -112,6 +112,7 @@ public static class TournamentWorkspaceRules
         {
             Require(roster.Participants.Count >= 2 && !string.IsNullOrWhiteSpace(roster.SourceFileName) && !string.IsNullOrWhiteSpace(roster.ContentHash), "roster.required", "名单至少需要两个参赛方，并保留来源文件和哈希。");
             var entrants = roster.Participants.Select(p => ProjectEntrantIdentity.Create(project.Discipline, p)).ToArray();
+            if (project.Discipline != EventDiscipline.Team) ValidateRosterPlayers(entrants);
             Require(entrants.Select(p => p.IdentityKey).Distinct(StringComparer.Ordinal).Count() == entrants.Length,
                 "roster.identity", "名单参赛方身份不能重复。");
             Require(roster.Warnings.All(w => !string.IsNullOrWhiteSpace(w.Code) && !string.IsNullOrWhiteSpace(w.Message) && (w.RowNumber is null or > 0)), "roster.warning", "名单警告无效。");
@@ -127,6 +128,28 @@ public static class TournamentWorkspaceRules
         }
         Require((project.MatchGraph is not null) == (project.Draw?.ConfirmedAt is not null), "draw.graph", "确认抽签必须同时存在比赛关系图，未确认抽签不能有比赛关系图。");
         if (project.MatchGraph is { } graph) ValidateGraph(project, graph);
+    }
+
+    private static void ValidateRosterPlayers(IReadOnlyList<EntrantSource.Participant> entrants)
+    {
+        // A pair's membership key cannot detect one player registered with different partners.
+        // Use the scheduler's individual identity equivalence, scoped to this project only.
+        var positions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (var entrantIndex = 0; entrantIndex < entrants.Count; entrantIndex++)
+        for (var playerIndex = 0; playerIndex < entrants[entrantIndex].Players.Count; playerIndex++)
+        {
+            var player = entrants[entrantIndex].Players[playerIndex];
+            var position = $"第 {entrantIndex + 1} 个参赛方的选手 {playerIndex + 1}";
+            if (positions.TryAdd(player.IdentityKey, position)) continue;
+            var previous = positions[player.IdentityKey];
+            if (string.IsNullOrWhiteSpace(player.StudentId))
+                throw new WorkspaceValidationException("roster.player-ambiguous",
+                    $"本项目名单{previous}与{position}的姓名“{player.Name}”相同且未提供学号，无法区分选手身份。" +
+                    "若是不同同学，请填写各自不同的学号；若是同一人，请只保留一次报名。");
+            throw new WorkspaceValidationException("roster.player-duplicate",
+                $"学号“{player.StudentId}”在本项目名单{previous}与{position}重复。" +
+                "同一选手在同一项目只能报名一次，双打只能属于一对搭档。");
+        }
     }
 
     private static void ValidateParticipant(EntrantSource.Participant participant)
