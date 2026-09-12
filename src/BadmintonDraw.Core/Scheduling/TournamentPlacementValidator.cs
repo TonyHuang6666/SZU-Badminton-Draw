@@ -24,7 +24,8 @@ public sealed class TournamentPlacementValidator
         var resources = Context.Request.Resources;
         if (Context.LockedIds.Contains(node.Id) && Context.Request.BaselinePlacements![node.Id] != placement)
             Issue(SchedulingConstraintCode.LockedPlacement, "已完成或锁定场次不能移动。");
-        var day = Context.Days.FirstOrDefault(d => d.DayLabel == placement.DayLabel);
+        var day = placement.DayLabel is not null && Context.DayIndexes.TryGetValue(placement.DayLabel, out var dayIndex)
+            ? Context.Days[dayIndex] : null;
         if (day is null || placement.StartTime < day.DayStart || placement.EndTime > day.DayEnd || placement.EndTime <= placement.StartTime)
         {
             Issue(SchedulingConstraintCode.DayBounds, "位置必须在某个比赛日的时间范围内。");
@@ -41,7 +42,7 @@ public sealed class TournamentPlacementValidator
             if (pair.Key == placement.MatchId) { Issue(SchedulingConstraintCode.PlacementIdentity, "候选比赛必须从已有位置中移除。", pair.Key); continue; }
             if (pair.Key != pair.Value.MatchId || !Context.Nodes.ContainsKey(pair.Key))
             { Issue(SchedulingConstraintCode.PlacementIdentity, "已有位置的比赛身份不一致。", pair.Key); continue; }
-            if (!Context.Days.Any(d => d.DayLabel == pair.Value.DayLabel))
+            if (pair.Value.DayLabel is null || !Context.DayIndexes.ContainsKey(pair.Value.DayLabel))
             { Issue(SchedulingConstraintCode.DayBounds, "已有位置引用了未知比赛日。", pair.Key); continue; }
             validOthers.Add(pair.Value);
         }

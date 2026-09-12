@@ -10,7 +10,7 @@ internal sealed class TournamentPlacementScorer(GraphSchedulingCandidates contex
     internal long Score(MatchNode node, MatchPlacement placement, IReadOnlyDictionary<Guid, MatchPlacement> placements)
     {
         var policy = context.Request.Policy;
-        var dayIndex = Array.FindIndex(context.Days, d => d.DayLabel == placement.DayLabel);
+        var dayIndex = context.DayIndexes[placement.DayLabel];
         var day = context.Days[dayIndex];
         var minute = (int)(placement.StartTime - day.DayStart).TotalMinutes;
         long score = Compact ? dayIndex * 100_000L + minute * 10L : dayIndex * 50L + minute;

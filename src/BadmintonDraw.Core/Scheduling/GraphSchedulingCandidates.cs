@@ -13,11 +13,18 @@ internal sealed class GraphSchedulingCandidates
     internal HashSet<Guid> LockedIds { get; } = [];
     internal List<SchedulingViolation> InputViolations { get; } = [];
     internal ScheduleDaySettings[] Days { get; }
+    internal IReadOnlyDictionary<string, int> DayIndexes { get; }
 
     internal GraphSchedulingCandidates(TournamentSchedulingRequest request)
     {
         Request = request;
         Days = request.Resources.Days.OrderBy(d => d.Date).ToArray();
+        var dayIndexes = new Dictionary<string, int>(StringComparer.Ordinal);
+        // Keep duplicate dates in Days for typed input validation below, rather than
+        // throwing while preparing the immutable request's repeated day lookups.
+        for (var i = 0; i < Days.Length; i++)
+            dayIndexes.TryAdd(Days[i].DayLabel, i);
+        DayIndexes = dayIndexes;
         void Issue(SchedulingConstraintCode code, string message, MatchNode? n = null, Guid? related = null) =>
             InputViolations.Add(new(code, n?.ProjectId, n?.Id, related, message));
         var projects = request.MatchGraphs.Select(g => g.ProjectId).ToHashSet();
@@ -136,7 +143,7 @@ internal sealed class GraphSchedulingCandidates
     private static Guid? SourceId(EntrantSource source) => source switch { EntrantSource.WinnerOf w => w.MatchId, EntrantSource.LoserOf l => l.MatchId, _ => null };
     internal double Minute(MatchPlacement p, bool end = false)
     {
-        var day = Days.First(d => d.DayLabel == p.DayLabel);
+        var day = Days[DayIndexes[p.DayLabel]];
         return (long)day.Date.DayNumber * 1440 + (end ? p.EndTime : p.StartTime).ToTimeSpan().TotalMinutes;
     }
 }

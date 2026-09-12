@@ -42,9 +42,13 @@ public sealed class TournamentScheduler
             foreach (var court in day.Courts)
             {
                 var proposal = new MatchPlacement(next.Id, day.DayLabel, start, start.AddMinutes(context.Durations[next.Id]), court);
+                // Scoring is pure for this unchanged partial schedule. A candidate that
+                // cannot beat an already validated best cannot change the result, including
+                // first-in-traversal ties; avoid repeating the full hard gate for it.
+                var score = scorer.Score(next, proposal, placements);
+                if (best is not null && score >= bestScore) continue;
                 var valid = validator.ValidatePlacement(proposal, placements);
                 if (!valid.IsValid) { foreach (var issue in valid.Violations) rejections.TryAdd(issue.Code, issue); continue; }
-                var score = scorer.Score(next, proposal, placements);
                 if (score >= bestScore) continue;
                 best = proposal; bestScore = score;
             }
