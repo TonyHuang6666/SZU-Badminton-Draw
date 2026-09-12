@@ -84,6 +84,9 @@ public partial class TournamentWorkspaceStore(WorkspaceFileOperations? fileOpera
         }
         catch (Exception ex)
         {
+            // Backup may throw after creating its destination, before the assignment above completes.
+            if (backup is null && ex is WorkspaceStoreException { Code: "BackupFailed" } backupError)
+                backup = backupError.BackupPath;
             throw new WorkspaceStoreException(committed ? "CommittedReadFailed" : "WorkspaceWriteFailed",
                 committed ? "工作区已保存，但重新读取失败。请重新打开；备份可用于恢复。" : "工作区未替换，原文件保持不变：" + ex.Message,
                 ex, File.Exists(candidate) ? candidate : null, backup, committed);
@@ -93,7 +96,12 @@ public partial class TournamentWorkspaceStore(WorkspaceFileOperations? fileOpera
     {
         var backup = Sibling(path, "backup");
         try { files.Copy(path, backup); return backup; }
-        catch (Exception ex) { throw new WorkspaceStoreException("BackupFailed", "无法创建备份。", ex); }
+        catch (Exception ex)
+        {
+            var retained = File.Exists(backup) ? backup : null;
+            throw new WorkspaceStoreException("BackupFailed", retained is null ? "无法创建备份。" :
+                "备份复制失败，已保留副本文件，但完整性未验证；请检查后再使用。", ex, backupPath: retained);
+        }
     }
     private static string Sibling(string path, string kind) => System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "." + System.IO.Path.GetFileNameWithoutExtension(path) + "." + Guid.NewGuid().ToString("N") + "." + kind + ".szbd");
     private static SqliteConnection Open(string path, SqliteOpenMode mode)
