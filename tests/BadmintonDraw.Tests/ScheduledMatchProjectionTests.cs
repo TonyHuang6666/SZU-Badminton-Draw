@@ -1,0 +1,86 @@
+using System.Text.Json;
+using BadmintonDraw.Core;
+using BadmintonDraw.Core.Matches;
+using BadmintonDraw.Core.Scheduling;
+using BadmintonDraw.Core.Tournaments;
+using Xunit;
+
+namespace BadmintonDraw.Tests;
+
+public sealed class ScheduledMatchProjectionTests
+{
+    private static TournamentSchedule Schedule(params MatchGraph[] graphs) => new(
+        graphs.SelectMany(g => g.Matches).ToDictionary(n => n.Id, n => new MatchPlacement(n.Id, "比赛日", new(9, 0), new(9, 30), "A")),
+        new([], null, 0, 20), new(ScheduleAutoSchedulingStrategy.Compact, [], false, [], []),
+        graphs.ToDictionary(g => g.ProjectId, g => g.Revision), 1);
+
+    private static TournamentMatchResult Result(MatchGraph graph, string localId,
+        EntrantSource.Participant winner, EntrantSource.Participant loser) => new(
+            new(graph.ProjectId, graph.Matches.Single(n => n.OriginalMatchId == localId).Id),
+            winner, loser, "21:10", 30, DateTimeOffset.UtcNow);
+
+    [Fact]
+    public void ResultsResolveWinnerAndLoserRecursivelyWithoutChangingStoredGraph()
+    {
+        var graph = MatchGraphFactory.Create(MatchGraphTests.ProjectId, MatchGraphTests.Draw());
+        var json = JsonSerializer.Serialize(graph);
+        var results = new Dictionary<WorkspaceMatchKey, TournamentMatchResult>();
+        var participants = graph.Matches.Take(4).SelectMany(n => new[] { (EntrantSource.Participant)n.SideA, (EntrantSource.Participant)n.SideB }).ToArray();
+        foreach (var i in Enumerable.Range(0, 4))
+        {
+            var r = Result(graph, (i + 1).ToString(), participants[2 * i], participants[2 * i + 1]);
+            results.Add(r.Key, r);
+        }
+        var semi = Result(graph, "5", participants[0], participants[2]); results.Add(semi.Key, semi);
+        var rows = ScheduledMatchProjection.Build(graph, Schedule(graph), results).ToDictionary(m => m.MatchId);
+        var final = rows[graph.Matches.Single(n => n.OriginalMatchId == "7").Id.ToString("D")];
+        Assert.Equal("P1", final.SideA);
+        Assert.Equal("A组半决赛第2场胜者", final.SideB);
+        Assert.Equal(new[] { "ID1" }, final.SideAPlayerIdentities.Select(p => p.StudentId));
+        Assert.Equal(new[] { "ID5", "ID7" }, final.SideBPlayerIdentities.Select(p => p.StudentId));
+        var bronze = rows[graph.Matches.Single(n => n.OriginalMatchId == "8").Id.ToString("D")];
+        Assert.Equal("P3", bronze.SideA);
+        Assert.Equal("A组半决赛第2场负者", bronze.SideB);
+        Assert.Equal(ScheduleMatchDependencyOutcome.Loser, bronze.Dependencies[0].Outcome);
+        Assert.Equal(graph.Matches.Single(n => n.OriginalMatchId == "5").Id.ToString("D"), bronze.Dependencies[0].SourceMatchId);
+        Assert.Equal(json, JsonSerializer.Serialize(graph));
+    }
+
+    [Fact]
+    public void ProjectQualifiedResultsCannotLeakToAnIdenticalOtherProject()
+    {
+        var first = MatchGraphFactory.Create(MatchGraphTests.ProjectId, MatchGraphTests.Draw(4, placement: PlacementPlayoff.None));
+        var second = MatchGraphFactory.Create(Guid.NewGuid(), MatchGraphTests.Draw(4, placement: PlacementPlayoff.None));
+        var opening = first.Matches[0];
+        var r = Result(first, "1", (EntrantSource.Participant)opening.SideA, (EntrantSource.Participant)opening.SideB);
+        var rows = ScheduledMatchProjection.Build(new[] { first, second }, Schedule(first, second), new Dictionary<WorkspaceMatchKey, TournamentMatchResult> { [r.Key] = r });
+        Assert.Equal("P1", rows.Single(m => m.MatchId == first.Matches[2].Id.ToString("D")).SideA);
+        Assert.Equal("A组半决赛第1场胜者", rows.Single(m => m.MatchId == second.Matches[2].Id.ToString("D")).SideA);
+        Assert.Equal(6, rows.Select(m => m.MatchId).Distinct().Count());
+    }
+
+    [Theory]
+    [InlineData("stale")] [InlineData("missing")] [InlineData("foreign")] [InlineData("key")]
+    public void RejectsStaleOrMismatchedPlacements(string invalid)
+    {
+        var graph = MatchGraphFactory.Create(MatchGraphTests.ProjectId, MatchGraphTests.Draw(2, placement: PlacementPlayoff.None));
+        var schedule = Schedule(graph);
+        if (invalid == "stale") schedule = schedule with { GraphRevisions = new Dictionary<Guid, string> { [graph.ProjectId] = "old" } };
+        if (invalid == "missing") schedule = schedule with { Placements = new Dictionary<Guid, MatchPlacement>() };
+        if (invalid == "foreign") schedule = schedule with { Placements = schedule.Placements.Append(new(Guid.NewGuid(), new(Guid.NewGuid(), "比赛日", new(9, 0), new(9, 30), "A"))).ToDictionary() };
+        if (invalid == "key") schedule = schedule with { Placements = new Dictionary<Guid, MatchPlacement> { [graph.Matches[0].Id] = schedule.Placements.Values.Single() with { MatchId = Guid.NewGuid() } } };
+        Assert.Throws<WorkspaceValidationException>(() => ScheduledMatchProjection.Build(graph, schedule, new Dictionary<WorkspaceMatchKey, TournamentMatchResult>()));
+    }
+
+    [Fact]
+    public void RejectsImpossibleResultsAndCyclesBeforeResolving()
+    {
+        var graph = MatchGraphFactory.Create(MatchGraphTests.ProjectId, MatchGraphTests.Draw(4, placement: PlacementPlayoff.None));
+        var a = (EntrantSource.Participant)graph.Matches[0].SideA;
+        var b = (EntrantSource.Participant)graph.Matches[1].SideB;
+        var r = Result(graph, "1", a, b);
+        Assert.Throws<WorkspaceValidationException>(() => ScheduledMatchProjection.Build(graph, Schedule(graph), new Dictionary<WorkspaceMatchKey, TournamentMatchResult> { [r.Key] = r }));
+        var cyclic = graph with { Matches = graph.Matches.Select((n, i) => i == 0 ? n with { SideA = new EntrantSource.WinnerOf(n.Id), Dependencies = [n.Id] } : n).ToArray() };
+        Assert.Throws<WorkspaceValidationException>(() => ScheduledMatchProjection.Build(cyclic, Schedule(cyclic), new Dictionary<WorkspaceMatchKey, TournamentMatchResult>()));
+    }
+}
