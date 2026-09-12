@@ -1,0 +1,82 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" x:Class="BadmintonDraw.Desktop.Views.PublicDrawPage" x:DataType="vm:PublicDrawPageViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="28" Spacing="18">
+      <TextBlock Text="公开抽签" FontSize="28" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" />
+      <TextBlock Text="{Binding Readiness}" TextWrapping="Wrap" />
+      <TextBlock Text="先主动抽签并导出公开预览，检查后确认，再导出正式结果。仅抽签工作区可保存关闭，日后再继续编排。" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+      <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="18">
+        <StackPanel Spacing="12">
+          <TextBlock Text="导出设置（适用于下方各项目及全部项目）" FontWeight="SemiBold" />
+          <ComboBox ItemsSource="{Binding ExportFormats}" SelectedIndex="{Binding ExportFormatIndex}" MinWidth="200" />
+          <WrapPanel IsVisible="{Binding UsesPdf}">
+            <TextBlock Text="淘汰签表 A4 拼页：" VerticalAlignment="Center" />
+            <TextBox Text="{Binding PdfRowsText}" Width="60" Margin="8,0" AutomationProperties.Name="PDF 拼页行数" /><TextBlock Text="行 ×" VerticalAlignment="Center" />
+            <TextBox Text="{Binding PdfColumnsText}" Width="60" Margin="8,0" AutomationProperties.Name="PDF 拼页列数" /><TextBlock Text="列" VerticalAlignment="Center" />
+          </WrapPanel>
+          <CheckBox Content="允许下一次导出覆盖目标目录中的同名材料（每次须重新勾选）" IsChecked="{Binding OverwriteExisting}" />
+          <WrapPanel>
+            <Button Content="导出全部未确认预览" Command="{Binding ExportAllPreviewCommand}" Margin="0,0,10,8" />
+            <Button Content="导出全部已确认结果" Command="{Binding ExportAllConfirmedCommand}" Margin="0,0,10,8" />
+          </WrapPanel>
+          <TextBlock Text="全部导出要求所有项目处于同一确认状态；部分确认时，请逐项目导出。导出使用已保存的抽签，不使用未提交的设置。" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AppMutedTextBrush}" />
+          <SelectableTextBlock Text="{Binding ExportDetails}" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+      <TabControl ItemsSource="{Binding Projects}" SelectedItem="{Binding SelectedProject}">
+        <TabControl.ItemTemplate><DataTemplate x:DataType="vm:ProjectDrawViewModel"><TextBlock Text="{Binding Name}" /></DataTemplate></TabControl.ItemTemplate>
+        <TabControl.ContentTemplate>
+          <DataTemplate x:DataType="vm:ProjectDrawViewModel">
+            <StackPanel Spacing="16" Margin="0,16,0,0">
+              <TextBlock Text="{Binding Name}" FontSize="22" FontWeight="SemiBold" />
+              <WrapPanel><TextBlock Text="{Binding Mode}" Margin="0,0,20,0" /><TextBlock Text="{Binding Status}" Foreground="{DynamicResource AppAccentBrush}" FontWeight="SemiBold" /></WrapPanel>
+              <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="18">
+                <StackPanel Spacing="12">
+                  <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto" IsEnabled="{Binding CanEditSettings}">
+                    <TextBlock Text="分组数量" VerticalAlignment="Center" /><TextBox Grid.Column="1" Text="{Binding GroupCountText}" Width="100" HorizontalAlignment="Left" AutomationProperties.Name="抽签分组数量" />
+                    <TextBlock Grid.Row="1" Text="随机种子" VerticalAlignment="Center" Margin="0,12,0,0" /><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding RandomSeed}" Margin="0,12,0,0" AutomationProperties.Name="抽签随机种子" />
+                  </Grid>
+                  <Button Content="换一个随机种子（不抽签）" Command="{Binding GenerateSeedCommand}" />
+                  <TextBlock Text="{Binding GoalHint}" TextWrapping="Wrap" FontSize="12" />
+                  <StackPanel IsVisible="{Binding ShowKnockoutGoal}" IsEnabled="{Binding CanEditSettings}" Spacing="6">
+                    <TextBlock Text="淘汰赛目标" /><ComboBox ItemsSource="{Binding KnockoutGoals}" SelectedIndex="{Binding KnockoutGoalIndex}" HorizontalAlignment="Stretch" />
+                  </StackPanel>
+                  <StackPanel IsVisible="{Binding ShowPlacementPlayoff}" IsEnabled="{Binding CanEditSettings}" Spacing="6">
+                    <TextBlock Text="名次附加赛（按现有赛制支持的决赛阶段人数生效）" TextWrapping="Wrap" /><ComboBox ItemsSource="{Binding PlacementPlayoffs}" SelectedIndex="{Binding PlacementPlayoffIndex}" HorizontalAlignment="Stretch" />
+                  </StackPanel>
+                  <WrapPanel>
+                    <Button Content="1. 生成 / 重新生成预览" Command="{Binding PreviewDrawCommand}" Margin="0,0,10,8" />
+                    <Button Content="2. 导出未确认预览" Command="{Binding ExportPreviewCommand}" Margin="0,0,10,8" />
+                    <Button Content="3. 确认此项目抽签" Command="{Binding ConfirmDrawCommand}" Margin="0,0,10,8" />
+                    <Button Content="4. 导出已确认结果" Command="{Binding ExportConfirmedCommand}" Margin="0,0,10,8" />
+                  </WrapPanel>
+                  <TextBlock Text="{Binding EditHint}" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+                  <Button Content="放弃当前设置，载入最新抽签设置" Command="{Binding ResetSettingsCommand}" />
+                </StackPanel>
+              </Border>
+              <SelectableTextBlock Text="{Binding DrawAudit}" TextWrapping="Wrap" FontSize="13" />
+              <ItemsControl ItemsSource="{Binding Groups}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:DrawGroupDisplay">
+                    <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,0,10">
+                      <StackPanel Spacing="10"><TextBlock Text="{Binding Title}" FontWeight="SemiBold" /><SelectableTextBlock Text="{Binding Participants}" TextWrapping="Wrap" /><SelectableTextBlock Text="{Binding Advancement}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AppMutedTextBrush}" /></StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Border IsVisible="{Binding CanReopen}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="18">
+                <StackPanel Spacing="12">
+                  <TextBlock Text="解除抽签确认" FontWeight="SemiBold" />
+                  <TextBox Text="{Binding ReopenReason}" PlaceholderText="必填：解除确认的原因" AutomationProperties.Name="解除确认原因" />
+                  <CheckBox IsChecked="{Binding AcknowledgeInvalidation}"><TextBlock Text="我确认作废此项目抽签及比赛关系图，并作废整个赛事的全局赛程；其他项目抽签不变。" TextWrapping="Wrap" /></CheckBox>
+                  <Button Content="解除此项目确认并作废下游赛程" Command="{Binding ReopenCommand}" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </DataTemplate>
+        </TabControl.ContentTemplate>
+      </TabControl>
+      <Button Content="继续筹备完整赛事（保持已确认抽签，不立即排程）" Command="{Binding UpgradeCommand}" IsVisible="{Binding CanUpgrade}" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
