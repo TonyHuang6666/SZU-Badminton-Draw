@@ -132,7 +132,7 @@
       "badmintondraw.excel": {
         "type": "Project",
         "dependencies": {
-          "BadmintonDraw.Core": "[1.0.0, )",
+          "BadmintonDraw.Core": "[4.6.0, )",
           "ClosedXML": "[0.104.2, )",
           "Microsoft.Data.Sqlite": "[8.0.24, )",
           "SQLitePCLRaw.lib.e_sqlite3": "[2.1.13, )",
