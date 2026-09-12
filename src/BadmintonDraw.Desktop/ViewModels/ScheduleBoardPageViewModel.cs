@@ -16,7 +16,7 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     private string sourceIdentity, targetDay = "", targetTimeText = "", targetCourt = "", previewMessage = "";
     private string? selectedDay;
     private double zoom = 1;
-    private bool edited, conflict, disposed, canUndo;
+    private bool edited, conflict, disposed, canUndo, initializePending, initializing;
     private long editorEpoch;
     private ScheduleEditPreview? preview;
     private WorkspaceSession? previewSession;
@@ -43,7 +43,8 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     public bool HasEditorConflict => conflict;
     public bool CanEdit => !disposed && shell.CanMutate && baseline is not null && !conflict && Session.Workspace.Stage is TournamentStage.ScheduleReady or TournamentStage.InProgress;
     public string EditHint => conflict ? "赛程、资源或赛果已改变。目标输入仍保留，但必须载入最新位置后重新预览。" : baseline is null
-        ? "正在载入移动基准，或请点击载入最新位置。" : "移动和连锁移动先预览、再确认。已完成场次锁定；撤销也会按当前赛果重新校验。";
+        ? initializing || initializePending ? "正在载入移动基准，请稍候…" : "请点击载入最新位置以启用移动。"
+        : "普通合法拖动自动保存；手动和连锁移动先预览、再确认。已完成场次锁定；撤销也会按当前赛果重新校验。";
     public string PreviewMessage { get => previewMessage; private set => SetProperty(ref previewMessage, value); }
     public bool IsCascadePreview => preview?.IsCascade == true;
     public IReadOnlyList<ScheduleEditChange> PreviewChanges => preview?.Changes ?? [];
@@ -75,7 +76,14 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
         FocusSelectedCommand = new(() => { if (SelectedMatch is { } match) FocusRequested?.Invoke(match.Key); }, () => !disposed && SelectedMatch is not null);
         LoadTarget();
     }
-    public Task InitializeAsync() => baseline is null ? ResetEditorAsync() : Task.CompletedTask;
+    public async Task InitializeAsync()
+    {
+        if (disposed || baseline is not null || initializing) return;
+        if (shell.IsBusy) { initializePending = true; OnPropertyChanged(nameof(EditHint)); return; }
+        initializePending = false; initializing = true;
+        try { await ResetEditorAsync(); }
+        finally { initializing = false; RefreshAvailability(); }
+    }
     private bool CanPreview() => CanEdit && SelectedMatch is { IsLocked: false };
     private async Task ResetEditorAsync()
     {
@@ -166,6 +174,8 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
         OnPropertyChanged(nameof(CanEdit)); OnPropertyChanged(nameof(HasEditorConflict)); OnPropertyChanged(nameof(EditHint));
         foreach (var command in new[] { ResetEditorCommand, PreviewMoveCommand, PreviewCascadeCommand, ConfirmMoveCommand, UndoCommand }) command?.NotifyCanExecuteChanged();
         CancelPreviewCommand?.NotifyCanExecuteChanged(); FocusSelectedCommand?.NotifyCanExecuteChanged();
+        // Native attachment can occur inside Open's busy ApplySession. Retry once when that operation releases busy.
+        if (initializePending && !disposed && !shell.IsBusy) _ = InitializeAsync();
     }
     public void Dispose() { disposed = true; baseline = null; ClearPreview(); FocusRequested = null; RefreshAvailability(); }
     private sealed record EditorContext(ScheduleEditBaseline Baseline, bool CanUndo);

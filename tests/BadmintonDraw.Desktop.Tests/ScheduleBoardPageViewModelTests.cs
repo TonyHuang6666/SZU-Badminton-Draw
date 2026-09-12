@@ -148,6 +148,25 @@ public sealed class ScheduleBoardPageViewModelTests
         await page.RequestMoveAsync(new(new(page.SelectedMatch!.Key.ProjectId, Guid.NewGuid()), "2026-09-15", new(12, 0), "B2"));
         Assert.Same(session, fixture.Workflow.CurrentSession); Assert.False(page.ConfirmMoveCommand.CanExecute(null));
     }
+    [Fact]
+    public async Task OpeningScheduleArchiveInitializesBoardAfterShellOpenBusyPeriod()
+    {
+        using var fixture = new ScheduleUiFixture(); await Page(fixture);
+        using var shell = new AppShellViewModel(new TournamentWorkspaceWorkflow(), () => Task.FromResult<string?>(null), _ => Task.FromResult<string?>(null),
+            new RecentWorkspaceStore(Path.Combine(fixture.DirectoryPath, "other-recent.json")), action => action());
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        shell.RegisterPageFactory(WorkspaceRoute.ScheduleBoard, session =>
+        {
+            var page = new ScheduleBoardPageViewModel(shell, session);
+            page.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(page.CanEdit) && page.CanEdit) ready.TrySetResult(); };
+            Assert.True(shell.IsBusy); // The native view attaches inside Open's ApplySession, before its finally releases busy.
+            _ = page.InitializeAsync();
+            return page;
+        });
+        Assert.True(await shell.OpenWorkspaceAsync(fixture.Workflow.CurrentSession!.WorkspacePath));
+        await ready.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(Assert.IsType<ScheduleBoardPageViewModel>(shell.CurrentPage).PreviewMoveCommand.CanExecute(null));
+    }
     private sealed class BlockingReadStore : TournamentWorkspaceStore, IDisposable
     {
         public bool Block;
