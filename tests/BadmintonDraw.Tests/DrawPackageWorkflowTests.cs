@@ -92,6 +92,31 @@ public sealed class DrawPackageWorkflowTests : IDisposable
         RetainFixture("preview", result);
     }
 
+    [Theory]
+    [InlineData("抽签设置与审计信息", XLPageOrientation.Portrait, 2, 23)]
+    [InlineData("当前名单", XLPageOrientation.Landscape, 9, 5)]
+    public void AuxiliarySheetsPrintAllColumnsAndRepeatHeadersWithNaturalVerticalPagination(
+        string sheetName, XLPageOrientation orientation, int lastColumn, int lastRow)
+    {
+        var workflow = Ready(); Preview(workflow);
+        var result = workflow.ExportDrawPackage(null, Request(DrawExportState.Preview), Revision(workflow));
+        using var book = new XLWorkbook(Assert.Single(result.Outputs).Path);
+        var sheet = book.Worksheet(sheetName);
+        Assert.Equal(XLPaperSize.A4Paper, sheet.PageSetup.PaperSize);
+        Assert.Equal(orientation, sheet.PageSetup.PageOrientation);
+        Assert.Equal(1, sheet.PageSetup.PagesWide);
+        Assert.Equal(0, sheet.PageSetup.PagesTall);
+        Assert.Equal(1, sheet.PageSetup.FirstRowToRepeatAtTop);
+        Assert.Equal(1, sheet.PageSetup.LastRowToRepeatAtTop);
+        var printArea = Assert.Single(sheet.PageSetup.PrintAreas).RangeAddress;
+        Assert.Equal(1, printArea.FirstAddress.RowNumber);
+        Assert.Equal(1, printArea.FirstAddress.ColumnNumber);
+        Assert.Equal(lastRow, printArea.LastAddress.RowNumber);
+        Assert.Equal(lastColumn, printArea.LastAddress.ColumnNumber);
+        Assert.Equal(sheet.LastRowUsed()!.RowNumber(), printArea.LastAddress.RowNumber);
+        Assert.Equal(sheet.LastColumnUsed()!.ColumnNumber(), printArea.LastAddress.ColumnNumber);
+    }
+
     [Fact]
     public void ConfirmedMultiProjectPackageReopensWithoutScheduleAndUpgradePreservesStoredDrawAndGraphBytes()
     {

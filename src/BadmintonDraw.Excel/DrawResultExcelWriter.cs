@@ -2142,6 +2142,11 @@ public sealed class DrawResultExcelWriter
             sheet.Column(2).Width = 92;
             sheet.Columns(1, 2).Style.Alignment.WrapText = true;
             sheet.Rows(1, rows.Count + 1).Height = 32;
+            sheet.PageSetup.PaperSize = XLPaperSize.A4Paper;
+            sheet.PageSetup.PageOrientation = XLPageOrientation.Portrait;
+            sheet.PageSetup.FitToPages(1, 0);
+            sheet.PageSetup.SetRowsToRepeatAtTop(1, 1);
+            sheet.PageSetup.PrintAreas.Add($"A1:B{rows.Count + 1}");
         }
     }
 
@@ -2152,6 +2157,11 @@ public sealed class DrawResultExcelWriter
         sheet.Columns(1, widths.Length).Style.Alignment.WrapText = true;
         sheet.Columns(1, widths.Length).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
         sheet.Rows(1, participantCount + 1).Height = 36;
+        sheet.PageSetup.PaperSize = XLPaperSize.A4Paper;
+        sheet.PageSetup.PageOrientation = XLPageOrientation.Landscape;
+        sheet.PageSetup.FitToPages(1, 0);
+        sheet.PageSetup.SetRowsToRepeatAtTop(1, 1);
+        sheet.PageSetup.PrintAreas.Add($"A1:I{participantCount + 1}");
     }
 
     private static void WriteRosterSheet(XLWorkbook workbook, string sheetName, IReadOnlyList<DrawParticipant> participants)
