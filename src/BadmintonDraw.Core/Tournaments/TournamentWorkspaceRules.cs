@@ -39,8 +39,8 @@ public static class TournamentWorkspaceRules
             ValidateParticipant(result.Loser);
             Require(result.Winner.IdentityKey != result.Loser.IdentityKey && !string.IsNullOrWhiteSpace(result.Score) &&
                 result.DurationMinutes > 0 && result.RecordedAt != default, "result.value", "赛果胜负方、比分或时长无效。");
-            var a = Resolve(node!.SideA, node.ProjectId, workspace.Results, nodes);
-            var b = Resolve(node.SideB, node.ProjectId, workspace.Results, nodes);
+            var a = Resolve(node!.SideA, node.ProjectId, workspace.Results);
+            var b = Resolve(node.SideB, node.ProjectId, workspace.Results);
             Require(a is not null && b is not null &&
                 ((SameEntrant(result.Winner, a) && SameEntrant(result.Loser, b)) ||
                  (SameEntrant(result.Winner, b) && SameEntrant(result.Loser, a))), "result.entrant", "赛果参赛方与比赛来源不一致，或上游赛果缺失。");
@@ -140,19 +140,17 @@ public static class TournamentWorkspaceRules
         a.IdentityKey == b.IdentityKey && a.Players.Select(p => p.IdentityKey).Order().SequenceEqual(b.Players.Select(p => p.IdentityKey).Order());
 
     private static EntrantSource.Participant? Resolve(EntrantSource source, Guid projectId,
-        IReadOnlyDictionary<WorkspaceMatchKey, TournamentMatchResult> results, IReadOnlyList<MatchNode> nodes)
+        IReadOnlyDictionary<WorkspaceMatchKey, TournamentMatchResult> results)
     {
         if (source is EntrantSource.Participant participant) return participant;
         var id = source switch { EntrantSource.WinnerOf winner => winner.MatchId, EntrantSource.LoserOf loser => loser.MatchId, _ => Guid.Empty };
         if (results.TryGetValue(new(projectId, id), out var result)) return source is EntrantSource.WinnerOf ? result.Winner : result.Loser;
-        var node = nodes.SingleOrDefault(n => n.ProjectId == projectId && n.Id == id);
-        if (source is EntrantSource.WinnerOf && node is { IsPlayable: false })
-            return Resolve(node.SideA is EntrantSource.Bye ? node.SideB : node.SideA, projectId, results, nodes);
         return null;
     }
 
     private static void ValidateGraph(TournamentProject project, MatchGraph graph)
     {
+        graph.RequirePlayableNodes();
         var projectId = project.Id;
         var rosterIdentities = project.Roster!.Participants.Select(p => ProjectEntrantIdentity.Create(project.Discipline, p).IdentityKey).ToHashSet(StringComparer.Ordinal);
         Require(graph.ProjectId == projectId && !string.IsNullOrWhiteSpace(graph.Revision) && graph.Matches.Count > 0, "graph.identity", "比赛关系图项目、版本或场次无效。");
@@ -174,10 +172,8 @@ public static class TournamentWorkspaceRules
                         break;
                     case EntrantSource.WinnerOf w: references.Add(w.MatchId); break;
                     case EntrantSource.LoserOf l: references.Add(l.MatchId); break;
-                    case EntrantSource.Bye: break;
                     default: throw new WorkspaceValidationException("graph.source", "比赛来源无效。");
                 }
-            Require(!(node.SideA is EntrantSource.Bye && node.SideB is EntrantSource.Bye), "graph.bye", "比赛不能两侧均轮空。");
             Require(node.Dependencies.Distinct().Count() == node.Dependencies.Count &&
                 references.ToHashSet().SetEquals(node.Dependencies) &&
                 references.All(id => byId.TryGetValue(id, out var predecessor) && predecessor.Order < node.Order),

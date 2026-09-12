@@ -16,6 +16,7 @@ public static class ScheduledMatchProjection
         ArgumentNullException.ThrowIfNull(graphs);
         ArgumentNullException.ThrowIfNull(schedule);
         ArgumentNullException.ThrowIfNull(results);
+        foreach (var graph in graphs) graph.RequirePlayableNodes();
         Require(graphs.Select(g => g.ProjectId).Distinct().Count() == graphs.Count, "graph.project");
         Require(schedule.GraphRevisions.Count == graphs.Count && graphs.All(g =>
             schedule.GraphRevisions.TryGetValue(g.ProjectId, out var revision) && revision == g.Revision), "schedule.graph-revision");
@@ -35,7 +36,7 @@ public static class ScheduledMatchProjection
                     Require(nodes.TryGetValue(reference, out var parent) && parent.ProjectId == node.ProjectId && parent.Order < node.Order, "graph.source");
             }
         }
-        Require(schedule.Placements.Keys.ToHashSet().SetEquals(all.Where(n => n.IsPlayable).Select(n => n.Id)), "schedule.coverage");
+        Require(schedule.Placements.Keys.ToHashSet().SetEquals(all.Select(n => n.Id)), "schedule.coverage");
         Require(schedule.Placements.All(pair => pair.Key == pair.Value.MatchId), "schedule.placement");
         foreach (var pair in results)
             Require(pair.Key == pair.Value.Key && nodes.TryGetValue(pair.Key.MatchId, out var n) &&
@@ -46,7 +47,6 @@ public static class ScheduledMatchProjection
         Resolved Resolve(EntrantSource source)
         {
             if (source is EntrantSource.Participant p) return new(p.DisplayName, p.Players, p);
-            if (source is EntrantSource.Bye) return new("轮空", [], null);
             var id = Reference(source)!.Value;
             var parent = nodes[id];
             if (outcomes.TryGetValue(id, out var outcome))
@@ -55,10 +55,6 @@ public static class ScheduledMatchProjection
                 return new(entrant.DisplayName, entrant.Players, entrant);
             }
             var (a, b) = sides[id];
-            if (!parent.IsPlayable)
-                return source is EntrantSource.WinnerOf
-                    ? (parent.SideA is EntrantSource.Bye ? b : a)
-                    : new("轮空", [], null);
             return new(parent.DisplayName + (source is EntrantSource.WinnerOf ? "胜者" : "负者"),
                 a.Players.Concat(b.Players).DistinctBy(p => p.IdentityKey).ToArray(), null);
         }
@@ -80,7 +76,6 @@ public static class ScheduledMatchProjection
                     "result.entrant");
                 outcomes.Add(node.Id, result);
             }
-            if (!node.IsPlayable) continue;
             var placement = schedule.Placements[node.Id];
             var dependencies = new List<ScheduleMatchDependency>();
             void AddDependency(EntrantSource source, ScheduleMatchSide side)

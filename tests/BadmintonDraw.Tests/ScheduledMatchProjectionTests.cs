@@ -9,6 +9,63 @@ namespace BadmintonDraw.Tests;
 
 public sealed class ScheduledMatchProjectionTests
 {
+    [Theory]
+    [InlineData(false, false)] [InlineData(false, true)]
+    [InlineData(true, false)] [InlineData(true, true)]
+    public void DomainAndProjectionRejectExplicitByeNodesWithTheSameContract(bool includeByePlacement, bool byeOnSideA)
+    {
+        var workspace = TournamentWorkspaceRulesTests.Fixture(TournamentStage.ScheduleReady) with
+            { Results = new Dictionary<WorkspaceMatchKey, TournamentMatchResult>() };
+        var project = workspace.Projects[0];
+        var final = project.MatchGraph!.Matches[0];
+        var bye = final with { Id = Guid.NewGuid(), OriginalMatchId = "bye", DisplayName = "轮空节点",
+            SideA = byeOnSideA ? new EntrantSource.Bye() : final.SideA,
+            SideB = byeOnSideA ? final.SideA : new EntrantSource.Bye() };
+        final = final with { Order = 2, SideA = new EntrantSource.WinnerOf(bye.Id), Dependencies = [bye.Id] };
+        var graph = project.MatchGraph with { Matches = [bye, final] };
+        project = project with { MatchGraph = graph };
+        var placements = workspace.Schedule!.Placements.ToDictionary();
+        if (includeByePlacement)
+            placements.Add(bye.Id, new(bye.Id, "2026-09-13", new(10, 0), new(10, 30), "1"));
+        workspace = workspace with { Projects = [project], Schedule = workspace.Schedule with { Placements = placements } };
+
+        var domain = Assert.Throws<WorkspaceValidationException>(() => TournamentWorkspaceRules.ValidateProject(project));
+        var savedWorkspace = Assert.Throws<WorkspaceValidationException>(() => TournamentWorkspaceRules.Validate(workspace));
+        var projection = Assert.Throws<WorkspaceValidationException>(() => ScheduledMatchProjection.Build(graph, workspace.Schedule, workspace.Results));
+        Assert.Equal("graph.bye", domain.Code);
+        Assert.Equal(domain.Code, savedWorkspace.Code);
+        Assert.Equal(domain.Code, projection.Code);
+        Assert.Equal(domain.Message, projection.Message);
+    }
+
+    [Theory]
+    [InlineData(3)] [InlineData(5)] [InlineData(6)] [InlineData(7)]
+    public void FactoryDirectAdvancementGraphsAreValidWorkspacesAndProjectEveryDependency(int count)
+    {
+        var participants = Enumerable.Range(1, count).Select(i => new DrawParticipant($"P{i}", PrimaryStudentId: $"ID{i}")).ToArray();
+        var draw = new DrawService().Generate(participants,
+            new(CompetitionMode.SinglesKnockout, EventKind.Singles, 1, "direct-byes", KnockoutGoal: KnockoutGoal.Champion));
+        var workspace = TournamentWorkspaceRulesTests.Fixture(TournamentStage.ScheduleReady) with
+            { Results = new Dictionary<WorkspaceMatchKey, TournamentMatchResult>() };
+        var project = workspace.Projects[0];
+        var graph = MatchGraphFactory.Create(project.Id, draw);
+        project = project with { Roster = new(participants, "roster.xlsx", "roster", []),
+            Draw = new(draw, DateTimeOffset.UtcNow), MatchGraph = graph };
+        workspace = workspace with { Projects = [project], Schedule = workspace.Schedule! with
+        {
+            Placements = graph.Matches.ToDictionary(n => n.Id, n => new MatchPlacement(n.Id, "2026-09-13",
+                new TimeOnly(9, 0).AddMinutes((n.Order - 1) * 30), new TimeOnly(9, 0).AddMinutes(n.Order * 30), "1")),
+            GraphRevisions = new Dictionary<Guid, string> { [project.Id] = graph.Revision }
+        } };
+
+        TournamentWorkspaceRules.Validate(workspace);
+        var rows = ScheduledMatchProjection.Build(graph, workspace.Schedule, workspace.Results);
+        Assert.Equal(count - 1, rows.Count);
+        Assert.All(graph.Matches, node => Assert.True(node.IsPlayable));
+        var rowIds = rows.Select(row => row.MatchId).ToHashSet();
+        Assert.All(rows.SelectMany(row => row.Dependencies), dependency => Assert.Contains(dependency.SourceMatchId, rowIds));
+    }
+
     private static TournamentSchedule Schedule(params MatchGraph[] graphs) => new(
         graphs.SelectMany(g => g.Matches).ToDictionary(n => n.Id, n => new MatchPlacement(n.Id, "比赛日", new(9, 0), new(9, 30), "A")),
         new([], null, 0, 20), new(ScheduleAutoSchedulingStrategy.Compact, [], false, [], []),
