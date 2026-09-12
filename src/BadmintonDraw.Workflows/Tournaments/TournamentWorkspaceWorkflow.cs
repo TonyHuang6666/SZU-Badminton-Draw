@@ -9,9 +9,10 @@ using BadmintonDraw.Persistence;
 namespace BadmintonDraw.Workflows.Tournaments;
 
 /// <summary>Explicit synchronous commands. Desktop callers run slow commands off the UI thread.</summary>
-public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStore? store = null)
+public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStore? store = null, DrawPackageWorkflow? drawPackages = null)
 {
     private readonly ITournamentWorkspaceStore store = store ?? new TournamentWorkspaceStore();
+    private readonly DrawPackageWorkflow drawPackages = drawPackages ?? new();
     private readonly object sessionGate = new();
     private WorkspaceSession? currentSession;
     private bool notifyingSession;
@@ -135,6 +136,8 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
                 Require(!captured!.RequiresReload, "workspace.reload-required", "工作区已保存但无法重新读取，请重新打开后再操作。");
                 var result = store.Mutate(captured.WorkspacePath, expectedRevision, workspace =>
                 {
+                    Require(workspace.Id == captured.Workspace.Id, "workspace.session-changed",
+                        "工作区文件已被其他赛事替换，请重新打开后再操作。");
                     var candidate = mutation(workspace);
                     TournamentWorkspaceRules.Validate(candidate);
                     return candidate;

@@ -30,7 +30,8 @@ public sealed class DrawResultExcelWriter
         string outputPath,
         DrawResult result,
         IReadOnlyList<DrawParticipant> sourceParticipants,
-        SchedulePlan? schedulePlan = null)
+        SchedulePlan? schedulePlan = null,
+        DrawExportContext? context = null)
     {
         using var workbook = new XLWorkbook();
 
@@ -43,8 +44,9 @@ public sealed class DrawResultExcelWriter
             WriteRoundRobinSheet(workbook, result, schedulePlan);
         }
 
-        WriteAuditSheet(workbook, "抽签设置与审计信息", result);
-        WriteRosterSheet(workbook, "原始名单", sourceParticipants);
+        WriteAuditSheet(workbook, "抽签设置与审计信息", result, context);
+        WriteRosterSheet(workbook, context is null ? "原始名单" : "当前名单", sourceParticipants);
+        if (context is not null) WriteWorkspaceContext(workbook.Worksheet("对阵表"), context, result.Settings.IsKnockout);
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
         workbook.SaveAs(outputPath);
@@ -2075,10 +2077,29 @@ public sealed class DrawResultExcelWriter
         return new string(chars.ToArray());
     }
 
-    private static void WriteAuditSheet(XLWorkbook workbook, string sheetName, DrawResult result)
+    private static void WriteWorkspaceContext(IXLWorksheet sheet, DrawExportContext context, bool isKnockout)
+    {
+        sheet.Cell(1, 1).Value = context.Heading + "\n" + sheet.Cell(1, 1).GetString();
+        sheet.Cell(1, 1).Style.Alignment.WrapText = true;
+        sheet.Row(1).Height = isKnockout ? 44 : 36;
+        if (!isKnockout) sheet.Row(2).Height = 28;
+        var metadata = $"赛事 {context.WorkspaceId} · 项目 {context.ProjectId}\n随机种子 {context.RandomSeed} · 工作区修订 {context.SourceRevision}" +
+            $"\n当前参赛名单 SHA-256 {context.ParticipantHash}\n导出 {context.ExportedAt:yyyy-MM-dd HH:mm:ss zzz}";
+        // Knockout row 3 is the full-width spacer before the phase headers. Round robin already has a summary here.
+        var summary = sheet.Cell(3, 1).GetString();
+        if (isKnockout) sheet.Range(3, 1, 3, sheet.LastColumnUsed(XLCellsUsedOptions.All)!.ColumnNumber()).Merge();
+        sheet.Cell(3, 1).Value = string.IsNullOrEmpty(summary) ? metadata : summary + "\n" + metadata;
+        sheet.Row(3).Height = string.IsNullOrEmpty(summary) ? 56 : 68;
+        sheet.Cell(3, 1).Style.Font.FontSize = 9;
+        sheet.Cell(3, 1).Style.Alignment.WrapText = true;
+        sheet.Cell(3, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        sheet.Cell(3, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+    }
+
+    private static void WriteAuditSheet(XLWorkbook workbook, string sheetName, DrawResult result, DrawExportContext? context)
     {
         var sheet = workbook.Worksheets.Add(sheetName);
-        var rows = new (string Key, string Value)[]
+        var rows = new List<(string Key, string Value)>
         {
             ("比赛模式", result.Settings.CompetitionMode.ToString()),
             ("项目类型", result.Settings.EventKind.ToString()),
@@ -2091,17 +2112,25 @@ public sealed class DrawResultExcelWriter
             ("淘汰赛目标", result.Settings.KnockoutGoal.ToString()),
             ("名次附加赛", result.Settings.PlacementPlayoff.ToString())
         };
+        if (context is not null)
+            rows.AddRange([
+                ("抽签状态", context.Status), ("赛事名称", context.WorkspaceName), ("赛事标识", context.WorkspaceId.ToString()),
+                ("项目名称", context.ProjectName), ("项目标识", context.ProjectId.ToString()),
+                ("工作区来源修订", context.SourceRevision.ToString()), ("来源文件", context.SourceFileName),
+                ("来源文件 SHA-256", context.SourceFileHash), ("名单说明", "当前名单包含已保存的种子编辑；来源文件哈希仅标识导入的原文件。"),
+                ("确认时间", context.ConfirmedAt?.ToString("O") ?? "未确认"),
+                ("导出审计标识", context.ExportAuditId.ToString()), ("导出时间", context.ExportedAt.ToString("O"))]);
 
         sheet.Cell(1, 1).Value = "项目";
         sheet.Cell(1, 2).Value = "值";
 
-        for (var i = 0; i < rows.Length; i++)
+        for (var i = 0; i < rows.Count; i++)
         {
             sheet.Cell(i + 2, 1).Value = rows[i].Key;
             sheet.Cell(i + 2, 2).Value = rows[i].Value;
         }
 
-        ApplyTableStyle(sheet, 2, rows.Length + 1);
+        ApplyTableStyle(sheet, 2, rows.Count + 1);
     }
 
     private static void WriteRosterSheet(XLWorkbook workbook, string sheetName, IReadOnlyList<DrawParticipant> participants)

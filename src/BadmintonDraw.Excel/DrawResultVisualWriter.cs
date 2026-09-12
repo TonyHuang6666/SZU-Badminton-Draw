@@ -52,9 +52,10 @@ public sealed class DrawResultVisualWriter
         string outputPath,
         string workbookPath,
         DrawResultVisualFormat format,
-        DrawResultVisualOptions? options = null)
+        DrawResultVisualOptions? options = null,
+        DrawExportContext? context = null)
     {
-        Write(outputPath, workbookPath, DefaultSheetName, format, options);
+        Write(outputPath, workbookPath, DefaultSheetName, format, options, context);
     }
 
     public void Write(
@@ -62,7 +63,8 @@ public sealed class DrawResultVisualWriter
         string workbookPath,
         string sheetName,
         DrawResultVisualFormat format,
-        DrawResultVisualOptions? options = null)
+        DrawResultVisualOptions? options = null,
+        DrawExportContext? context = null)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
 
@@ -81,7 +83,7 @@ public sealed class DrawResultVisualWriter
             case DrawResultVisualFormat.A4Pdf:
                 if (TryBuildRoundRobinPageLayouts(sheet, out var pageLayouts))
                 {
-                    WriteRoundRobinA4Pdf(outputPath, pageLayouts);
+                    WriteRoundRobinA4Pdf(outputPath, pageLayouts, context);
                 }
                 else if (TryBuildScheduleGridPageLayouts(sheet, out pageLayouts))
                 {
@@ -89,7 +91,7 @@ public sealed class DrawResultVisualWriter
                 }
                 else
                 {
-                    WriteA4Pdf(outputPath, BuildLayout(sheet), options.PdfRows, options.PdfColumns);
+                    WriteA4Pdf(outputPath, BuildLayout(sheet), options.PdfRows, options.PdfColumns, context);
                 }
 
                 break;
@@ -332,9 +334,9 @@ public sealed class DrawResultVisualWriter
             sheet.Column(column).Width = 12;
         }
 
-        sheet.Row(1).Height = 34;
-        sheet.Row(2).Height = 18;
-        sheet.Row(3).Height = 24;
+        sheet.Row(1).Height = Math.Max(34, sourceSheet.Row(1).Height);
+        sheet.Row(2).Height = Math.Max(18, sourceSheet.Row(2).Height);
+        sheet.Row(3).Height = Math.Max(24, sourceSheet.Row(3).Height);
         sheet.Row(4).Height = 28;
         sheet.Row(5).Height = 10;
         sheet.Row(6).Height = 24;
@@ -353,7 +355,7 @@ public sealed class DrawResultVisualWriter
 
         var summaryRange = MergeAndSet(sheet, 3, 1, 3, lastColumn, summary);
         summaryRange.Style.Font.Bold = true;
-        summaryRange.Style.Font.FontSize = 12;
+        summaryRange.Style.Font.FontSize = summary.Contains("\n", StringComparison.Ordinal) ? 9 : 12;
 
         var noteRange = MergeAndSet(sheet, 4, 1, 4, lastColumn, note);
         noteRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#EEF2FF");
@@ -773,7 +775,7 @@ public sealed class DrawResultVisualWriter
             && width * height <= MaxRasterPixels;
     }
 
-    private static void WriteA4Pdf(string outputPath, WorksheetLayout layout, int rows, int columns)
+    private static void WriteA4Pdf(string outputPath, WorksheetLayout layout, int rows, int columns, DrawExportContext? context)
     {
         using var stream = File.Create(outputPath);
         using var document = SKDocument.CreatePdf(stream);
@@ -782,14 +784,15 @@ public sealed class DrawResultVisualWriter
         var sourceTileHeight = layout.Height / rows;
         var pageSize = GetA4PageSize(sourceTileWidth, sourceTileHeight);
         var printableWidth = pageSize.Width - A4Margin * 2;
-        var printableHeight = pageSize.Height - A4Margin * 2;
+        var headingHeight = context is null ? 0 : 64f;
+        var printableHeight = pageSize.Height - A4Margin * 2 - headingHeight;
         var scale = Math.Min(
             printableWidth / (sourceTileWidth * PdfScale),
             printableHeight / (sourceTileHeight * PdfScale));
         var drawWidth = sourceTileWidth * PdfScale * scale;
         var drawHeight = sourceTileHeight * PdfScale * scale;
         var originX = A4Margin + (printableWidth - drawWidth) / 2;
-        var originY = A4Margin + (printableHeight - drawHeight) / 2;
+        var originY = A4Margin + headingHeight + (printableHeight - drawHeight) / 2;
 
         for (var row = 0; row < rows; row++)
         {
@@ -797,12 +800,13 @@ public sealed class DrawResultVisualWriter
             {
                 using var canvas = document.BeginPage(pageSize.Width, pageSize.Height);
                 canvas.Save();
-                canvas.ClipRect(new SKRect(A4Margin, A4Margin, pageSize.Width - A4Margin, pageSize.Height - A4Margin));
+                canvas.ClipRect(new SKRect(A4Margin, A4Margin + headingHeight, pageSize.Width - A4Margin, pageSize.Height - A4Margin));
                 canvas.Translate(originX, originY);
                 canvas.Scale(PdfScale * scale);
                 canvas.Translate(-column * sourceTileWidth, -row * sourceTileHeight);
                 DrawLayout(canvas, layout, White);
                 canvas.Restore();
+                DrawPageHeading(canvas, pageSize.Width, context);
                 document.EndPage();
             }
         }
@@ -810,9 +814,9 @@ public sealed class DrawResultVisualWriter
         document.Close();
     }
 
-    private static void WriteRoundRobinA4Pdf(string outputPath, IReadOnlyList<WorksheetLayout> pageLayouts)
+    private static void WriteRoundRobinA4Pdf(string outputPath, IReadOnlyList<WorksheetLayout> pageLayouts, DrawExportContext? context)
     {
-        WritePageLayoutsA4Pdf(outputPath, pageLayouts, RoundRobinPdfHorizontalSafetyInset);
+        WritePageLayoutsA4Pdf(outputPath, pageLayouts, RoundRobinPdfHorizontalSafetyInset, context: context);
     }
 
     private static void WriteScheduleGridA4Pdf(string outputPath, IReadOnlyList<WorksheetLayout> pageLayouts)
@@ -826,7 +830,8 @@ public sealed class DrawResultVisualWriter
         float horizontalSafetyInset,
         bool stretchToPrintableArea = false,
         float? leftPageInset = null,
-        float? rightPageInset = null)
+        float? rightPageInset = null,
+        DrawExportContext? context = null)
     {
         using var stream = File.Create(outputPath);
         using var document = SKDocument.CreatePdf(stream);
@@ -835,7 +840,8 @@ public sealed class DrawResultVisualWriter
         var leftInset = leftPageInset ?? A4Margin + horizontalSafetyInset;
         var rightInset = rightPageInset ?? A4Margin + horizontalSafetyInset;
         var printableWidth = pageSize.Width - leftInset - rightInset;
-        var printableHeight = pageSize.Height - A4Margin * 2;
+        var headingHeight = context is null ? 0 : 64f;
+        var printableHeight = pageSize.Height - A4Margin * 2 - headingHeight;
 
         foreach (var sourceLayout in pageLayouts)
         {
@@ -849,19 +855,38 @@ public sealed class DrawResultVisualWriter
             var drawWidth = layout.Width * PdfScale * scale;
             var drawHeight = layout.Height * PdfScale * scale;
             var originX = leftInset + (printableWidth - drawWidth) / 2;
-            var originY = A4Margin + (printableHeight - drawHeight) / 2;
+            var originY = A4Margin + headingHeight + (printableHeight - drawHeight) / 2;
 
             using var canvas = document.BeginPage(pageSize.Width, pageSize.Height);
             canvas.Save();
-            canvas.ClipRect(new SKRect(A4Margin, A4Margin, pageSize.Width - A4Margin, pageSize.Height - A4Margin));
+            canvas.ClipRect(new SKRect(A4Margin, A4Margin + headingHeight, pageSize.Width - A4Margin, pageSize.Height - A4Margin));
             canvas.Translate(originX, originY);
             canvas.Scale(PdfScale * scale);
             DrawLayout(canvas, layout, White);
             canvas.Restore();
+            DrawPageHeading(canvas, pageSize.Width, context);
             document.EndPage();
         }
 
         document.Close();
+    }
+
+    private static void DrawPageHeading(SKCanvas canvas, float width, DrawExportContext? context)
+    {
+        if (context is null) return;
+        var lines = new[]
+        {
+            context.Heading,
+            $"赛事 {context.WorkspaceId} · 项目 {context.ProjectId}",
+            $"种子 {context.RandomSeed} · 来源修订 {context.SourceRevision} · 导出 {context.ExportedAt:yyyy-MM-dd HH:mm:ss zzz}",
+            $"参赛名单 SHA-256 {context.ParticipantHash}"
+        };
+        for (var i = 0; i < lines.Length; i++)
+        {
+            using var paint = new SKPaint { IsAntialias = true, Color = i == 0 ? SKColor.Parse("#9C2600") : Black,
+                TextSize = i == 0 ? 13 : 8, Typeface = ResolveTypefaceForText(DefaultFontName, i == 0, lines[i]) };
+            canvas.DrawText(TrimWithEllipsis(lines[i], paint, width - 24), 12, 16 + i * 13, paint);
+        }
     }
 
     private static WorksheetLayout StretchLayoutToPageAspect(WorksheetLayout layout, float targetAspectRatio)
