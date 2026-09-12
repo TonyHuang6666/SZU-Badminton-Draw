@@ -1,10 +1,21 @@
 using System.Text.RegularExpressions;
+using BadmintonDraw.Core.Scheduling;
 
 namespace BadmintonDraw.Core;
 
 public sealed class PlayerLoadForecastAnalyzer
 {
     private const int MaxExactOutcomeVariables = 18;
+
+    /// <summary>Graph-based forecast; hard maximum is exact even when probability enumeration is too large.</summary>
+    public IReadOnlyList<TournamentPlayerDailyLoadForecast> Analyze(TournamentSchedulingRequest request,
+        IReadOnlyDictionary<Guid, MatchPlacement> placements, double winProbability = .5)
+    {
+        var context = new GraphSchedulingCandidates(request);
+        if (context.InputViolations.Count > 0)
+            throw new ArgumentException("无法分析无效的比赛关系图或资源；请先调用 TournamentPlacementValidator.ValidateInput。", nameof(request));
+        return TournamentPlayerLoadAnalysis.Analyze(context, placements, winProbability);
+    }
 
     public IReadOnlyList<PlayerDailyLoadForecast> Analyze(
         SchedulePlan schedule,

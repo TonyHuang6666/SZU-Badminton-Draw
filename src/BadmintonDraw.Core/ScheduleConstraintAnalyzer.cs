@@ -1,9 +1,14 @@
 using System.Text.RegularExpressions;
+using BadmintonDraw.Core.Scheduling;
 
 namespace BadmintonDraw.Core;
 
 public sealed class ScheduleConstraintAnalyzer
 {
+    /// <summary>The v5 hard-constraint report shares the generation and editing gate.</summary>
+    public TournamentPlacementValidation Analyze(TournamentSchedulingRequest request,
+        IReadOnlyDictionary<Guid, MatchPlacement> placements) => new TournamentPlacementValidator(request).ValidateSchedule(placements);
+
     public ScheduleConstraintReport Analyze(SchedulePlan schedule)
     {
         // Scope describes certainty (confirmed, direct dependency or speculative); severity

@@ -29,6 +29,18 @@ public sealed record ScheduleCourtAvailabilityBlock(
 
 public static class ScheduleResourceCalculator
 {
+    /// <summary>Global resource capacity, preserving zero for entirely unavailable days.</summary>
+    public static int CalculateDayCapacityMinutes(Scheduling.TournamentResourcePlan resources, ScheduleDaySettings day)
+    {
+        var points = GetRefereeCapacityWindows(day).SelectMany(w => new[] { w.StartTime, w.EndTime })
+            .Concat(GetUnavailableCourtWindows(day).SelectMany(w => new[] { w.StartTime, w.EndTime }))
+            .Append(day.DayStart).Append(day.DayEnd).Where(t => t >= day.DayStart && t <= day.DayEnd).Distinct().Order().ToArray();
+        double capacity = 0;
+        for (var i = 0; i + 1 < points.Length; i++)
+            capacity += (points[i + 1] - points[i]).TotalMinutes * GetConcurrentMatchLimit(day, resources.RefereeCount, points[i], points[i + 1]);
+        return Math.Max(0, (int)Math.Floor(capacity));
+    }
+
     public static bool IsCourtAvailable(
         ScheduleDaySettings day,
         string court,
