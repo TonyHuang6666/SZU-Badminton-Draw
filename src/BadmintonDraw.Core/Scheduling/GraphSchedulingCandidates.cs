@@ -117,7 +117,16 @@ internal sealed class GraphSchedulingCandidates
         }
         if (InputViolations.Count != 0) return;
         var resolver = new ConditionalPlayerPaths(Nodes, request.Results);
-        foreach (var node in Nodes.Values) { Paths[node.Id] = resolver.Resolve(node); Durations[node.Id] = ScheduleTimingResolver.Resolve(node, policy); }
+        foreach (var node in Nodes.Values)
+        {
+            var paths = resolver.Resolve(node);
+            // Compare the sides before using their union for cross-match conflicts and load.
+            // Winner/loser alternatives are allowed only when their same-player paths cannot coexist.
+            if (ConditionalPlayerPaths.SharesPlayer(paths.SideA, paths.SideB))
+                Issue(SchedulingConstraintCode.PlayerOnBothSides, "比赛双方包含同一选手的兼容参赛路径。", node);
+            Paths[node.Id] = paths.All;
+            Durations[node.Id] = ScheduleTimingResolver.Resolve(node, policy);
+        }
     }
 
     private static bool Ratio(double value) => double.IsFinite(value) && value is >= 0 and <= 1;

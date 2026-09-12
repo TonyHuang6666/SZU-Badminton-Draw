@@ -6,16 +6,20 @@ namespace BadmintonDraw.Core.Scheduling;
 // Conditions describe the winning SIDE of a source match, so paths from different participants
 // share the same outcome variable. Winner/loser labels alone are not an outcome assignment.
 internal sealed record ConditionalPlayerPath(string PlayerKey, string PlayerName, IReadOnlyDictionary<Guid, bool> Conditions);
+internal sealed record ResolvedMatchPlayerPaths(IReadOnlyList<ConditionalPlayerPath> SideA,
+    IReadOnlyList<ConditionalPlayerPath> SideB, IReadOnlyList<ConditionalPlayerPath> All);
 
 internal sealed class ConditionalPlayerPaths(IReadOnlyDictionary<Guid, MatchNode> nodes,
     IReadOnlyDictionary<WorkspaceMatchKey, TournamentMatchResult> results)
 {
-    private readonly Dictionary<Guid, IReadOnlyList<ConditionalPlayerPath>> cache = [];
+    private readonly Dictionary<Guid, ResolvedMatchPlayerPaths> cache = [];
 
-    internal IReadOnlyList<ConditionalPlayerPath> Resolve(MatchNode node)
+    internal ResolvedMatchPlayerPaths Resolve(MatchNode node)
     {
         if (cache.TryGetValue(node.Id, out var paths)) return paths;
-        return cache[node.Id] = Side(node.SideA).Concat(Side(node.SideB)).DistinctBy(Key).ToArray();
+        var sideA = Side(node.SideA).DistinctBy(Key).ToArray();
+        var sideB = Side(node.SideB).DistinctBy(Key).ToArray();
+        return cache[node.Id] = new(sideA, sideB, sideA.Concat(sideB).DistinctBy(Key).ToArray());
     }
 
     private IReadOnlyList<ConditionalPlayerPath> Side(EntrantSource side)

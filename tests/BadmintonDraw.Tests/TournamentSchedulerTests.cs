@@ -198,14 +198,12 @@ public sealed class TournamentSchedulerTests
         Assert.Equal(request.Resources.Days[1].DayLabel, result.Schedule.Placements[bronzeId].DayLabel);
     }
 
-    [Theory]
-    [InlineData(CompetitionMode.SinglesRoundRobin, EventKind.Singles)]
-    [InlineData(CompetitionMode.TeamRoundRobin, EventKind.Team)]
-    public void RealRoundRobinGraphsPreserveSameUnitPriorityAndTeamExemption(CompetitionMode mode, EventKind kind)
+    [Fact]
+    public void RealSinglesRoundRobinGraphPreservesSameUnitPriority()
     {
         var participants = new[] { new DrawParticipant("甲", TeamName: "单位一"), new DrawParticipant("乙", TeamName: "单位一"),
             new DrawParticipant("丙", TeamName: "单位二"), new DrawParticipant("丁", TeamName: "单位三") };
-        var draw = new DrawService().Generate(participants, new(mode, kind, 1, "rr"));
+        var draw = new DrawService().Generate(participants, new(CompetitionMode.SinglesRoundRobin, EventKind.Singles, 1, "rr"));
         var graph = MatchGraphFactory.Create(TournamentSchedulerTestData.Id(1), draw);
         var request = TournamentSchedulerTestData.Request([graph], 18);
         request = request with { Resources = request.Resources with { Days = [request.Resources.Days[0] with { Courts = ["A"] }] },
@@ -213,7 +211,27 @@ public sealed class TournamentSchedulerTests
         var result = Assert.IsType<TournamentSchedulingResult.Success>(new TournamentScheduler().Generate(request));
         Assert.Equal(6, result.Schedule.Placements.Count);
         var first = result.Schedule.Placements.Values.MinBy(p => p.StartTime)!;
-        Assert.Equal(mode == CompetitionMode.SinglesRoundRobin, graph.Matches.Single(n => n.Id == first.MatchId).SameUnit);
+        Assert.True(graph.Matches.Single(n => n.Id == first.MatchId).SameUnit);
+    }
+
+    [Fact]
+    public void RealTeamRoundRobinGraphSchedulesEveryDistinctTeamPair()
+    {
+        // TeamName is the actual team identity, so each team must have a distinct value.
+        var participants = new[] { "甲", "乙", "丙", "丁" }.Select(name => new DrawParticipant(name, TeamName: name)).ToArray();
+        var draw = new DrawService().Generate(participants, new(CompetitionMode.TeamRoundRobin, EventKind.Team, 1, "rr"));
+        var graph = MatchGraphFactory.Create(TournamentSchedulerTestData.Id(1), draw);
+        var request = TournamentSchedulerTestData.Request([graph], 18);
+        request = request with { Resources = request.Resources with { Days = [request.Resources.Days[0] with { Courts = ["A"] }] },
+            Policy = request.Policy with { Strategy = ScheduleAutoSchedulingStrategy.Compact } };
+        var result = Assert.IsType<TournamentSchedulingResult.Success>(new TournamentScheduler().Generate(request));
+        Assert.Equal(6, result.Schedule.Placements.Count);
+        Assert.Equal(0, result.Quality.HardConstraintCount);
+        var pairs = graph.Matches.Select(n => new[] { ((EntrantSource.Participant)n.SideA).Players.Single().IdentityKey,
+            ((EntrantSource.Participant)n.SideB).Players.Single().IdentityKey }).ToArray();
+        Assert.Equal(4, pairs.SelectMany(p => p).Distinct().Count());
+        Assert.All(pairs, pair => Assert.NotEqual(pair[0], pair[1]));
+        Assert.Equal(6, pairs.Select(pair => string.Join("|", pair.Order(StringComparer.Ordinal))).Distinct().Count());
     }
 
     [Fact]
