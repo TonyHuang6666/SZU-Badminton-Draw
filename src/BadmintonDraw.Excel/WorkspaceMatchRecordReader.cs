@@ -23,25 +23,40 @@ public sealed class WorkspaceMatchRecordReader
             var recordSheet = workbookPart.Workbook.Sheets?.Elements<Sheet>().SingleOrDefault(sheet => sheet.Name?.Value == WorkspaceRecordSchema.SheetName)
                 ?? throw new ExcelImportException($"记录表缺少“{WorkspaceRecordSchema.SheetName}”工作表。");
             var part = (WorksheetPart)workbookPart.GetPartById(recordSheet.Id!.Value!);
-            var cells = part.Worksheet.Descendants<Cell>().Select(cell => (Cell: cell, Position: Position(cell.CellReference?.Value)))
+            var physicalCells = part.Worksheet.Descendants<Cell>().ToArray();
+            var cells = physicalCells.Select(cell => (Cell: cell, Position: Position(cell.CellReference?.Value)))
                 .Where(item => item.Position.Row >= WorkspaceRecordSchema.FirstDataRow && item.Position.Column <= WorkspaceRecordSchema.LastColumn)
                 .ToDictionary(item => item.Position, item => item.Cell);
 
             using var valueStream = new MemoryStream(bytes, writable: false);
             using var workbook = new XLWorkbook(valueStream);
             var sheet = workbook.Worksheet(WorkspaceRecordSchema.SheetName);
+            // Array/shared anchors may be in row 5. Their members can have no <f>, no cache, or no physical <c> at all.
+            var formulaRanges = physicalCells.Select(cell => cell.CellFormula)
+                .Where(f => f?.Reference?.Value is not null &&
+                    (f.FormulaType?.Value == CellFormulaValues.Array || f.FormulaType?.Value == CellFormulaValues.Shared))
+                .Select(f => sheet.Range(f!.Reference!.Value!).RangeAddress)
+                .Where(r => r.FirstAddress.ColumnNumber <= WorkspaceRecordSchema.LastColumn &&
+                    r.LastAddress.RowNumber >= WorkspaceRecordSchema.FirstDataRow).ToArray();
+            var rowNumbers = new SortedSet<int>(cells.Keys.Select(position => position.Row));
+            foreach (var range in formulaRanges)
+                for (var row = Math.Max(WorkspaceRecordSchema.FirstDataRow, range.FirstAddress.RowNumber); row <= range.LastAddress.RowNumber; row++)
+                    rowNumbers.Add(row);
+            bool HasFormula(int row, int column) => cells.GetValueOrDefault((row, column))?.CellFormula is not null ||
+                sheet.Cell(row, column).HasFormula || formulaRanges.Any(range =>
+                    row >= range.FirstAddress.RowNumber && row <= range.LastAddress.RowNumber &&
+                    column >= range.FirstAddress.ColumnNumber && column <= range.LastAddress.ColumnNumber);
             var rows = new List<WorkspaceRecordRawRow>();
-            foreach (var group in cells.GroupBy(pair => pair.Key.Row).OrderBy(group => group.Key))
+            foreach (var row in rowNumbers)
             {
-                var row = group.Key;
-                if (!group.Any(pair => pair.Value.CellFormula is not null || HasContent(sheet.Cell(row, pair.Key.Column).CachedValue))) continue;
+                if (!Enumerable.Range(1, WorkspaceRecordSchema.LastColumn).Any(column =>
+                    HasFormula(row, column) || HasContent(sheet.Cell(row, column).CachedValue))) continue;
                 WorkspaceRecordCell Read(int column)
                 {
                     cells.TryGetValue((row, column), out var raw);
-                    var formula = raw?.CellFormula is not null;
-                    if (formula && raw!.CellValue is null)
-                        return new("", WorkspaceRecordCellKind.Error, true, "公式没有缓存值，请先在 Excel 或 LibreOffice 中打开并保存。");
-                    return ReadValue(sheet.Cell(row, column).CachedValue, formula);
+                    var formula = HasFormula(row, column);
+                    var value = sheet.Cell(row, column).CachedValue;
+                    return formula ? ReadFormulaCache(raw, value) : ReadValue(value, false);
                 }
                 rows.Add(new(new(sheet.Name, row), Read(WorkspaceRecordSchema.WorkspaceId), Read(WorkspaceRecordSchema.ProjectId),
                     Read(WorkspaceRecordSchema.MatchId), Read(WorkspaceRecordSchema.GraphRevision), Read(WorkspaceRecordSchema.DrawConfirmedAt),
@@ -59,6 +74,43 @@ public sealed class WorkspaceMatchRecordReader
     }
 
     private static bool HasContent(XLCellValue value) => !value.IsBlank && (!value.IsText || value.GetText().Length > 0);
+
+    private static WorkspaceRecordCell ReadFormulaCache(Cell? raw, XLCellValue value)
+    {
+        if (raw?.CellValue is null)
+            return new("", WorkspaceRecordCellKind.Error, true, "公式没有缓存值，请先在 Excel 或 LibreOffice 中打开并保存。");
+        var text = raw.CellValue.Text;
+        var type = raw.DataType?.Value ?? CellValues.Number;
+        WorkspaceRecordCell Invalid() => new(text, WorkspaceRecordCellKind.Error, true,
+            "公式缓存与单元格类型不一致，请先在 Excel 或 LibreOffice 中打开并保存。");
+        // <v/> is a legitimate empty string only for a string cache, never for a numeric/boolean/date cache.
+        if (type == CellValues.String)
+            return text.Length == 0 ? new("", WorkspaceRecordCellKind.Text, true) : value.IsText ? ReadValue(value, true) : Invalid();
+        if (type == CellValues.Boolean)
+        {
+            var boolean = text.Trim();
+            return boolean switch
+            {
+                "1" or "true" => new("TRUE", WorkspaceRecordCellKind.Boolean, true),
+                "0" or "false" => new("FALSE", WorkspaceRecordCellKind.Boolean, true),
+                _ => Invalid()
+            };
+        }
+        if (type == CellValues.Error)
+            return new(text, WorkspaceRecordCellKind.Error, true, string.IsNullOrEmpty(text) ? "公式错误缓存为空。" : "单元格错误：" + text);
+        if (type == CellValues.Number && (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) || !double.IsFinite(number)))
+            return Invalid();
+        if (type == CellValues.Date)
+        {
+            try { System.Xml.XmlConvert.ToDateTime(text, System.Xml.XmlDateTimeSerializationMode.RoundtripKind); }
+            catch (FormatException) { return Invalid(); }
+        }
+        if (type == CellValues.SharedString && (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var index) || index < 0))
+            return Invalid();
+        if (type != CellValues.Number && type != CellValues.Date && type != CellValues.SharedString || value.IsBlank)
+            return Invalid();
+        return ReadValue(value, true);
+    }
 
     private static WorkspaceRecordCell ReadValue(XLCellValue value, bool formula)
     {
