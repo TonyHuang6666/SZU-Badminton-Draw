@@ -121,8 +121,11 @@ public partial class ScheduleBoardControl : UserControl
         Dispatcher.UIThread.Post(() =>
         {
             if (token != epoch || !ReferenceEquals(source, Board) || !cards.TryGetValue(key, out var card)) return;
-            card.BringIntoView(); card.Focus(); card.BorderBrush = Brush("AppAccentBrush"); card.BorderThickness = new Thickness(3);
-            DispatcherTimer.RunOnce(() => { if (token == epoch && ReferenceEquals(source, Board) && cards.GetValueOrDefault(key) == card) { card.BorderThickness = new Thickness(1); card.BorderBrush = Brush("AppButtonBorderBrush"); } }, TimeSpan.FromSeconds(1.5));
+            // Focus already requests scrolling; doing both before arrange applies the same offset twice.
+            if (card.IsFocused || !card.Focus()) card.BringIntoView();
+            // Highlight color only: enlarging the border after scrolling would resize the card beyond the viewport.
+            card.BorderBrush = Brush("AppAccentBrush");
+            DispatcherTimer.RunOnce(() => { if (token == epoch && ReferenceEquals(source, Board) && cards.GetValueOrDefault(key) == card) card.BorderBrush = Brush("AppButtonBorderBrush"); }, TimeSpan.FromSeconds(1.5));
         }, DispatcherPriority.Loaded);
     }
     private sealed record BoardCell(string DayLabel, TimeOnly Time, string Court);
