@@ -226,6 +226,7 @@ public sealed class WorkspaceScheduleQualityExcelWriter
         for (var i = 0; i < values.Length; i++)
             sheet.Cell(row, i + 1).Value = values[i] switch
             {
+                double n when !double.IsFinite(n) => "无效原值：" + n.ToString("R", Invariant),
                 int n => n, long n => n, double n => n, _ => Convert.ToString(values[i], Invariant) ?? ""
             };
     }

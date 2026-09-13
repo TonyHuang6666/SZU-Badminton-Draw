@@ -207,6 +207,50 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
         using var zip = ZipFile.OpenRead(path); Assert.DoesNotContain(zip.Entries, e => e.FullName.Contains("externalLinks", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("target", double.NaN)]
+    [InlineData("target", double.PositiveInfinity)]
+    [InlineData("target", double.NegativeInfinity)]
+    [InlineData("target", 2d)]
+    [InlineData("warning", double.NaN)]
+    [InlineData("warning", double.PositiveInfinity)]
+    [InlineData("warning", double.NegativeInfinity)]
+    [InlineData("warning", 2d)]
+    [InlineData("progress", double.NaN)]
+    [InlineData("progress", double.PositiveInfinity)]
+    [InlineData("progress", double.NegativeInfinity)]
+    [InlineData("progress", 2d)]
+    public void InvalidPolicyNumbersRemainInspectableWithoutBecomingExcelNumbers(string field, double value)
+    {
+        var workspace = WorkspaceScheduleQualityFixture.MultiProject(); var policy = workspace.Schedule!.Policy;
+        policy = field switch
+        {
+            "target" => policy with { DayLoadTargets = [policy.DayLoadTargets[0] with { TargetUtilization = value }] },
+            "warning" => policy with { DayLoadTargets = [policy.DayLoadTargets[0] with { WarningUtilization = value }] },
+            "progress" => policy with { StageWaveTargets = [policy.StageWaveTargets[0] with { CumulativeProgress = value }] },
+            _ => throw new ArgumentException(field)
+        };
+        workspace = workspace with { Schedule = workspace.Schedule with { Policy = policy } };
+        _ = new WorkspaceScheduleExportContext(workspace); // Structurally accepted; scheduling input must still fail.
+        var request = WorkspaceScheduleQualityFixture.Request(workspace);
+        Assert.Contains(new TournamentPlacementValidator(request).ValidateInput().Violations, v => v.Code == SchedulingConstraintCode.InvalidPolicy);
+        var expected = new TournamentScheduleQualityAnalyzer().Analyze(request, workspace.Schedule.Placements);
+        var (_, book) = Write(workspace); using (book)
+        {
+            var summary = book.Worksheet(Sheets[0]);
+            Assert.Equal(expected.HardConstraintCount, Value(summary, "硬约束违规项数").GetValue<int>());
+            Assert.Contains("禁止作为现场执行赛程/运营材料放行依据", Text(summary));
+            Assert.Equal("不可用（排程输入无效）", Value(summary, "当前基线软约束评分").GetString());
+            Assert.Contains("不可用（排程输入无效）", Text(book.Worksheet(Sheets[3])));
+            Assert.Contains("InvalidPolicy", Text(book.Worksheet(Sheets[2])));
+            var row = book.Worksheet(Sheets[4]).RowsUsed().Single(r => r.Cell(1).GetString() == (field == "progress" ? "阶段目标" : "负荷目标"));
+            var cell = row.Cell(field == "warning" ? 4 : 3);
+            if (double.IsFinite(value)) { Assert.Equal(XLDataType.Number, cell.DataType); Assert.Equal(value, cell.GetDouble()); }
+            else { Assert.Equal(XLDataType.Text, cell.DataType); Assert.Equal("无效原值：" + value.ToString("R", CultureInfo.InvariantCulture), cell.GetString()); }
+            Assert.False(cell.HasFormula);
+        }
+    }
+
     [Fact]
     public void DefaultGenerationInstantDoesNotCreateFileAndMalformedContextCannotProduceReport()
     {
