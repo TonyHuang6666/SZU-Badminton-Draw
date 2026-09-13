@@ -1,0 +1,54 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" x:Class="BadmintonDraw.Desktop.Views.WorkspaceRecoveryPanel" x:DataType="vm:WorkspaceRecoveryViewModel"
+             Background="{DynamicResource AppBackgroundBrush}">
+  <Grid RowDefinitions="Auto,*" Margin="24">
+    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,18">
+      <TextBlock Text="备份与恢复" FontSize="26" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" />
+      <Button x:Name="CloseRecoveryButton" Grid.Column="1" Content="关闭面板" Command="{Binding CloseCommand}" />
+    </Grid>
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="20" MaxWidth="960" HorizontalAlignment="Stretch">
+        <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="20">
+          <StackPanel Spacing="12">
+            <TextBlock Text="当前工作区的手动备份" FontSize="18" FontWeight="SemiBold" />
+            <SelectableTextBlock Text="{Binding CurrentWorkspaceDetails}" TextWrapping="Wrap" />
+            <TextBlock Text="所有赛事阶段均可备份，包括赛事草稿和仅公开抽签；备份不会启动排程。" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+            <Button x:Name="CreateBackupButton" Content="创建当前工作区备份" Command="{Binding CreateBackupCommand}" />
+          </StackPanel>
+        </Border>
+        <StackPanel Spacing="12">
+          <TextBlock Text="从备份恢复" FontSize="18" FontWeight="SemiBold" />
+          <CheckBox x:Name="CorruptTargetMode" Content="恢复明确选定的损坏文件（可以不是当前工作区）" IsChecked="{Binding RecoverCorruptTarget}" />
+          <TextBlock IsVisible="{Binding !RecoverCorruptTarget}" Text="目标固定为上方当前可读工作区。选择同一赛事的备份后先检查，再确认替换。" TextWrapping="Wrap" />
+          <StackPanel IsVisible="{Binding RecoverCorruptTarget}" Spacing="8">
+            <TextBlock Text="损坏目标路径 · 原赛事身份无法从损坏内容中验证，请自行核对备份属于目标赛事。" TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox x:Name="RecoveryTargetPath" Text="{Binding TargetPath}" PlaceholderText="损坏的正式 .szbd 文件完整路径" AutomationProperties.Name="损坏目标路径" />
+              <Button Grid.Column="1" Content="选择损坏目标" Command="{Binding PickTargetCommand}" Margin="8,0,0,0" />
+            </Grid>
+          </StackPanel>
+          <TextBlock Text="选定备份路径" />
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBox x:Name="RecoveryBackupPath" Text="{Binding BackupPath}" PlaceholderText="备份 .szbd 文件完整路径" AutomationProperties.Name="选定备份路径" />
+            <Button Grid.Column="1" Content="选择备份" Command="{Binding PickBackupCommand}" Margin="8,0,0,0" />
+          </Grid>
+          <Button x:Name="PreviewRecoveryButton" Content="检查来源 / 预览恢复（不保存）" Command="{Binding PreviewCommand}" />
+          <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Padding="16" CornerRadius="8">
+            <SelectableTextBlock x:Name="RecoveryPreviewDetails" Text="{Binding PreviewDetails}" TextWrapping="Wrap" />
+          </Border>
+          <TextBlock Text="恢复原因（将写入赛事审计）" />
+          <TextBox x:Name="RecoveryReason" Text="{Binding Reason}" PlaceholderText="请说明为何恢复，以及如何核对备份" AutomationProperties.Name="恢复原因" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" />
+          <CheckBox x:Name="RecoveryConfirmation" IsChecked="{Binding Confirmed}" IsEnabled="{Binding HasPreview}">
+            <TextBlock Text="我已核对上方目标完整路径和备份赛事身份、修订及状态，确认使用此备份替换目标。" TextWrapping="Wrap" />
+          </CheckBox>
+          <Button x:Name="RestoreBackupButton" Content="确认恢复并保存" Command="{Binding RestoreCommand}" />
+          <TextBlock Text="恢复前会保留被替换文件的副本。更换来源、工作区变化或关闭面板后，必须重新预览和确认；不会自动重试。4.x 文件仍需使用 v4.6.0。" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+        </StackPanel>
+        <StackPanel Spacing="8">
+          <TextBlock Text="上次操作的实际文件与状态" FontSize="18" FontWeight="SemiBold" />
+          <SelectableTextBlock x:Name="RecoveryOutputDetails" Text="{Binding OutputDetails}" TextWrapping="Wrap" />
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

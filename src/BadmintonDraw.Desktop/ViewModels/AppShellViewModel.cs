@@ -4,7 +4,7 @@ using BadmintonDraw.Workflows.Tournaments;
 
 namespace BadmintonDraw.Desktop.ViewModels;
 
-public sealed class AppShellViewModel : ViewModelBase, IDisposable
+public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
 {
     private readonly TournamentWorkspaceWorkflow workflow;
     private readonly Func<Task<string?>> openPicker;
@@ -36,18 +36,24 @@ public sealed class AppShellViewModel : ViewModelBase, IDisposable
     public DelegateCommand HomeCommand { get; }
     public AsyncCommand OpenCommand { get; }
     public AsyncCommand ReloadCommand { get; }
+    public WorkspaceRecoveryViewModel Recovery { get; }
+    public DelegateCommand OpenRecoveryCommand { get; }
 
     public AppShellViewModel(TournamentWorkspaceWorkflow workflow, Func<Task<string?>> openPicker,
-        Func<string, Task<string?>> savePicker, RecentWorkspaceStore recentStore, Action<Action> post)
+        Func<string, Task<string?>> savePicker, RecentWorkspaceStore recentStore, Action<Action> post,
+        Func<Task<string?>>? recoveryTargetPicker = null, Func<Task<string?>>? recoveryBackupPicker = null)
     {
         this.workflow = workflow; this.openPicker = openPicker; this.savePicker = savePicker;
         this.recentStore = recentStore; this.post = post;
+        Recovery = new(this, recoveryTargetPicker ?? (() => Task.FromResult<string?>(null)),
+            recoveryBackupPicker ?? (() => Task.FromResult<string?>(null)));
+        OpenRecoveryCommand = new(Recovery.Open, () => !disposed && !IsBusy);
         NewCommand = new(StartNewWorkspace, () => !IsBusy);
         HomeCommand = new(() => Navigate(WorkspaceRoute.Start), () => !IsBusy);
         OpenCommand = new(async () => await RunCommandAsync(async () =>
         {
             var path = await this.openPicker();
-            return path is null ? null : await Task.Run(() => workflow.OpenWorkspace(path));
+            return path is null ? null : await OpenPathAsync(path);
         }, "已打开工作区。", remember: true, ensureWorkspacePage: true), () => !IsBusy, ReportError);
         ReloadCommand = new(async () => { if (CurrentSession is { } session) await OpenWorkspaceAsync(session.WorkspacePath); },
             () => !IsBusy && HasWorkspace, ReportError);
@@ -99,7 +105,16 @@ public sealed class AppShellViewModel : ViewModelBase, IDisposable
     public Task<bool> CreateWorkspaceAsync(CreateWorkspaceRequest request) => RunCommandAsync(
         async () => await Task.Run(() => workflow.CreateWorkspace(request)), "已创建赛事工作区，下一步准备各项目名单。", remember: true, forceOverview: true);
     public Task<bool> OpenWorkspaceAsync(string path) => RunCommandAsync(
-        async () => await Task.Run(() => workflow.OpenWorkspace(path)), "已打开工作区。", remember: true, ensureWorkspacePage: true);
+        async () => await OpenPathAsync(path), "已打开工作区。", remember: true, ensureWorkspacePage: true);
+    private async Task<WorkspaceCommandResult> OpenPathAsync(string path)
+    {
+        try { return await Task.Run(() => workflow.OpenWorkspace(path)); }
+        catch (WorkspaceCommandException exception) when (exception.Error.Code == "InvalidWorkspace")
+        {
+            if (!disposed) { Recovery.TargetPath = path; Recovery.RecoverCorruptTarget = true; }
+            throw;
+        }
+    }
     public Task<bool> RunWorkspaceCommandAsync(WorkspaceSession expectedSession,
         Func<TournamentWorkspaceWorkflow, long, WorkspaceCommandResult> command, string successMessage) => RunCommandAsync(async () =>
         await Task.Run(() =>
@@ -151,6 +166,7 @@ public sealed class AppShellViewModel : ViewModelBase, IDisposable
         try
         {
             var result = await command();
+            if (disposed) return false;
             if (result is null) { Status = "已取消选择。"; return false; }
             if (workflow.CurrentSession is { } session) ApplySession(session);
             Status = successMessage;
@@ -166,17 +182,17 @@ public sealed class AppShellViewModel : ViewModelBase, IDisposable
             succeeded = true;
             return true;
         }
-        catch (Exception exception) { ReportError(exception); return false; }
+        catch (Exception exception) { if (!disposed) ReportError(exception); return false; }
         finally
         {
             Interlocked.Exchange(ref busy, 0);
-            if (succeeded && forceOverview && Navigator.CurrentRoute != WorkspaceRoute.Overview) Navigate(WorkspaceRoute.Overview);
-            else if (succeeded && ensureWorkspacePage && CurrentPage is not WorkspacePageViewModel && CurrentSession is { } session)
+            if (!disposed && succeeded && forceOverview && Navigator.CurrentRoute != WorkspaceRoute.Overview) Navigate(WorkspaceRoute.Overview);
+            else if (!disposed && succeeded && ensureWorkspacePage && CurrentPage is not WorkspacePageViewModel && CurrentSession is { } session)
             {
                 var route = WorkspaceNavigator.PreferredRoute(session.Workspace.Stage, session.Workspace.Purpose);
                 Navigate(factories.ContainsKey(route) ? route : WorkspaceRoute.Overview);
             }
-            RefreshAvailability();
+            if (!disposed) RefreshAvailability();
         }
     }
     public void ReportError(Exception exception)
@@ -197,6 +213,7 @@ public sealed class AppShellViewModel : ViewModelBase, IDisposable
         if (disposed || !ReferenceEquals(workflow.CurrentSession, session)) return;
         var sameWorkspace = CurrentSession?.Workspace.Id == session.Workspace.Id && CurrentSession.WorkspacePath == session.WorkspacePath;
         CurrentSession = session;
+        Recovery.RefreshContext();
         Navigator.UpdateWorkspace(session.Workspace.Stage, session.Workspace.Purpose);
         if (sameWorkspace && CurrentPage is WorkspacePageViewModel page && Navigator.CanNavigate(Navigator.CurrentRoute)) page.RefreshSession(session);
         else if (!sameWorkspace || !Navigator.CanNavigate(Navigator.CurrentRoute))
@@ -214,6 +231,7 @@ public sealed class AppShellViewModel : ViewModelBase, IDisposable
     {
         OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanMutate)); OnPropertyChanged(nameof(HasWorkspace));
         NewCommand.NotifyCanExecuteChanged(); OpenCommand.NotifyCanExecuteChanged(); HomeCommand.NotifyCanExecuteChanged(); ReloadCommand.NotifyCanExecuteChanged();
+        OpenRecoveryCommand.NotifyCanExecuteChanged(); Recovery.RefreshAvailability();
         foreach (var item in NavigationItems) item.Refresh();
         StartPage.RefreshAvailability();
         if (CurrentPage is NewWorkspaceWizardViewModel wizard) wizard.RefreshCommands();
@@ -227,6 +245,7 @@ public sealed class AppShellViewModel : ViewModelBase, IDisposable
     public void Dispose()
     {
         disposed = true; workflow.SessionChanged -= OnSessionChanged;
+        Recovery.Dispose();
         if (CurrentPage is IDisposable disposable) disposable.Dispose();
     }
 }

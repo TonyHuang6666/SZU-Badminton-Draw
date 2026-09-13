@@ -12,11 +12,15 @@ public partial class AppShellWindow : Window
 {
     private static readonly FilePickerFileType WorkspaceFileType = new("v5 赛事工作区") { Patterns = ["*.szbd"] };
     private static readonly FilePickerFileType RosterFileType = new("Excel 名单") { Patterns = ["*.xlsx"] };
-    public AppShellWindow()
+    public AppShellWindow() : this(new TournamentWorkspaceWorkflow(), new RecentWorkspaceStore(RecentWorkspaceStore.DefaultPath)) { }
+    public AppShellWindow(TournamentWorkspaceWorkflow workflow, RecentWorkspaceStore recentStore,
+        Func<Task<string?>>? openPicker = null, Func<Task<string?>>? recoveryTargetPicker = null,
+        Func<Task<string?>>? recoveryBackupPicker = null)
     {
         InitializeComponent();
-        var shell = new AppShellViewModel(new TournamentWorkspaceWorkflow(), PickOpenPathAsync, PickSavePathAsync,
-            new RecentWorkspaceStore(RecentWorkspaceStore.DefaultPath), action => Dispatcher.UIThread.Post(action));
+        var shell = new AppShellViewModel(workflow, openPicker ?? PickOpenPathAsync, PickSavePathAsync,
+            recentStore, action => Dispatcher.UIThread.Post(action), recoveryTargetPicker ?? PickRecoveryTargetAsync,
+            recoveryBackupPicker ?? PickRecoveryBackupAsync);
         shell.RegisterPageFactory(WorkspaceRoute.Rosters, session => new RostersPageViewModel(shell, session, PickRosterPathAsync, PickTemplatePathAsync));
         shell.RegisterPageFactory(WorkspaceRoute.PublicDraw, session => new PublicDrawPageViewModel(shell, session, PickDrawOutputDirectoryAsync));
         shell.RegisterPageFactory(WorkspaceRoute.ScheduleSetup, session => new ScheduleSetupPageViewModel(shell, session));
@@ -50,6 +54,14 @@ public partial class AppShellWindow : Window
     }
     private static string? LocalPath(IStorageItem? item) => item is null ? null : item.TryGetLocalPath()
         ?? throw new IOException("请选择本地文件位置。");
+    private Task<string?> PickRecoveryTargetAsync() => PickRecoveryFileAsync("选择损坏的正式工作区（将被恢复替换）");
+    private Task<string?> PickRecoveryBackupAsync() => PickRecoveryFileAsync("选择要核对的备份工作区（不会直接恢复）");
+    private async Task<string?> PickRecoveryFileAsync(string title)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        { Title = title, AllowMultiple = false, FileTypeFilter = [WorkspaceFileType] });
+        return LocalPath(files.FirstOrDefault());
+    }
     private async Task<string?> PickRosterPathAsync()
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions

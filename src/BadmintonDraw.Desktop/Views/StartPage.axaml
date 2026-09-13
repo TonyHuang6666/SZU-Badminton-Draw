@@ -13,6 +13,7 @@
           <WrapPanel Orientation="Horizontal">
             <Button Content="新建赛事工作区" Command="{Binding NewCommand}" Padding="20,12" Margin="0,0,12,8" />
             <Button Content="打开赛事工作区" Command="{Binding OpenCommand}" Padding="20,12" Margin="0,0,0,8" />
+            <Button x:Name="StartRecoveryButton" Content="备份与恢复" Command="{Binding OpenRecoveryCommand}" Padding="20,12" Margin="12,0,0,8" />
           </WrapPanel>
         </StackPanel>
       </Border>

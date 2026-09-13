@@ -15,6 +15,8 @@ using Xunit;
 
 namespace BadmintonDraw.Desktop.Tests;
 
+// Per-test headless sessions reset Avalonia's process-wide dispatcher; isolate only real UI tests.
+[Collection("Avalonia UI dispatcher")]
 public sealed class ScheduleBoardControlTests : IDisposable
 {
     private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(BoardTestApplication));

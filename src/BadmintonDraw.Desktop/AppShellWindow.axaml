@@ -27,6 +27,7 @@
           <Button Content="开始" Command="{Binding HomeCommand}" />
           <Button Content="新建赛事" Command="{Binding NewCommand}" />
           <Button Content="打开工作区" Command="{Binding OpenCommand}" />
+          <Button x:Name="HeaderRecoveryButton" Content="备份与恢复" Command="{Binding OpenRecoveryCommand}" />
         </StackPanel>
       </Grid>
     </Border>
@@ -45,6 +46,7 @@
         </StackPanel>
       </Border>
       <ContentControl Grid.Column="1" Content="{Binding CurrentPage}" IsEnabled="{Binding !IsBusy}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+      <views:WorkspaceRecoveryPanel x:Name="RecoveryPanel" Grid.ColumnSpan="2" IsVisible="{Binding IsOpen}" DataContext="{Binding Recovery}" />
     </Grid>
     <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,1,0,0" Padding="20,12">
       <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
