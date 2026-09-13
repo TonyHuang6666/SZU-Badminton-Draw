@@ -2100,6 +2100,7 @@ public sealed partial class DrawResultExcelWriter
 
     private static void WriteWorkspaceContext(IXLWorksheet sheet, DrawExportContext context, bool isKnockout)
     {
+        sheet.PageSetup.PaperSize = XLPaperSize.A4Paper;
         sheet.Cell(1, 1).Value = context.Heading + "\n" + sheet.Cell(1, 1).GetString();
         sheet.Cell(1, 1).Style.Alignment.WrapText = true;
         sheet.Row(1).Height = isKnockout ? 44 : 36;
