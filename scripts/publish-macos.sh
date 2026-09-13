@@ -1,42 +1,69 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "$#" -gt 1 ]]; then
+  echo "Usage: publish-macos.sh [osx-arm64|osx-x64]" >&2
+  exit 1
+fi
+
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "macOS packaging requires hdiutil and must be run on macOS." >&2
   exit 1
 fi
 
-RID="${1:-osx-arm64}"
-CONFIGURATION="${CONFIGURATION:-Release}"
-APP_NAME="${APP_NAME:-SZU Badminton Draw}"
-BUNDLE_ID="${BUNDLE_ID:-com.szuba.badmintondraw}"
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+for REQUIRED_TOOL in python3 dotnet git hdiutil; do
+  if ! command -v "$REQUIRED_TOOL" >/dev/null 2>&1; then
+    echo "macOS packaging requires $REQUIRED_TOOL; no output has been created." >&2
+    exit 1
+  fi
+done
+
+RID="${1-osx-arm64}"
+CONFIGURATION="${CONFIGURATION-Release}"
+APP_NAME="${APP_NAME-SZU Badminton Draw}"
+BUNDLE_ID="${BUNDLE_ID-com.szuba.badmintondraw}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PROJECT_PATH="$ROOT_DIR/src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj"
-OUTPUT_ROOT="$ROOT_DIR/artifacts/macos/$RID"
+ICON_SOURCE="$ROOT_DIR/src/BadmintonDraw.Desktop/Assets/szuba-app-icon.png"
+ICON_FILE=""
+if command -v sips >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1 && [[ -f "$ICON_SOURCE" ]]; then
+  ICON_FILE="AppIcon"
+fi
+
+# Public layout: artifacts/macos/<RID>/<version>/run-<unique>/{dmg-root/*.app,*.dmg}.
+# The helper validates all input, captures Git identity, rejects symlink parents,
+# and atomically claims a new directory. Earlier runs are never removed.
+PREPARED="$(python3 "$ROOT_DIR/scripts/packaging_metadata.py" prepare-macos \
+  "$ROOT_DIR" "$RID" "$CONFIGURATION" "$APP_NAME" "$BUNDLE_ID" \
+  "${VERSION+x}" "${VERSION-}" "$ICON_FILE")"
+{
+  IFS= read -r VERSION
+  IFS= read -r OUTPUT_ROOT
+} <<< "$PREPARED"
+trap 'echo "Packaging failed; retained partial output (not a verified release): $OUTPUT_ROOT" >&2' ERR
+
 PUBLISH_DIR="$OUTPUT_ROOT/publish"
 DMG_ROOT="$OUTPUT_ROOT/dmg-root"
 APP_PATH="$DMG_ROOT/$APP_NAME.app"
 MACOS_DIR="$APP_PATH/Contents/MacOS"
 RESOURCES_DIR="$APP_PATH/Contents/Resources"
 EXECUTABLE_PATH="$MACOS_DIR/BadmintonDraw.Desktop"
-DMG_PATH="$OUTPUT_ROOT/SZU-Badminton-Draw_${RID}.dmg"
-ICON_SOURCE="$ROOT_DIR/src/BadmintonDraw.Desktop/Assets/szuba-app-icon.png"
-ICON_FILE=""
-ICON_PLIST_ENTRY=""
+DMG_PATH="$OUTPUT_ROOT/SZU-Badminton-Draw_${VERSION}_${RID}.dmg"
 
-rm -rf "$OUTPUT_ROOT"
 mkdir -p "$PUBLISH_DIR" "$MACOS_DIR" "$RESOURCES_DIR"
 
 dotnet publish "$PROJECT_PATH" \
   -c "$CONFIGURATION" \
   -r "$RID" \
   --self-contained true \
+  "-p:Version=$VERSION" \
+  "-p:VersionPrefix=$VERSION" \
   -o "$PUBLISH_DIR"
 
 cp -R "$PUBLISH_DIR"/. "$MACOS_DIR"/
 chmod +x "$EXECUTABLE_PATH"
 
-if command -v sips >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1 && [[ -f "$ICON_SOURCE" ]]; then
+if [[ -n "$ICON_FILE" ]]; then
   ICONSET="$OUTPUT_ROOT/AppIcon.iconset"
   mkdir -p "$ICONSET"
   sips -z 16 16 "$ICON_SOURCE" --out "$ICONSET/icon_16x16.png" >/dev/null
@@ -50,42 +77,7 @@ if command -v sips >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1 && [[ 
   sips -z 512 512 "$ICON_SOURCE" --out "$ICONSET/icon_512x512.png" >/dev/null
   sips -z 1024 1024 "$ICON_SOURCE" --out "$ICONSET/icon_512x512@2x.png" >/dev/null
   iconutil -c icns "$ICONSET" -o "$RESOURCES_DIR/AppIcon.icns"
-  ICON_FILE="AppIcon"
-  ICON_PLIST_ENTRY="  <key>CFBundleIconFile</key>
-  <string>$ICON_FILE</string>"
 fi
-
-cat > "$APP_PATH/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDevelopmentRegion</key>
-  <string>zh_CN</string>
-  <key>CFBundleDisplayName</key>
-  <string>$APP_NAME</string>
-  <key>CFBundleExecutable</key>
-  <string>BadmintonDraw.Desktop</string>
-  <key>CFBundleIdentifier</key>
-  <string>$BUNDLE_ID</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleName</key>
-  <string>$APP_NAME</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>${VERSION:-0.0.0}</string>
-  <key>CFBundleVersion</key>
-  <string>$(date +%Y%m%d%H%M)</string>
-$ICON_PLIST_ENTRY
-  <key>LSMinimumSystemVersion</key>
-  <string>12.0</string>
-  <key>NSHighResolutionCapable</key>
-  <true/>
-</dict>
-</plist>
-PLIST
 
 if [[ ! -x "$EXECUTABLE_PATH" ]]; then
   echo "macOS app bundle is missing executable: $EXECUTABLE_PATH" >&2
@@ -101,7 +93,6 @@ ln -s /Applications "$DMG_ROOT/Applications"
 hdiutil create \
   -volname "$APP_NAME" \
   -srcfolder "$DMG_ROOT" \
-  -ov \
   -format UDZO \
   "$DMG_PATH"
 
@@ -110,5 +101,8 @@ if [[ ! -s "$DMG_PATH" ]]; then
   exit 1
 fi
 
+hdiutil verify "$DMG_PATH"
+
 echo "Created app bundle: $APP_PATH"
 echo "Created DMG: $DMG_PATH"
+echo "Build input metadata: $RESOURCES_DIR/build-metadata.json"

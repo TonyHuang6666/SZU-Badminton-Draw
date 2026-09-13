@@ -32,8 +32,22 @@ jobs:
       - name: Test
         run: dotnet test BadmintonDraw.sln -c Release --no-build --verbosity normal
 
+      - name: Resolve package version
+        shell: pwsh
+        run: |
+          $version = python scripts/packaging_metadata.py version src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "BUILD_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Publish smoke test
-        run: dotnet publish src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
+        run: dotnet publish src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true "-p:Version=$env:BUILD_VERSION" "-p:VersionPrefix=$env:BUILD_VERSION" -o "artifacts\windows\win-x64\$env:BUILD_VERSION"
+
+      - name: Upload Windows publish output
+        uses: actions/upload-artifact@v7
+        with:
+          name: SZU-Badminton-Draw_${{ env.BUILD_VERSION }}_win-x64
+          path: artifacts/windows/win-x64/${{ env.BUILD_VERSION }}/
+          if-no-files-found: error
 
   macos-build-test-publish:
     runs-on: macos-14
@@ -47,6 +61,9 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Packaging safety tests (isolated mock tools, not a DMG verification)
+        run: python3 scripts/test_packaging_preflight.py
+
       - name: Restore
         run: dotnet restore BadmintonDraw.sln --locked-mode -p:Configuration=Release
 
@@ -59,12 +76,19 @@ jobs:
       - name: Test
         run: dotnet test BadmintonDraw.sln -c Release --no-build --verbosity normal
 
+      - name: Resolve package version
+        run: |
+          version="$(python3 scripts/packaging_metadata.py version src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj Release)"
+          echo "BUILD_VERSION=$version" >> "$GITHUB_ENV"
+
       - name: Build macOS app and DMG
+        env:
+          VERSION: ${{ env.BUILD_VERSION }}
         run: bash scripts/publish-macos.sh osx-arm64
 
       - name: Upload macOS DMG
         uses: actions/upload-artifact@v7
         with:
-          name: SZU-Badminton-Draw_macos-arm64
-          path: artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
+          name: SZU-Badminton-Draw_${{ env.BUILD_VERSION }}_osx-arm64
+          path: artifacts/macos/osx-arm64/${{ env.BUILD_VERSION }}/run-*/SZU-Badminton-Draw_${{ env.BUILD_VERSION }}_osx-arm64.dmg
           if-no-files-found: error
