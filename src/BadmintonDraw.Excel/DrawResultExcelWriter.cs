@@ -3,7 +3,7 @@ using ClosedXML.Excel;
 
 namespace BadmintonDraw.Excel;
 
-public sealed class DrawResultExcelWriter
+public sealed partial class DrawResultExcelWriter
 {
     private const int BracketStartRow = 6;
     private const int SlotRowGap = 4;
@@ -56,7 +56,8 @@ public sealed class DrawResultExcelWriter
         workbook.SaveAs(outputPath);
     }
 
-    private static void WriteUnifiedBracketSheet(XLWorkbook workbook, DrawResult result, SchedulePlan? schedulePlan)
+    private static void WriteUnifiedBracketSheet(XLWorkbook workbook, DrawResult result, SchedulePlan? schedulePlan,
+        WorkspaceTiming? timing = null)
     {
         var sheet = workbook.Worksheets.Add("对阵表");
         var bracketSlots = BuildBracketSlots(result);
@@ -131,8 +132,10 @@ public sealed class DrawResultExcelWriter
 
         if (placementRows.Count > 0)
         {
-            WritePlacementPlayoffSection(sheet, placementStartRow, lastColumn, placementRows, schedulePlan);
+            WritePlacementPlayoffSection(sheet, placementStartRow, lastColumn, placementRows, schedulePlan, timing);
         }
+
+        timing?.AnnotateKnockout(sheet, result, bracketSlots, roundColumns, qualifierHeaders?.Count, isGroupedChampionBracket);
 
         WriteBracketNote(sheet, noteRow, lastColumn);
 
@@ -170,7 +173,8 @@ public sealed class DrawResultExcelWriter
                     first.DisplayName,
                     first.IsSeed,
                     second.DisplayName,
-                    second.IsSeed));
+                    second.IsSeed,
+                    $"第{group.Number}组首轮赛{matchNumber}"));
             }
 
             foreach (var participant in byeParticipants)
@@ -817,7 +821,8 @@ public sealed class DrawResultExcelWriter
         int startRow,
         int lastColumn,
         IReadOnlyList<PlacementPlayoffRow> rows,
-        SchedulePlan? schedulePlan)
+        SchedulePlan? schedulePlan,
+        WorkspaceTiming? timing = null)
     {
         var scheduleByName = schedulePlan is null
             ? new Dictionary<string, ScheduledMatch>(StringComparer.Ordinal)
@@ -836,10 +841,10 @@ public sealed class DrawResultExcelWriter
             XLColor.White,
             isBold: true);
 
-        WriteThirdPlaceTree(sheet, startRow + 1, rows, scheduleByName);
+        WriteThirdPlaceTree(sheet, startRow + 1, rows, scheduleByName, timing);
         if (hasFifthToEighth)
         {
-            WriteFifthToEighthTree(sheet, startRow + 8, rows, scheduleByName);
+            WriteFifthToEighthTree(sheet, startRow + 8, rows, scheduleByName, timing);
         }
 
         WriteMergedCell(
@@ -870,7 +875,8 @@ public sealed class DrawResultExcelWriter
         IXLWorksheet sheet,
         int headerRow,
         IReadOnlyList<PlacementPlayoffRow> rows,
-        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName)
+        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName,
+        WorkspaceTiming? timing = null)
     {
         var playoff = FindPlacementPlayoffRow(rows, PlacementPlayoffLabels.ThirdPlaceMatchName);
         const int sourceColumn = PlacementFirstColumn;
@@ -883,7 +889,7 @@ public sealed class DrawResultExcelWriter
         WritePlacementBracketCell(sheet, headerRow, matchColumn, "3,4名", GroupFill, isBold: true);
         WritePlacementBracketCell(sheet, upperRow, sourceColumn, playoff.SideA, FutureFill);
         WritePlacementBracketCell(sheet, lowerRow, sourceColumn, playoff.SideB, FutureFill);
-        WritePlacementBracketMatchCell(sheet, matchRow, matchColumn, playoff, scheduleByName);
+        WritePlacementBracketMatchCell(sheet, matchRow, matchColumn, playoff, scheduleByName, timing);
         DrawPlacementMatchConnector(sheet, sourceColumn, matchColumn, upperRow, lowerRow);
     }
 
@@ -891,7 +897,8 @@ public sealed class DrawResultExcelWriter
         IXLWorksheet sheet,
         int headerRow,
         IReadOnlyList<PlacementPlayoffRow> rows,
-        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName)
+        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName,
+        WorkspaceTiming? timing = null)
     {
         var firstSemi = FindPlacementPlayoffRow(rows, PlacementPlayoffLabels.FifthToEighthSemiMatchName(1));
         var secondSemi = FindPlacementPlayoffRow(rows, PlacementPlayoffLabels.FifthToEighthSemiMatchName(2));
@@ -919,10 +926,10 @@ public sealed class DrawResultExcelWriter
         WritePlacementBracketCell(sheet, firstLowerRow, sourceColumn, firstSemi.SideB, FutureFill);
         WritePlacementBracketCell(sheet, secondUpperRow, sourceColumn, secondSemi.SideA, FutureFill);
         WritePlacementBracketCell(sheet, secondLowerRow, sourceColumn, secondSemi.SideB, FutureFill);
-        WritePlacementBracketMatchCell(sheet, firstSemiRow, semiColumn, firstSemi, scheduleByName);
-        WritePlacementBracketMatchCell(sheet, secondSemiRow, semiColumn, secondSemi, scheduleByName);
-        WritePlacementBracketMatchCell(sheet, seventhPlaceRow, seventhPlaceColumn, seventhPlace, scheduleByName);
-        WritePlacementBracketMatchCell(sheet, fifthPlaceRow, fifthPlaceColumn, fifthPlace, scheduleByName);
+        WritePlacementBracketMatchCell(sheet, firstSemiRow, semiColumn, firstSemi, scheduleByName, timing);
+        WritePlacementBracketMatchCell(sheet, secondSemiRow, semiColumn, secondSemi, scheduleByName, timing);
+        WritePlacementBracketMatchCell(sheet, seventhPlaceRow, seventhPlaceColumn, seventhPlace, scheduleByName, timing);
+        WritePlacementBracketMatchCell(sheet, fifthPlaceRow, fifthPlaceColumn, fifthPlace, scheduleByName, timing);
 
         DrawPlacementMatchConnector(sheet, sourceColumn, semiColumn, firstUpperRow, firstLowerRow);
         DrawPlacementMatchConnector(sheet, sourceColumn, semiColumn, secondUpperRow, secondLowerRow);
@@ -947,7 +954,8 @@ public sealed class DrawResultExcelWriter
         int row,
         int firstColumn,
         PlacementPlayoffRow playoff,
-        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName)
+        IReadOnlyDictionary<string, ScheduledMatch> scheduleByName,
+        WorkspaceTiming? timing = null)
     {
         WritePlacementBracketCell(
             sheet,
@@ -961,6 +969,7 @@ public sealed class DrawResultExcelWriter
         {
             AppendScheduleAnnotation(sheet, row, firstColumn, scheduledMatch);
         }
+        timing?.AnnotateKnockoutSlot(sheet, row, firstColumn, playoff.MatchName);
     }
 
     private static void WritePlacementBracketCell(
@@ -1331,12 +1340,14 @@ public sealed class DrawResultExcelWriter
     }
 
     private static void AppendScheduleAnnotation(IXLWorksheet sheet, int row, int column, ScheduledMatch match)
+        => AppendScheduleAnnotation(sheet, row, column, $"{match.DayLabel} {match.TimeRange}\n{match.Court}");
+
+    private static void AppendScheduleAnnotation(IXLWorksheet sheet, int row, int column, string annotation)
     {
         var cell = sheet.Cell(row, column);
         var mergedRange = cell.MergedRange();
         var targetCell = mergedRange?.FirstCell() ?? cell;
         var existing = targetCell.GetString();
-        var annotation = $"{match.DayLabel} {match.TimeRange}\n{match.Court}";
 
         targetCell.Value = string.IsNullOrWhiteSpace(existing)
             ? annotation
@@ -1614,7 +1625,8 @@ public sealed class DrawResultExcelWriter
         return value > 0 && (value & (value - 1)) == 0;
     }
 
-    private static void WriteRoundRobinSheet(XLWorkbook workbook, DrawResult result, SchedulePlan? schedulePlan)
+    private static void WriteRoundRobinSheet(XLWorkbook workbook, DrawResult result, SchedulePlan? schedulePlan,
+        WorkspaceTiming? timing = null)
     {
         var sheet = workbook.Worksheets.Add("对阵表");
         var maxGroupSize = Math.Max(1, result.Groups.Select(group => group.Participants.Count).DefaultIfEmpty(0).Max());
@@ -1632,7 +1644,7 @@ public sealed class DrawResultExcelWriter
 
         foreach (var group in result.Groups)
         {
-            row = WriteRoundRobinGroup(sheet, group, row, layout, schedulePlan);
+            row = WriteRoundRobinGroup(sheet, group, row, layout, schedulePlan, timing);
             row++;
         }
 
@@ -1734,19 +1746,20 @@ public sealed class DrawResultExcelWriter
         DrawGroup group,
         int startRow,
         RoundRobinLayout layout,
-        SchedulePlan? schedulePlan)
+        SchedulePlan? schedulePlan,
+        WorkspaceTiming? timing = null)
     {
         var participants = group.Participants;
         var groupSize = participants.Count;
         var groupColumnCount = Math.Max(4, groupSize + 4);
         var lastRow = startRow + Math.Max(groupSize, 1);
-        var schedule = BuildRoundRobinSchedule(participants);
+        var schedule = timing?.RoundRobinSchedule(group) ?? BuildRoundRobinSchedule(participants);
         var timedScheduleByName = schedulePlan is null
             ? new Dictionary<string, ScheduledMatch>(StringComparer.Ordinal)
             : BuildScheduleLookup(schedulePlan);
         var scheduleByPair = schedule.ToDictionary(
             match => BuildPairKey(match.FirstIndex, match.SecondIndex),
-            match => match.Order);
+            match => match);
 
         sheet.Cell(startRow, 1).Value = BuildRoundRobinGroupLabel(group.Number);
         for (var i = 0; i < groupSize; i++)
@@ -1787,14 +1800,15 @@ public sealed class DrawResultExcelWriter
                     else
                     {
                         cell.Value = rowIndex < columnIndex
-                            && scheduleByPair.TryGetValue(BuildPairKey(rowIndex, columnIndex), out var matchOrder)
-                            ? $"第{matchOrder}场"
+                            && scheduleByPair.TryGetValue(BuildPairKey(rowIndex, columnIndex), out var pairMatch)
+                            ? $"第{pairMatch.Order}场"
                             : "";
                         if (rowIndex < columnIndex
-                            && scheduleByPair.TryGetValue(BuildPairKey(rowIndex, columnIndex), out matchOrder)
-                            && timedScheduleByName.TryGetValue(BuildRoundRobinScheduleMatchName(group.Number, matchOrder), out var timedMatch))
+                            && scheduleByPair.TryGetValue(BuildPairKey(rowIndex, columnIndex), out pairMatch))
                         {
-                            AppendScheduleAnnotation(sheet, row, columnIndex + 2, timedMatch);
+                            if (timing is not null) timing.AnnotateRoundRobinSlot(sheet, row, columnIndex + 2, pairMatch, "matrix");
+                            else if (timedScheduleByName.TryGetValue(BuildRoundRobinScheduleMatchName(group.Number, pairMatch.Order), out var timedMatch))
+                                AppendScheduleAnnotation(sheet, row, columnIndex + 2, timedMatch);
                         }
                     }
                 }
@@ -1809,7 +1823,8 @@ public sealed class DrawResultExcelWriter
             lastRow + 2,
             groupColumnCount,
             group.Number,
-            timedScheduleByName);
+            timedScheduleByName,
+            timing);
         return Math.Max(lastRow, scheduleLastRow) + 1;
     }
 
@@ -1879,7 +1894,8 @@ public sealed class DrawResultExcelWriter
         int startRow,
         int lastColumn,
         int groupNumber,
-        IReadOnlyDictionary<string, ScheduledMatch> timedScheduleByName)
+        IReadOnlyDictionary<string, ScheduledMatch> timedScheduleByName,
+        WorkspaceTiming? timing = null)
     {
         if (schedule.Count == 0)
         {
@@ -1909,7 +1925,7 @@ public sealed class DrawResultExcelWriter
             var match = schedule[i];
             var row = headerRow + i + 1;
             sheet.Cell(row, 1).Value = match.Order;
-            sheet.Cell(row, 2).Value = $"第{match.Round}轮";
+            sheet.Cell(row, 2).Value = match.Phase ?? $"第{match.Round}轮";
             WriteRoundRobinScheduleMergedCell(
                 sheet,
                 row,
@@ -1917,7 +1933,8 @@ public sealed class DrawResultExcelWriter
                 opponentLastColumn,
                 $"{participants[match.FirstIndex].DisplayName}  vs  {participants[match.SecondIndex].DisplayName}");
             sheet.Cell(row, noteColumn).Value = match.SameUnit ? "同单位优先" : "";
-            if (timedScheduleByName.TryGetValue(BuildRoundRobinScheduleMatchName(groupNumber, match.Order), out var timedMatch))
+            if (timing is not null) timing.AnnotateRoundRobinSlot(sheet, row, opponentFirstColumn, match, "list");
+            else if (timedScheduleByName.TryGetValue(BuildRoundRobinScheduleMatchName(groupNumber, match.Order), out var timedMatch))
             {
                 AppendScheduleAnnotation(sheet, row, opponentFirstColumn, timedMatch);
             }
@@ -2242,7 +2259,8 @@ public sealed class DrawResultExcelWriter
         string PlayInFirstName,
         bool PlayInFirstIsSeed,
         string PlayInSecondName,
-        bool PlayInSecondIsSeed);
+        bool PlayInSecondIsSeed,
+        string? PlayInMatchName = null);
 
     private sealed record ColumnSpan(int FirstColumn, int LastColumn);
 
@@ -2259,7 +2277,9 @@ public sealed class DrawResultExcelWriter
         int RoundMatchNumber,
         int FirstIndex,
         int SecondIndex,
-        bool SameUnit);
+        bool SameUnit,
+        Guid? MatchId = null,
+        string? Phase = null);
 
     private sealed record RoundRobinLayout(
         double ParticipantColumnWidth,
