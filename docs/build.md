@@ -6,7 +6,7 @@
 
 - 使用仓库 `global.json` 指定的 .NET 10 SDK；从仓库根目录运行命令，确保 SDK 选择规则生效。
 - 桌面入口只有 `src/BadmintonDraw.Desktop`（Avalonia）。使用支持该 SDK 的编辑器或 IDE。
-- macOS 打包另外需要 Bash、Python 3 标准库、Git 和系统 `hdiutil`；系统 `sips` / `iconutil` 可用且图标存在时会生成应用图标。安全测试需要 Python 3.9 或更高版本。
+- macOS 打包另外需要 Bash、Python 3 标准库、Git、系统 `hdiutil` 和 `codesign`；系统 `sips` / `iconutil` 可用且图标存在时会生成应用图标。安全测试需要 Python 3.9 或更高版本。
 - 普通用户运行自包含应用不需要安装 Python、.NET SDK 或 Office。若要填写、重算 Excel 记录表，需要另备办公软件；应用自身的导出不依赖后台启动 Office。
 - Windows 与 macOS 是本次交付目标；Linux 未纳入最终运行验收，不能仅凭跨平台框架推断已经支持所有桌面环境。
 
@@ -24,7 +24,7 @@ dotnet test BadmintonDraw.sln -c Release --no-build
 dotnet run --project src/BadmintonDraw.Desktop -c Release --no-build
 ```
 
-先构建再使用 `--no-build`；修改代码后不要用旧输出验证新源码。跨 RID 发布需要相应运行时还原，不能假设普通本机还原已经包含 Windows/macOS 发布资产。
+先构建再使用 `--no-build`；修改代码后不要用旧输出验证新源码。桌面工程声明并锁定 `win-x64`、`osx-arm64` 和 `osx-x64` 三个发布 RID；依赖变化后应显式刷新并评审锁文件，正式发布只允许锁定还原和 `--no-restore` 发布。
 
 共享测试覆盖类型化比赛图、统一硬约束、真实 SQLite、记录表读写、备份和故障；桌面测试覆盖实际 Avalonia 控件、导航、确认失效与迟到回调。Headless 通过不等于真实窗口、文件选择器、打印或另一个操作系统通过。
 
@@ -70,7 +70,7 @@ artifacts/macos/<RID>/<version>/run-<unique>/
 
 应用内 `Contents/Resources/build-metadata.json` 保存版本来源、完整 Git 提交、dirty 标记、RID、配置和预检时间。它描述开始打包时的工作树，不是数字签名，也不能证明构建期间无人修改源码。正式验收应先冻结源码，并确认元数据、程序集版本、实际可执行架构和最终文件哈希相互对应。
 
-脚本失败会保留本次目录；即使已有 DMG 文件，也必须确认真实 `hdiutil verify` 成功。当前脚本不进行 Developer ID 签名、公证或 stapling，不宣称通过 Gatekeeper 或已经完成公开分发验收。
+脚本失败会保留本次目录；即使已有 DMG 文件，也必须确认真实 `hdiutil verify` 和应用包严格验签成功。默认 `CODESIGN_IDENTITY=-` 对完整应用包执行 ad-hoc 签名；可传入非空身份启用 hardened runtime 与时间戳签名，但脚本不执行 notarization 或 stapling，单凭签名成功不能宣称 Gatekeeper 公共分发验收通过。
 
 ## Windows 本地发布
 
@@ -81,7 +81,7 @@ $packageVersion = python scripts/packaging_metadata.py version src/BadmintonDraw
 if ($LASTEXITCODE -ne 0) { throw "无法读取版本" }
 $packageRun = [guid]::NewGuid().ToString("N")
 $packageDirectory = "artifacts/windows/win-x64/$packageVersion/run-$packageRun"
-dotnet publish src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true "-p:Version=$packageVersion" "-p:VersionPrefix=$packageVersion" -o $packageDirectory
+dotnet publish src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true "-p:Version=$packageVersion" "-p:VersionPrefix=$packageVersion" -o $packageDirectory
 if ($LASTEXITCODE -ne 0) { throw "Windows 发布失败，保留本次输出检查" }
 ```
 
@@ -99,7 +99,7 @@ CI 上传 artifact 不等于发布 Release。5.0 最终交付前应有：
 2. 五条真实生命周期/故障流程及两个规模场景的验收结果，保留失败与修复复测证据。
 3. 原始材料与填写/办公软件副本的哈希、公式重算、逐页视觉检查范围和明确限制。
 4. Windows、macOS 的真实构建与运行结果；未执行平台不得写成通过。
-5. 真实安装包、版本和来源核对、SHA-256 清单及清楚的未签名/未公证说明。
+5. 真实安装包、版本和来源核对、SHA-256 清单及清楚的签名/公证状态说明。
 6. 用户审阅验收报告后，再按授权进行推送、远端 CI、合并、标签和正式发布。
 
 任何耗时数字都应注明输入规模、资源、平台、源版本与失败/成功状态；测试数变化应说明新增或等价替换的覆盖，而不是只追求总数。
