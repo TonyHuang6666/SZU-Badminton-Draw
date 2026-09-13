@@ -15,7 +15,8 @@ public partial class AppShellWindow : Window
     public AppShellWindow() : this(new TournamentWorkspaceWorkflow(), new RecentWorkspaceStore(RecentWorkspaceStore.DefaultPath)) { }
     public AppShellWindow(TournamentWorkspaceWorkflow workflow, RecentWorkspaceStore recentStore,
         Func<Task<string?>>? openPicker = null, Func<Task<string?>>? recoveryTargetPicker = null,
-        Func<Task<string?>>? recoveryBackupPicker = null)
+        Func<Task<string?>>? recoveryBackupPicker = null,
+        Func<Task<IReadOnlyList<string>?>>? resultFilesPicker = null, Func<Task<string?>>? operationalOutputPicker = null)
     {
         InitializeComponent();
         var shell = new AppShellViewModel(workflow, openPicker ?? PickOpenPathAsync, PickSavePathAsync,
@@ -25,6 +26,8 @@ public partial class AppShellWindow : Window
         shell.RegisterPageFactory(WorkspaceRoute.PublicDraw, session => new PublicDrawPageViewModel(shell, session, PickDrawOutputDirectoryAsync));
         shell.RegisterPageFactory(WorkspaceRoute.ScheduleSetup, session => new ScheduleSetupPageViewModel(shell, session));
         shell.RegisterPageFactory(WorkspaceRoute.ScheduleBoard, session => new ScheduleBoardPageViewModel(shell, session));
+        shell.RegisterPageFactory(WorkspaceRoute.Operations, session => new OperationsPageViewModel(shell, session,
+            resultFilesPicker ?? PickResultFilesAsync, operationalOutputPicker ?? PickOperationalOutputAsync));
         DataContext = shell;
         Closed += (_, _) => shell.Dispose();
         try
@@ -78,6 +81,18 @@ public partial class AppShellWindow : Window
     {
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         { Title = "选择抽签材料导出目录", AllowMultiple = false });
+        return LocalPath(folders.FirstOrDefault());
+    }
+    private async Task<IReadOnlyList<string>?> PickResultFilesAsync()
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        { Title = "选择 v5 赛果记录表（可多选，选择后需预览）", AllowMultiple = true, FileTypeFilter = [RosterFileType] });
+        return files.Count == 0 ? null : Array.AsReadOnly(files.Select(file => LocalPath(file)!).ToArray());
+    }
+    private async Task<string?> PickOperationalOutputAsync()
+    {
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        { Title = "选择现场材料输出目录", AllowMultiple = false });
         return LocalPath(folders.FirstOrDefault());
     }
 }

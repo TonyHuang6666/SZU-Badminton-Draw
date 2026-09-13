@@ -1,0 +1,70 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" xmlns:views="using:BadmintonDraw.Desktop.Views"
+             x:Class="BadmintonDraw.Desktop.Views.OperationsPage" x:DataType="vm:OperationsPageViewModel">
+  <Grid RowDefinitions="Auto,*" Margin="24,18">
+    <StackPanel Spacing="8" Margin="0,0,0,14">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Text="现场执行 / 完成" FontSize="23" FontWeight="SemiBold" />
+        <Button Grid.Column="1" Content="备份与恢复" Command="{Binding OpenRecoveryCommand}" />
+      </Grid>
+      <views:ResultImportEvidenceText x:Name="OperationsHeader" Text="{Binding Header}" />
+      <views:ResultImportEvidenceText Text="{Binding ProjectSummary}" />
+    </StackPanel>
+    <TabControl x:Name="OperationsTabs" Grid.Row="1" SelectedIndex="{Binding SelectedTabIndex}">
+      <TabItem Header="赛果导入"><views:ResultImportPanel x:Name="OperationsResultImport" DataContext="{Binding ResultImport}" /></TabItem>
+      <TabItem Header="材料导出">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel x:DataType="vm:WorkspaceOperationalExportViewModel" DataContext="{Binding Materials}" Spacing="12" Margin="4,12">
+            <views:ResultImportEvidenceText Text="{Binding SourceDetails}" />
+            <TextBlock Text="项目范围" FontWeight="SemiBold" />
+            <ComboBox x:Name="OperationalProject" ItemsSource="{Binding ProjectChoices}" SelectedItem="{Binding SelectedProject}" HorizontalAlignment="Stretch">
+              <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:OperationalProjectChoice"><TextBlock Text="{Binding Label}" TextWrapping="Wrap" /></DataTemplate></ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="记录日期（可多选；全部取消不会自动改成全选）" FontWeight="SemiBold" TextWrapping="Wrap" />
+            <ItemsControl ItemsSource="{Binding Days}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:OperationalDayChoice">
+              <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" />
+            </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+            <CheckBox x:Name="IncludePendingCarryover" Content="明确纳入较早的待填记录" IsChecked="{Binding IncludePendingCarryover}" />
+            <ComboBox x:Name="PendingCarryoverDay" ItemsSource="{Binding PendingDays}" SelectedItem="{Binding SelectedCarryoverDay}" IsEnabled="{Binding IncludePendingCarryover}" PlaceholderText="选择一个已选记录日" HorizontalAlignment="Stretch">
+              <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:OperationalDayChoice"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="仅将有有效未填记录证据且原计划更早的待赛纳入此记录日；不会移动比赛。跨日待赛时间/场地为待安排，原计划保留在说明。" TextWrapping="Wrap" />
+            <TextBlock Text="淘汰赛 A4 PDF 分页（正整数）" FontWeight="SemiBold" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBlock Text="行" VerticalAlignment="Center" /><NumericUpDown x:Name="OperationalPdfRows" Value="{Binding PdfRows}" Minimum="1" Maximum="2147483647" FormatString="0" Width="110" />
+              <TextBlock Text="列" VerticalAlignment="Center" /><NumericUpDown x:Name="OperationalPdfColumns" Value="{Binding PdfColumns}" Minimum="1" Maximum="2147483647" FormatString="0" Width="110" />
+            </StackPanel>
+            <TextBlock Text="打印前预览；复杂淘汰赛可调整 PDF 分页以放大，分页可能切开连接线或单元格。" TextWrapping="Wrap" />
+            <TextBlock Text="输出目录" FontWeight="SemiBold" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox x:Name="OperationalOutputDirectory" Text="{Binding OutputDirectory}" PlaceholderText="选择本地输出目录" />
+              <Button x:Name="PickOperationalOutput" Grid.Column="1" Content="选择目录" Command="{Binding PickOutputCommand}" Margin="8,0,0,0" />
+            </Grid>
+            <views:ResultImportEvidenceText Text="{Binding ScopeSummary}" />
+            <CheckBox x:Name="OverwriteOperationalOutputs" Content="允许覆盖本次同名材料（范围或来源变化后需重新同意）" IsChecked="{Binding OverwriteExisting}" />
+            <CheckBox x:Name="ConfirmOperationalScope" Content="已核对当前工作区、范围、日期、分页与输出目录" IsChecked="{Binding ScopeConfirmed}" />
+            <Button x:Name="ExportOperationalPackage" Content="导出材料并记录审计" Command="{Binding ExportCommand}" HorizontalAlignment="Left" />
+            <TextBlock Text="最近一次操作的实际证据（与上方待提交草稿分别显示）" FontWeight="SemiBold" TextWrapping="Wrap" />
+            <views:ResultImportEvidenceText x:Name="OperationalExportState" Text="{Binding StateMessage}" />
+            <views:ResultImportEvidenceText x:Name="OperationalExportOutcome" Text="{Binding OutcomeDetails}" />
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="只读记录">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"><StackPanel Spacing="12" Margin="4,12">
+          <TextBlock Text="记录来自当前已发布快照；导入覆盖不代表当日或赛事完赛。" TextWrapping="Wrap" />
+          <TextBlock Text="当前赛果" FontWeight="SemiBold" />
+          <ItemsControl ItemsSource="{Binding History.Results}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+          <TextBlock Text="有效导入记录覆盖（非当日完赛）" FontWeight="SemiBold" />
+          <ItemsControl ItemsSource="{Binding History.Coverage}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+          <TextBlock Text="全部导入回执（含作废）" FontWeight="SemiBold" />
+          <ItemsControl x:Name="OperationsReceipts" ItemsSource="{Binding History.Receipts}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+          <TextBlock Text="更正历史" FontWeight="SemiBold" />
+          <ItemsControl ItemsSource="{Binding History.Corrections}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+          <TextBlock Text="原始审计" FontWeight="SemiBold" />
+          <ItemsControl x:Name="OperationsAudits" ItemsSource="{Binding History.Audits}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+        </StackPanel></ScrollViewer>
+      </TabItem>
+    </TabControl>
+  </Grid>
+</UserControl>
