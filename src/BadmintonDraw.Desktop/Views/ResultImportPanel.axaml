@@ -1,0 +1,42 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:BadmintonDraw.Desktop.ViewModels"
+             xmlns:views="using:BadmintonDraw.Desktop.Views"
+             x:Class="BadmintonDraw.Desktop.Views.ResultImportPanel" x:DataType="vm:WorkspaceResultImportViewModel">
+  <Grid RowDefinitions="Auto,*" Margin="16">
+    <StackPanel Spacing="10" Margin="0,0,0,14">
+      <TextBlock Text="记录表导入" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" />
+      <TextBlock Text="先选择多份 .xlsx，再检查来源、诊断和更正内容。只有明确确认后才会提交；不会自动重试。" TextWrapping="Wrap" />
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button x:Name="PickResultFiles" Content="选择记录表" Command="{Binding PickFilesCommand}" />
+        <Button x:Name="ClearResultFiles" Content="清空选择" Command="{Binding ClearFilesCommand}" />
+        <Button x:Name="PreviewResultImport" Content="预览导入（不保存）" Command="{Binding PreviewCommand}" />
+      </StackPanel>
+      <ProgressBar IsVisible="{Binding IsWorking}" IsIndeterminate="True" Height="3" />
+      <views:ResultImportEvidenceText x:Name="ResultImportState" Text="{Binding StateMessage}" />
+    </StackPanel>
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="14">
+        <TextBlock Text="当前选择" FontWeight="SemiBold" />
+        <views:ResultImportEvidenceText x:Name="SelectedResultPaths" Text="{Binding SelectedFilesText}" />
+        <TextBlock Text="检查来源与文件分类" FontWeight="SemiBold" />
+        <views:ResultImportEvidenceText Text="{Binding SourceDetails}" />
+        <views:ResultImportEvidenceText Text="{Binding FileDetails}" />
+        <views:ResultImportEvidenceText Text="{Binding CountsText}" />
+        <TextBlock Text="诊断（含全部关联来源）" FontWeight="SemiBold" />
+        <views:ResultImportEvidenceText x:Name="ResultImportDiagnostics" Text="{Binding DiagnosticDetails}" />
+        <TextBlock Text="元数据更正前后值" FontWeight="SemiBold" />
+        <views:ResultImportEvidenceText x:Name="ResultImportCorrections" Text="{Binding CorrectionDetails}" />
+        <CheckBox x:Name="AllowResultCorrections" Content="允许上方列明的元数据更正（不能接受胜负方冲突）" IsChecked="{Binding AllowCorrections}" />
+        <TextBox x:Name="ResultCorrectionReason" Text="{Binding CorrectionReason}" PlaceholderText="更正时必填：说明核对来源和更正原因"
+                 AutomationProperties.Name="赛果更正原因" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" />
+        <CheckBox x:Name="ConfirmResultImport" IsChecked="{Binding Confirmed}" IsEnabled="{Binding HasCurrentPreview}">
+          <TextBlock Text="我已核对当前工作区、文件身份、诊断与更正前后值，确认本次导入或无需保存的检查。" TextWrapping="Wrap" />
+        </CheckBox>
+        <Button x:Name="ApplyResultImport" Content="{Binding ConfirmButtonText}" Command="{Binding ConfirmImportCommand}" />
+        <TextBlock Text="待填记录行与已导入记录覆盖不代表完赛。赛事完成状态只来自正式工作区；作废的旧文件不会重新激活。" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+        <TextBlock Text="本次操作的实际结果与文件路径" FontWeight="SemiBold" />
+        <views:ResultImportEvidenceText x:Name="ResultImportOutcome" Text="{Binding OutcomeDetails}" />
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

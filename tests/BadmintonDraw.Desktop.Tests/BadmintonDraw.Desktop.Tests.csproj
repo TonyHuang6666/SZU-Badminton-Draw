@@ -13,5 +13,6 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <ProjectReference Include="../../src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj" />
+    <Compile Include="../BadmintonDraw.Tests/WorkspaceResultImportFacadeFixture.cs" Link="Fixtures/WorkspaceResultImportFacadeFixture.cs" />
   </ItemGroup>
 </Project>
