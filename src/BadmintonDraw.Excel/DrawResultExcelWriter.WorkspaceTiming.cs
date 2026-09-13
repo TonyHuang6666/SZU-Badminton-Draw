@@ -37,7 +37,7 @@ public sealed partial class DrawResultExcelWriter
         WriteWorkspaceContext(workbook.Worksheet("对阵表"), exportContext, draw.Settings.IsKnockout);
         FormatWorkspaceRoster(workbook.Worksheet("当前名单"), project.Roster.Participants.Count);
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
-        workbook.SaveAs(outputPath);
+        WorkbookPrintTitles.SaveAs(workbook, outputPath);
     }
 
     private sealed class WorkspaceTiming

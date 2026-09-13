@@ -35,7 +35,7 @@ public sealed class WorkspaceScheduleQualityExcelWriter
         WritePlayers(book, context, quality, inputValid, owners);
         WriteResources(book, context, quality);
         WriteSources(book, context, generatedAt, projects);
-        book.SaveAs(outputPath);
+        WorkbookPrintTitles.SaveAs(book, outputPath);
     }
 
     private static void WriteOverview(XLWorkbook book, WorkspaceScheduleExportContext context, DateTimeOffset at,

@@ -53,7 +53,7 @@ public sealed partial class DrawResultExcelWriter
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
-        workbook.SaveAs(outputPath);
+        WorkbookPrintTitles.SaveAs(workbook, outputPath);
     }
 
     private static void WriteUnifiedBracketSheet(XLWorkbook workbook, DrawResult result, SchedulePlan? schedulePlan,

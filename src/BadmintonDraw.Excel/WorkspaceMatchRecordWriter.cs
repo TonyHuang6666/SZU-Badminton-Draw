@@ -22,7 +22,7 @@ public sealed class WorkspaceMatchRecordWriter
         for (var i = 0; i < selected.Length; i++) WriteRow(sheet, context, selected[i], FirstDataRow + i, i + 1, rowNumbers);
         ApplyLayout(sheet, FirstDataRow + selected.Length - 1);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
-        workbook.SaveAs(outputPath);
+        WorkbookPrintTitles.SaveAs(workbook, outputPath);
     }
 
     private static void WriteHeading(IXLWorksheet sheet, string name)

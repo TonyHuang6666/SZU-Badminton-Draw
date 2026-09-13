@@ -27,7 +27,7 @@ public sealed partial class ScheduleExcelWriter
         WriteWorkspaceGrid(book, context, ordered, day);
         WriteWorkspaceSettings(book, context, ordered.Length, day);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
-        book.SaveAs(outputPath);
+        WorkbookPrintTitles.SaveAs(book, outputPath);
     }
 
     private static void WriteWorkspaceDetail(XLWorkbook book, WorkspaceScheduleExportContext context,
