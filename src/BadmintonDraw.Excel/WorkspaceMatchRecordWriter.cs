@@ -4,6 +4,7 @@ using BadmintonDraw.Core.Matches;
 using BadmintonDraw.Core.Tournaments;
 using ClosedXML.Excel;
 using static BadmintonDraw.Excel.WorkspaceRecordSchema;
+using static BadmintonDraw.Excel.WorkspaceMaterialPresentation;
 
 namespace BadmintonDraw.Excel;
 
@@ -13,15 +14,7 @@ public sealed class WorkspaceMatchRecordWriter
     public void Write(string outputPath, WorkspaceScheduleExportContext context, IReadOnlyList<WorkspaceRecordExportRow> rows)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(rows);
-        var selected = rows.ToArray();
-        if (selected.Length == 0) throw new WorkspaceValidationException("export.no-matches", "所选范围没有比赛，未生成记录表。");
-        if (selected.Any(r => r is null) || selected.Select(r => r.Key).Distinct().Count() != selected.Length)
-            throw new WorkspaceValidationException("export.selection", "记录表不能重复选择同一场比赛。");
-        var knownDays = context.Workspace.Schedule!.Resources.Days.Select(d => d.Date).ToHashSet();
-        if (selected.Any(r => !context.Nodes.ContainsKey(r.Key) || !knownDays.Contains(r.RecordDay)))
-            throw new WorkspaceValidationException("export.selection", "记录表选择包含未知比赛或记录日期。");
+        var selected = SelectRows(context, rows, "记录表");
         var rowNumbers = selected.Select((row, i) => (row.Key, Row: FirstDataRow + i)).ToDictionary(p => p.Key, p => p.Row);
         using var workbook = new XLWorkbook();
         var sheet = workbook.AddWorksheet(SheetName);
@@ -136,10 +129,6 @@ public sealed class WorkspaceMatchRecordWriter
     }
 
     private static string Literal(string text) => "\"" + text.Replace("\"", "\"\"") + "\"";
-    private static string TimeText(TimeOnly time) => time.Ticks % TimeSpan.TicksPerMinute == 0
-        ? time.ToString("HH:mm", CultureInfo.InvariantCulture)
-        : time.ToString("HH:mm:ss.fffffff", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.');
-
     private static void ApplyLayout(IXLWorksheet sheet, int lastRow)
     {
         sheet.Range(1, 1, lastRow, LastColumn).Style.Font.FontName = "Microsoft YaHei";

@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 
 namespace BadmintonDraw.Excel;
 
-public sealed class ScoreSheetExcelWriter
+public sealed partial class ScoreSheetExcelWriter
 {
     private const int TeamBlockRows = 18;
     private const float ScoreSheetPdfLeftInset = 42f;
@@ -38,13 +38,7 @@ public sealed class ScoreSheetExcelWriter
             ? new HashSet<string>(StringComparer.Ordinal)
             : carryOverMatchNames.ToHashSet(StringComparer.Ordinal);
 
-        using var templateWorkbook = LoadIndividualScoreSheetTemplate();
-        using var workbook = new XLWorkbook();
-        var sheetNames = new List<string>();
-        for (var index = 0; index < matches.Count; index++)
-        {
-            var match = matches[index];
-            var data = BuildIndividualScoreSheetData(
+        var data = matches.Select(match => BuildIndividualScoreSheetData(
                 match,
                 scheduleByName,
                 completedResults,
@@ -52,12 +46,29 @@ public sealed class ScoreSheetExcelWriter
                     && carryOverSet.Contains(match.MatchName)
                     && match.DayLabel != dayLabel,
                 dayLabel,
-                projectName);
-            var sheet = templateWorkbook.Worksheet(1).CopyTo(workbook, $"计分表{index + 1}");
-            sheetNames.Add(sheet.Name);
-            FillIndividualScoreSheetTemplate(sheet, data);
-        }
+                projectName)).ToArray();
+        using var workbook = BuildIndividualWorkbook(data);
+        WriteIndividualPdf(outputPath, workbook);
+    }
 
+    private static XLWorkbook BuildIndividualWorkbook(IReadOnlyList<IndividualScoreSheetData> data)
+    {
+        using var templateWorkbook = LoadIndividualScoreSheetTemplate();
+        var workbook = new XLWorkbook();
+        try
+        {
+            for (var index = 0; index < data.Count; index++)
+            {
+                var sheet = templateWorkbook.Worksheet(1).CopyTo(workbook, $"计分表{index + 1}");
+                FillIndividualScoreSheetTemplate(sheet, data[index]);
+            }
+            return workbook;
+        }
+        catch { workbook.Dispose(); throw; }
+    }
+
+    private static void WriteIndividualPdf(string outputPath, XLWorkbook workbook)
+    {
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
         var tempWorkbookPath = Path.Combine(
             Path.GetTempPath(),
@@ -68,7 +79,7 @@ public sealed class ScoreSheetExcelWriter
             new DrawResultVisualWriter().WriteSheetsA4Pdf(
                 outputPath,
                 tempWorkbookPath,
-                sheetNames,
+                workbook.Worksheets.Select(s => s.Name).ToArray(),
                 stretchToPrintableArea: true,
                 horizontalSafetyInset: 0f,
                 leftPageInset: ScoreSheetPdfLeftInset,
@@ -177,6 +188,12 @@ public sealed class ScoreSheetExcelWriter
         sheet.Cell("B32").Value = data.RecordNumber;
         sheet.Cell("AV26").Value = "分";
         sheet.Cell("AV26").Style.Alignment.WrapText = false;
+        if (data.Caption is not null)
+        {
+            sheet.Cell("A1").Value = data.Caption;
+            sheet.Cell("A1").Style.Font.FontSize = 9;
+            sheet.Cell("A1").Style.Alignment.WrapText = true;
+        }
         FillCompetitorRows(sheet, data.SideAPlayers, data.SideBPlayers);
     }
 
@@ -257,7 +274,6 @@ public sealed class ScoreSheetExcelWriter
         IReadOnlyDictionary<string, MatchRecordResult>? completedResults,
         IReadOnlyCollection<string>? carryOverMatchNames)
     {
-        PrepareSheet(sheet, 7);
         var scheduleByName = plan.Matches
             .GroupBy(match => match.MatchName, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
@@ -265,41 +281,39 @@ public sealed class ScoreSheetExcelWriter
             ? new HashSet<string>(StringComparer.Ordinal)
             : carryOverMatchNames.ToHashSet(StringComparer.Ordinal);
 
-        if (matches.Count == 0)
+        var data = matches.Select(match => BuildTeamScoreSheetData(match, scheduleByName, completedResults,
+            !string.IsNullOrWhiteSpace(dayLabel) && carryOverSet.Contains(match.MatchName) && match.DayLabel != dayLabel,
+            dayLabel)).ToArray();
+        WriteTeamBlocks(sheet, data);
+    }
+
+    private static void WriteTeamBlocks(IXLWorksheet sheet, IReadOnlyList<TeamScoreSheetData> data)
+    {
+        PrepareSheet(sheet, 7);
+        if (data.Count == 0)
         {
             WriteEmptySheet(sheet, "团体赛记分表", "当前比赛日没有可导出的团体比赛。", lastColumn: 7);
             return;
         }
 
-        for (var index = 0; index < matches.Count; index++)
+        for (var index = 0; index < data.Count; index++)
         {
             var startRow = index * TeamBlockRows + 1;
-            WriteTeamBlock(
-                sheet,
-                startRow,
-                matches[index],
-                scheduleByName,
-                completedResults,
-                isCarryOver: !string.IsNullOrWhiteSpace(dayLabel)
-                    && carryOverSet.Contains(matches[index].MatchName)
-                    && matches[index].DayLabel != dayLabel,
-                dayLabel);
+            WriteTeamBlock(sheet, startRow, data[index]);
 
-            if (index < matches.Count - 1)
+            if (index < data.Count - 1)
             {
                 sheet.PageSetup.AddHorizontalPageBreak(startRow + TeamBlockRows - 1);
             }
         }
 
-        sheet.PageSetup.PrintAreas.Add($"A1:G{matches.Count * TeamBlockRows}");
+        sheet.PageSetup.PrintAreas.Add($"A1:G{data.Count * TeamBlockRows}");
         sheet.PageSetup.PageOrientation = XLPageOrientation.Portrait;
         sheet.PageSetup.PaperSize = XLPaperSize.A4Paper;
         sheet.PageSetup.FitToPages(1, 0);
     }
 
-    private static void WriteTeamBlock(
-        IXLWorksheet sheet,
-        int startRow,
+    private static TeamScoreSheetData BuildTeamScoreSheetData(
         ScheduledMatch match,
         IReadOnlyDictionary<string, ScheduledMatch> scheduleByName,
         IReadOnlyDictionary<string, MatchRecordResult>? completedResults,
@@ -316,16 +330,22 @@ public sealed class ScoreSheetExcelWriter
         var sideB = ScheduleMatchText.NormalizeCompetitorName(
             ScheduleMatchText.ResolveSide(match.SideB, match, scheduleByName, completedResults));
 
-        sheet.Range(startRow, 1, startRow, 7).Merge().Value = "（            ）团体赛记分表";
-        sheet.Range(startRow + 1, 1, startRow + 1, 7).Merge().Value = $"{sideA} 队  对  {sideB} 队";
+        return new(match.Phase, match.GroupName, displayDayLabel, timeRange, court, sideA, sideB,
+            isCarryOver ? $"顺延补赛；{match.Note}".TrimEnd('；') : match.Note);
+    }
+
+    private static void WriteTeamBlock(IXLWorksheet sheet, int startRow, TeamScoreSheetData data)
+    {
+        sheet.Range(startRow, 1, startRow, 7).Merge().Value = data.Title;
+        sheet.Range(startRow + 1, 1, startRow + 1, 7).Merge().Value = $"{data.SideA} 队  对  {data.SideB} 队";
         sheet.Range(startRow + 2, 1, startRow + 3, 7).Style.Fill.BackgroundColor = EditableFill;
 
         WriteRow(sheet, startRow + 3, 1, "阶段", "组别（位置号）", "日期", "时间", "场号");
-        sheet.Cell(startRow + 4, 1).Value = match.Phase;
-        sheet.Cell(startRow + 4, 2).Value = match.GroupName;
-        sheet.Cell(startRow + 4, 3).Value = displayDayLabel;
-        sheet.Cell(startRow + 4, 4).Value = timeRange;
-        sheet.Cell(startRow + 4, 5).Value = court;
+        sheet.Cell(startRow + 4, 1).Value = data.Phase;
+        sheet.Cell(startRow + 4, 2).Value = data.GroupName;
+        sheet.Cell(startRow + 4, 3).Value = data.Date;
+        sheet.Cell(startRow + 4, 4).Value = data.Time;
+        sheet.Cell(startRow + 4, 5).Value = data.Court;
 
         sheet.Range(startRow + 6, 1, startRow + 6, 7).Merge().Value = "分场记录";
         WriteRow(sheet, startRow + 7, 1, "场序", "项目/单项", "A队出场", "B队出场", "比分", "胜方", "备注");
@@ -340,8 +360,7 @@ public sealed class ScoreSheetExcelWriter
         sheet.Range(startRow + 14, 5, startRow + 14, 6).Merge();
         sheet.Cell(startRow + 14, 7).Value = "裁判长签名";
         sheet.Cell(startRow + 16, 1).Value = "备注";
-        sheet.Range(startRow + 16, 2, startRow + 16, 7).Merge().Value =
-            isCarryOver ? $"顺延补赛；{match.Note}".TrimEnd('；') : match.Note;
+        sheet.Range(startRow + 16, 2, startRow + 16, 7).Merge().Value = data.Note;
 
         ApplyBlockStyle(sheet, startRow, TeamBlockRows, 7);
         sheet.Range(startRow, 1, startRow, 7).Style.Fill.BackgroundColor = TitleFill;
@@ -412,5 +431,9 @@ public sealed class ScoreSheetExcelWriter
         string Court,
         int RecordNumber,
         IReadOnlyList<string> SideAPlayers,
-        IReadOnlyList<string> SideBPlayers);
+        IReadOnlyList<string> SideBPlayers,
+        string? Caption = null);
+
+    private sealed record TeamScoreSheetData(string Phase, string GroupName, string Date, string Time, string Court,
+        string SideA, string SideB, string Note, string Title = "（            ）团体赛记分表");
 }

@@ -3,7 +3,7 @@ using SkiaSharp;
 
 namespace BadmintonDraw.Excel;
 
-public sealed class DrawResultVisualWriter
+public sealed partial class DrawResultVisualWriter
 {
     private const string DefaultSheetName = "对阵表";
     private const long MaxPngBytes = 20L * 1024L * 1024L;
@@ -1038,10 +1038,7 @@ public sealed class DrawResultVisualWriter
             TextSize = cell.FontSize,
             TextAlign = ToTextAlign(cell.HorizontalAlignment)
         };
-        var textBounds = cell.Bounds;
-        var horizontalPadding = Math.Min(5f, Math.Max(2f, cell.Bounds.Width * 0.035f));
-        var verticalPadding = Math.Min(3f, Math.Max(1.5f, cell.Bounds.Height * 0.08f));
-        textBounds.Inflate(-horizontalPadding, -verticalPadding);
+        var textBounds = GetTextBounds(cell);
         var maxLineWidth = Math.Max(10, textBounds.Width * TextWidthSafetyFactor);
         var minFontSize = Math.Min(cell.FontSize, 5.8f * PointsToPixels);
         List<string> lines;
