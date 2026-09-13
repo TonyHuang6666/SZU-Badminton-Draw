@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace BadmintonDraw.Excel;
 
-public sealed class ScheduleExcelWriter
+public sealed partial class ScheduleExcelWriter
 {
     private const int GridEstimatedCharsPerLine = 14;
     private const double GridLineHeight = 16;
