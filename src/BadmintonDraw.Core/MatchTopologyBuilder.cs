@@ -1,6 +1,6 @@
 namespace BadmintonDraw.Core;
 
-// The single time-free authority for legacy scheduling and v5 graph construction.
+// The single time-free authority for match-graph construction and material projection.
 internal static class MatchTopologyBuilder
 {
     internal static List<UnscheduledMatch> Build(DrawResult draw) => draw.Settings.IsRoundRobin

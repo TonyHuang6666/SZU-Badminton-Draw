@@ -51,33 +51,8 @@ public static class ScheduleResourceCalculator
             block.AppliesTo(court) && block.Overlaps(start, end));
     }
 
-    public static bool IsCourtAvailable(
-        CrossEventScheduleBoardDay day,
-        string court,
-        TimeOnly start,
-        TimeOnly end)
-    {
-        return !GetUnavailableCourtWindows(day).Any(block =>
-            block.AppliesTo(court) && block.Overlaps(start, end));
-    }
-
     public static int GetConcurrentMatchLimit(
         ScheduleDaySettings day,
-        int? defaultRefereeCount,
-        TimeOnly start,
-        TimeOnly end)
-    {
-        return GetConcurrentMatchLimit(
-            day.Courts,
-            GetRefereeCapacityWindows(day),
-            GetUnavailableCourtWindows(day),
-            defaultRefereeCount,
-            start,
-            end);
-    }
-
-    public static int GetConcurrentMatchLimit(
-        CrossEventScheduleBoardDay day,
         int? defaultRefereeCount,
         TimeOnly start,
         TimeOnly end)
@@ -99,21 +74,6 @@ public static class ScheduleResourceCalculator
         return CalculateDayCapacityMinutes(
             day.DayStart,
             day.DayEnd,
-            day.Courts,
-            GetRefereeCapacityWindows(day),
-            GetUnavailableCourtWindows(day),
-            defaultRefereeCount,
-            slotMinutes);
-    }
-
-    public static int CalculateDayCapacityMinutes(
-        CrossEventScheduleBoardDay day,
-        int? defaultRefereeCount,
-        int slotMinutes)
-    {
-        return CalculateDayCapacityMinutes(
-            day.StartTime,
-            day.EndTime,
             day.Courts,
             GetRefereeCapacityWindows(day),
             GetUnavailableCourtWindows(day),
@@ -181,18 +141,9 @@ public static class ScheduleResourceCalculator
         return day.RefereeCapacityWindows ?? Array.Empty<ScheduleRefereeCapacityWindow>();
     }
 
-    private static IReadOnlyList<ScheduleRefereeCapacityWindow> GetRefereeCapacityWindows(CrossEventScheduleBoardDay day)
-    {
-        return day.RefereeCapacityWindows ?? Array.Empty<ScheduleRefereeCapacityWindow>();
-    }
-
     private static IReadOnlyList<ScheduleCourtAvailabilityBlock> GetUnavailableCourtWindows(ScheduleDaySettings day)
     {
         return day.UnavailableCourtWindows ?? Array.Empty<ScheduleCourtAvailabilityBlock>();
     }
 
-    private static IReadOnlyList<ScheduleCourtAvailabilityBlock> GetUnavailableCourtWindows(CrossEventScheduleBoardDay day)
-    {
-        return day.UnavailableCourtWindows ?? Array.Empty<ScheduleCourtAvailabilityBlock>();
-    }
 }

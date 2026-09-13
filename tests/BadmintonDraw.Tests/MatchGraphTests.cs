@@ -82,7 +82,7 @@ public sealed class MatchGraphTests
         Assert.All(graph.Matches, n => Assert.True(n.IsPlayable));
         Assert.DoesNotContain(graph.Matches.Where(n => n.Phase == "首轮赛"), n =>
             (n.SideA as EntrantSource.Participant)?.DisplayName == "P1" || (n.SideB as EntrantSource.Participant)?.DisplayName == "P1");
-        AssertLegacy(draw, graph);
+        AssertProjectedTopology(graph);
     }
 
     [Theory]
@@ -100,7 +100,7 @@ public sealed class MatchGraphTests
             Assert.All(graph.Matches.Where(n => n.GroupNumber > 0), n => Assert.True(n.ForceBeforeTimingBoundary));
         }
         else Assert.DoesNotContain(graph.Matches, n => n.GroupNumber == 0);
-        AssertLegacy(draw, graph);
+        AssertProjectedTopology(graph);
     }
 
     [Theory]
@@ -145,20 +145,24 @@ public sealed class MatchGraphTests
             Assert.True(player.IsTeam);
             Assert.Equal(participant.DisplayName, player.Name);
         });
-        AssertLegacy(draw, graph);
+        AssertProjectedTopology(graph);
     }
 
-    private static void AssertLegacy(DrawResult draw, MatchGraph graph)
+    private static void AssertProjectedTopology(MatchGraph graph)
     {
-        var schedule = new ScheduleService().Generate(draw, new([new(new DateOnly(2026, 6, 6), new TimeOnly(7, 0), new TimeOnly(23, 0), ["A", "B", "C", "D"])],
-            MatchMinutes: 15, MaxMatchesPerEntrantPerDay: 30));
+        var result = Assert.IsType<TournamentSchedulingResult.Success>(
+            new TournamentScheduler().Generate(TournamentSchedulerTestData.Request([graph])));
+        var schedule = ScheduledMatchProjection.Build(graph, result.Schedule,
+            new Dictionary<WorkspaceMatchKey, TournamentMatchResult>());
         foreach (var node in graph.Matches)
         {
-            var legacy = schedule.Matches.Single(m => m.MatchId == node.OriginalMatchId);
-            Assert.Equal(node.DisplayName, legacy.MatchName);
-            Assert.Equal(node.Phase, legacy.Phase);
-            Assert.Equal(node.Note, legacy.Note);
-            Assert.Equal(node.Dependencies.Count, legacy.Dependencies.Count);
+            var projected = schedule.Single(match => match.MatchId == node.Id.ToString("D"));
+            Assert.Equal(node.Order, projected.Order);
+            Assert.Equal(node.DisplayName, projected.MatchName);
+            Assert.Equal(node.Phase, projected.Phase);
+            Assert.Equal(node.Note, projected.Note);
+            Assert.Equal(node.Dependencies.Order(), projected.Dependencies
+                .Select(dependency => Guid.Parse(dependency.SourceMatchId)).Order());
         }
     }
 }

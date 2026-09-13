@@ -15,16 +15,6 @@
           "SixLabors.Fonts": "1.0.0"
         }
       },
-      "Microsoft.Data.Sqlite": {
-        "type": "Direct",
-        "requested": "[8.0.24, )",
-        "resolved": "8.0.24",
-        "contentHash": "EO3L64D3eJdtC5zTp/Y0JZnxi3u5vyiSxP2u4Cw6O+hMyUn6oiAcC2gPQHaEGr5quEe4eP51BSZoDUfiTWkHMw==",
-        "dependencies": {
-          "Microsoft.Data.Sqlite.Core": "8.0.24",
-          "SQLitePCLRaw.bundle_e_sqlite3": "2.1.6"
-        }
-      },
       "ClosedXML.Parser": {
         "type": "Transitive",
         "resolved": "1.2.0",
@@ -50,6 +40,15 @@
         "type": "Transitive",
         "resolved": "1.1.0",
         "contentHash": "R3BVHPs9O+RkExbZYTGT0+9HLbi8ZrNij1Yziyw6znd3J7P3uoIR07uwTLGOogtz1p6+0sna66eBoXu7tBiVQA=="
+      },
+      "Microsoft.Data.Sqlite": {
+        "type": "Transitive",
+        "resolved": "8.0.24",
+        "contentHash": "EO3L64D3eJdtC5zTp/Y0JZnxi3u5vyiSxP2u4Cw6O+hMyUn6oiAcC2gPQHaEGr5quEe4eP51BSZoDUfiTWkHMw==",
+        "dependencies": {
+          "Microsoft.Data.Sqlite.Core": "8.0.24",
+          "SQLitePCLRaw.bundle_e_sqlite3": "2.1.6"
+        }
       },
       "Microsoft.Data.Sqlite.Core": {
         "type": "Transitive",
@@ -128,8 +127,6 @@
         "dependencies": {
           "BadmintonDraw.Core": "[4.6.0, )",
           "ClosedXML": "[0.104.2, )",
-          "Microsoft.Data.Sqlite": "[8.0.24, )",
-          "SQLitePCLRaw.lib.e_sqlite3": "[2.1.13, )",
           "SkiaSharp": "[2.88.9, )"
         }
       },

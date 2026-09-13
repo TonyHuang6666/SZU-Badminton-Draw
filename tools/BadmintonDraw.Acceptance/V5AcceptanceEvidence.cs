@@ -48,8 +48,14 @@ internal sealed class V5AcceptanceEvidence
         foreach (var folder in new[] { "src", "tests", "tools", "samples", ".git" })
             Require(!Within(root, Path.Combine(repository, folder)), "Output lies in a protected repository directory.");
         for (var item = new DirectoryInfo(root); item is not null; item = item.Parent)
-            Require(item.LinkTarget is null, "Symlink-indirected output is not accepted: " + item.FullName);
+            Require(item.LinkTarget is null || IsMacOsTemporaryAlias(item),
+                "Symlink-indirected output is not accepted: " + item.FullName);
     }
+
+    // macOS ships /tmp as a root-owned, fixed alias of /private/tmp. Accept only that OS
+    // convention; user-controlled links anywhere else in the output ancestry remain rejected.
+    private static bool IsMacOsTemporaryAlias(DirectoryInfo item) =>
+        OperatingSystem.IsMacOS() && item.FullName == "/tmp" && item.LinkTarget == "private/tmp";
     internal static string FindRepository()
     {
         foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })

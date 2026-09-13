@@ -66,6 +66,16 @@ public sealed class ScheduleSetupPageViewModelTests
         Assert.Equal(TournamentFinalDayPreference.StronglyPreferFinalDay, setup.Policy.FinalDayRules[0].Preference);
     }
     [Fact]
+    public void CourtEditorTreatsRangesAsLiteralNamesAndOnlySplitsExplicitSeparators()
+    {
+        using var fixture = new ScheduleUiFixture(); var page = Page(fixture);
+        page.Days[0].CourtsText = "B1-C8, B9，B10; B11；B12\nB13";
+
+        var courts = page.BuildSetup().Resources.Days[0].Courts;
+
+        Assert.Equal(["B1-C8", "B9", "B10", "B11", "B12", "B13"], courts);
+    }
+    [Fact]
     public async Task FailedRegenerationPreservesSavedScheduleAndTypedEditorValues()
     {
         using var fixture = new ScheduleUiFixture(); var page = Page(fixture);
