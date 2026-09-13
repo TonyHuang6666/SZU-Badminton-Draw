@@ -9,10 +9,12 @@ using BadmintonDraw.Persistence;
 namespace BadmintonDraw.Workflows.Tournaments;
 
 /// <summary>Explicit synchronous commands. Desktop callers run slow commands off the UI thread.</summary>
-public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStore? store = null, DrawPackageWorkflow? drawPackages = null)
+public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStore? store = null, DrawPackageWorkflow? drawPackages = null,
+    OperationalPackageWorkflow? operationalPackages = null)
 {
     private readonly ITournamentWorkspaceStore store = store ?? new TournamentWorkspaceStore();
     private readonly DrawPackageWorkflow drawPackages = drawPackages ?? new();
+    private readonly OperationalPackageWorkflow operationalPackages = operationalPackages ?? new();
     private readonly object sessionGate = new();
     private WorkspaceSession? currentSession;
     private bool notifyingSession;

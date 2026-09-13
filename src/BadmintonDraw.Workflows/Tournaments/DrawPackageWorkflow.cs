@@ -1,5 +1,6 @@
 using BadmintonDraw.Core.Tournaments;
 using BadmintonDraw.Excel;
+using static BadmintonDraw.Workflows.Tournaments.WorkspaceExportPublication;
 
 namespace BadmintonDraw.Workflows.Tournaments;
 
@@ -52,8 +53,7 @@ public sealed class DrawPackageWorkflow(DrawPackageFileOperations? files = null)
             foreach (var plan in plans)
             {
                 // Recheck every actual target immediately before publication, including explicit overwrites.
-                ValidateDestination(plan.Path, workspace, workspacePath, request.OverwriteExisting);
-                files.Publish(StagedPath(stage, plan), plan.Path, request.OverwriteExisting);
+                Publish(StagedPath(stage, plan), plan.Path, workspace, workspacePath, request.OverwriteExisting, files.Publish);
                 progress.Outputs.Add(plan);
             }
         });
@@ -72,27 +72,9 @@ public sealed class DrawPackageWorkflow(DrawPackageFileOperations? files = null)
         {
             var staged = Path.Combine(stage, "template.xlsx");
             new ParticipantTemplateWriter().Write(staged);
-            ValidateDestination(destination, workspace, workspacePath, overwriteExisting);
-            files.Publish(staged, destination, overwriteExisting);
+            Publish(staged, destination, workspace, workspacePath, overwriteExisting, files.Publish);
             progress.Outputs.Add(new(projectId, WorkflowExportFormat.Excel, destination));
         });
-    }
-
-    private static void WithStaging(string outputDirectory, ExportProgress progress, Action<string> writeAndPublish)
-    {
-        Directory.CreateDirectory(outputDirectory);
-        // Stage beside outputs so publication also works when the selected folder is on another volume.
-        var sibling = Path.Combine(outputDirectory, ".draw-package-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(sibling);
-        progress.StagingDirectory = sibling;
-        try { writeAndPublish(sibling); }
-        finally
-        {
-            try { Directory.Delete(sibling, true); progress.StagingDirectory = null; }
-            catch (IOException) { /* Report the owned staging path; never hide the original failure. */ }
-            catch (UnauthorizedAccessException) { /* The caller can recover or remove the reported staging directory. */ }
-        }
-        Require(progress.StagingDirectory is null, "export.cleanup", "导出文件已生成，但无法清理暂存目录：" + sibling);
     }
 
     private static string StagedPath(string stage, DrawPackageOutput output) =>
@@ -110,24 +92,12 @@ public sealed class DrawPackageWorkflow(DrawPackageFileOperations? files = null)
         WorkflowExportFormat.A4Pdf => DrawResultVisualFormat.A4Pdf,
         _ => throw new ArgumentOutOfRangeException(nameof(format))
     };
-    private static void ValidateDestination(string path, TournamentWorkspace workspace, string workspacePath, bool overwrite)
-    {
-        var name = Path.GetFileName(path);
-        // Roster persistence retains filenames, not original absolute paths. Protect matching basenames conservatively.
-        Require(!path.Equals(workspacePath, StringComparison.OrdinalIgnoreCase) &&
-            !name.EndsWith(".szbd", StringComparison.OrdinalIgnoreCase) &&
-            !workspace.Projects.Any(p => p.Roster?.SourceFileName.Equals(name, StringComparison.OrdinalIgnoreCase) == true) &&
-            new FileInfo(path).LinkTarget is null && !Directory.Exists(path),
-            "export.protected-path", "导出不能覆盖赛事工作区、备份、原始名单、符号链接或文件夹。");
-        Require(overwrite || !File.Exists(path), "export.exists", "导出文件已存在，请明确确认覆盖或选择其他文件夹：" + path);
-    }
     private static void Require(bool condition, string code, string message)
     {
         if (!condition) throw new WorkspaceCommandException(new(code, message));
     }
-    internal sealed class ExportProgress
+    internal sealed class ExportProgress : ExportPublicationProgress
     {
         internal List<DrawPackageOutput> Outputs { get; } = [];
-        internal string? StagingDirectory { get; set; }
     }
 }
