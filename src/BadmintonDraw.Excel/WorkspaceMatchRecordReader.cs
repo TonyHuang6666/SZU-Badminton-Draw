@@ -49,15 +49,18 @@ public sealed class WorkspaceMatchRecordReader
             var rows = new List<WorkspaceRecordRawRow>();
             foreach (var row in rowNumbers)
             {
-                if (!Enumerable.Range(1, WorkspaceRecordSchema.LastColumn).Any(column =>
-                    HasFormula(row, column) || HasContent(sheet.Cell(row, column).CachedValue))) continue;
-                WorkspaceRecordCell Read(int column)
+                var evidence = Enumerable.Range(1, WorkspaceRecordSchema.LastColumn).Select(column =>
                 {
                     cells.TryGetValue((row, column), out var raw);
                     var formula = HasFormula(row, column);
                     var value = sheet.Cell(row, column).CachedValue;
-                    return formula ? ReadFormulaCache(raw, value) : ReadValue(value, false);
-                }
+                    return formula ? ReadFormulaCache(raw, value) : ReadLiteral(raw, value);
+                }).ToArray();
+                // A malformed numeric literal can be silently loaded as blank. Keep its
+                // physical evidence, including an otherwise empty/idless record row.
+                if (!evidence.Any(cell => cell.HasFormula || cell.ReadError is not null ||
+                    cell.Kind != WorkspaceRecordCellKind.Empty && (cell.Kind != WorkspaceRecordCellKind.Text || cell.Text.Length > 0))) continue;
+                WorkspaceRecordCell Read(int column) => evidence[column - 1];
                 rows.Add(new(new(sheet.Name, row), Read(WorkspaceRecordSchema.WorkspaceId), Read(WorkspaceRecordSchema.ProjectId),
                     Read(WorkspaceRecordSchema.MatchId), Read(WorkspaceRecordSchema.GraphRevision), Read(WorkspaceRecordSchema.DrawConfirmedAt),
                     Read(WorkspaceRecordSchema.RecordDay), Read(WorkspaceRecordSchema.ActualPlayedDay), Read(WorkspaceRecordSchema.ResultKind),
@@ -73,7 +76,43 @@ public sealed class WorkspaceMatchRecordReader
         }
     }
 
-    private static bool HasContent(XLCellValue value) => !value.IsBlank && (!value.IsText || value.GetText().Length > 0);
+    private static WorkspaceRecordCell ReadLiteral(Cell? raw, XLCellValue value)
+    {
+        if (raw is null) return ReadValue(value, false);
+        var text = raw.CellValue?.Text ?? "";
+        var type = raw.DataType?.Value ?? CellValues.Number;
+        WorkspaceRecordCell Invalid() => new(text, WorkspaceRecordCellKind.Error, false,
+            "实际单元格内容与存储类型不一致；请检查原文件，不能按空白待赛处理。");
+        if (type == CellValues.Number)
+        {
+            // A styled cell without <v> is genuinely blank; an explicit empty or
+            // malformed <v> is not. Date-styled numeric serials remain typed dates.
+            if (raw.CellValue is null) return value.IsBlank ? ReadValue(value, false) : Invalid();
+            if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) || !double.IsFinite(number) ||
+                !(value.IsNumber || value.IsDateTime || value.IsTimeSpan)) return Invalid();
+        }
+        else if (type == CellValues.Boolean)
+            return text.Trim() switch
+            {
+                "1" or "true" => new("TRUE", WorkspaceRecordCellKind.Boolean),
+                "0" or "false" => new("FALSE", WorkspaceRecordCellKind.Boolean),
+                _ => Invalid()
+            };
+        else if (type == CellValues.Date)
+        {
+            try { System.Xml.XmlConvert.ToDateTime(text, System.Xml.XmlDateTimeSerializationMode.RoundtripKind); }
+            catch (FormatException) { return Invalid(); }
+            if (!value.IsDateTime) return Invalid();
+        }
+        else if (type == CellValues.SharedString)
+        {
+            if (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var index) || index < 0 || !value.IsText) return Invalid();
+        }
+        else if (type == CellValues.Error)
+            return new(text, WorkspaceRecordCellKind.Error, false, "单元格错误：" + text);
+        else if (type != CellValues.String && type != CellValues.InlineString || !(value.IsText || value.IsBlank)) return Invalid();
+        return ReadValue(value, false);
+    }
 
     private static WorkspaceRecordCell ReadFormulaCache(Cell? raw, XLCellValue value)
     {

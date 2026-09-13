@@ -240,6 +240,64 @@ public sealed class WorkspaceMatchRecordReaderTests
         finally { Directory.Delete(directory, true); }
     }
 
+    [Theory]
+    [InlineData("number", "not-a-finite-number", true)]
+    [InlineData("number", "not-a-finite-number", false)]
+    [InlineData("number", "", false)]
+    [InlineData("boolean", "2", false)]
+    [InlineData("boolean", "", false)]
+    public void InvalidTypedLiteralCannotBecomeBlankOrDisappear(string kind, string stored, bool omittedNumberType)
+    {
+        var bytes = Workbook(sheet =>
+        {
+            sheet.Cell("I6").Value = 1;
+            sheet.Cell("I7").Value = 1;
+            sheet.Cell("N7").Value = "existing-row";
+        }, part =>
+        {
+            foreach (var address in new[] { "I6", "I7" })
+            {
+                var cell = part.Worksheet.Descendants<Cell>().Single(c => c.CellReference?.Value == address);
+                cell.DataType = omittedNumberType ? null : kind == "number" ? CellValues.Number : CellValues.Boolean;
+                cell.CellValue = new CellValue(stored);
+            }
+        });
+        var before = bytes.ToArray();
+        var document = new WorkspaceMatchRecordReader().ReadWorkspaceRecord(bytes);
+        Assert.Equal(new[] { 6, 7 }, document.Rows.Select(row => row.Location.RowNumber));
+        Assert.All(document.Rows, row =>
+        {
+            Assert.False(row.Score.HasFormula);
+            Assert.Equal(WorkspaceRecordCellKind.Error, row.Score.Kind);
+            Assert.Equal(stored, row.Score.Text);
+            Assert.NotNull(row.Score.ReadError);
+        });
+        Assert.Equal(before, bytes);
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(before)), document.ContentHash);
+    }
+
+    [Fact]
+    public void ValidTypedLiteralsKeepZeroBooleanDateAndLegitimateStyledBlanks()
+    {
+        var day = new DateTime(2026, 9, 13);
+        var bytes = Workbook(sheet =>
+        {
+            sheet.Cell("J6").Value = 0;
+            sheet.Cell("U6").Value = false;
+            sheet.Cell("V6").Value = day;
+            sheet.Cell("I6").Style.Font.Bold = true;
+            sheet.Cell("A50000").Style.Font.Bold = true;
+        });
+        var row = Assert.Single(new WorkspaceMatchRecordReader().ReadWorkspaceRecord(bytes).Rows);
+        Assert.Equal(6, row.Location.RowNumber);
+        Assert.Equal(WorkspaceRecordCellKind.Number, row.Duration.Kind); Assert.Equal("0", row.Duration.Text);
+        Assert.Equal(WorkspaceRecordCellKind.Boolean, row.ResultKind.Kind); Assert.Equal("FALSE", row.ResultKind.Text);
+        Assert.Equal(WorkspaceRecordCellKind.DateTime, row.ActualPlayedDay.Kind); Assert.Equal(day.ToString("O"), row.ActualPlayedDay.Text);
+        Assert.Equal(WorkspaceRecordCellKind.Empty, row.Score.Kind);
+        Assert.All(new[] { row.Duration, row.ResultKind, row.ActualPlayedDay, row.Score }, cell =>
+        { Assert.False(cell.HasFormula); Assert.Null(cell.ReadError); });
+    }
+
     [Fact]
     public void UnreadableWorkbookOrMissingRecordSheetIsADocumentFailure()
     {
