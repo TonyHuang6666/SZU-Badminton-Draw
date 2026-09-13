@@ -10,7 +10,10 @@ internal sealed class TournamentPlacementScorer(GraphSchedulingCandidates contex
     internal long Score(MatchNode node, MatchPlacement placement, IReadOnlyDictionary<Guid, MatchPlacement> placements)
     {
         var policy = context.Request.Policy;
-        var dayIndex = context.DayIndexes[placement.DayLabel];
+        // The validated candidate already owns this day's canonical label. Reuse it
+        // in the usage scan instead of formatting DateOnly for every existing match.
+        var dayLabel = placement.DayLabel;
+        var dayIndex = context.DayIndexes[dayLabel];
         var day = context.Days[dayIndex];
         var minute = (int)(placement.StartTime - day.DayStart).TotalMinutes;
         long score = Compact ? dayIndex * 100_000L + minute * 10L : dayIndex * 50L + minute;
@@ -27,12 +30,12 @@ internal sealed class TournamentPlacementScorer(GraphSchedulingCandidates contex
             }
             if (!string.Equals(baseline.Court, placement.Court, StringComparison.OrdinalIgnoreCase)) score += 100;
         }
-        var capacity = capacities[day.DayLabel];
+        var capacity = capacities[dayLabel];
         var totalMinutes = context.Durations.Values.Sum();
-        var target = policy.DayLoadTargets.FirstOrDefault(t => t.DayLabel == day.DayLabel);
+        var target = policy.DayLoadTargets.FirstOrDefault(t => t.DayLabel == dayLabel);
         var targetRatio = target?.TargetUtilization ?? (Compact ? .95 : Math.Min(.8, totalMinutes / (double)Math.Max(1, capacities.Values.Sum())));
         var warningRatio = target?.WarningUtilization ?? Math.Min(1, targetRatio + .15);
-        var usage = placements.Values.Where(p => p.DayLabel == day.DayLabel).Sum(p => (p.EndTime - p.StartTime).TotalMinutes) + context.Durations[node.Id];
+        var usage = placements.Values.Where(p => p.DayLabel == dayLabel).Sum(p => (p.EndTime - p.StartTime).TotalMinutes) + context.Durations[node.Id];
         score += (long)Math.Round(Math.Pow(Math.Max(0, usage - capacity * targetRatio), 2) * (Compact ? .15 : 1.8) +
             Math.Pow(Math.Max(0, usage - capacity * warningRatio), 2) * (Compact ? 1 : 8));
         if (policy.SynchronizeStageWaves && !Compact)
