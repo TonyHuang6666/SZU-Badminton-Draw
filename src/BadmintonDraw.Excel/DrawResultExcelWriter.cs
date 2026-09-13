@@ -295,12 +295,7 @@ public sealed partial class DrawResultExcelWriter
         int? qualifierCount = null,
         bool isGroupedChampionBracket = false)
     {
-        var participantLabel = result.Settings.EventKind switch
-        {
-            EventKind.Doubles => "对",
-            EventKind.Team => "队",
-            _ => "人"
-        };
+        var participantLabel = ParticipantCountUnit(result.Settings.EventKind);
 
         WriteMergedCell(
             sheet,
@@ -411,6 +406,7 @@ public sealed partial class DrawResultExcelWriter
         IReadOnlyList<int> roundColumns)
     {
         var totalMainSlotCount = bracketSlots.Count;
+        var participantLabel = ParticipantCountUnit(result.Settings.EventKind);
 
         foreach (var group in result.Groups)
         {
@@ -423,7 +419,7 @@ public sealed partial class DrawResultExcelWriter
             var playInCount = bracketSlots.Count(slot => slot.GroupNumber == group.Number && slot.IsPlayIn);
             var mainSlotCount = bracketSlots.Count(slot => slot.GroupNumber == group.Number);
             var row = BracketStartRow + firstIndex * SlotRowGap - 1;
-            var title = $"第{group.Number}组：{group.Participants.Count}人，{playInCount}场首轮赛，首轮赛后{mainSlotCount}人进入正赛";
+            var title = $"第{group.Number}组：{group.Participants.Count}{participantLabel}，{playInCount}场首轮赛，首轮赛后{mainSlotCount}{participantLabel}进入正赛";
 
             if (!isQualifierBracket)
             {
@@ -2068,6 +2064,13 @@ public sealed partial class DrawResultExcelWriter
         cell.Style.Font.FontColor = SeedFontColor;
         cell.Style.Font.Bold = true;
     }
+
+    private static string ParticipantCountUnit(EventKind eventKind) => eventKind switch
+    {
+        EventKind.Doubles => "对",
+        EventKind.Team => "队",
+        _ => "人"
+    };
 
     private static string RoundRobinParticipantLabel(EventKind eventKind)
     {
