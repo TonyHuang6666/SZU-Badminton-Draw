@@ -46,6 +46,9 @@ elif tool == "hdiutil":
             sys.exit(85)
     else:
         sys.exit(91)
+elif tool == "codesign":
+    if os.environ.get("PACKAGING_TEST_FAIL_STAGE") == "codesign":
+        sys.exit(86)
 elif tool in ("sips", "iconutil"):
     flag = "--out" if tool == "sips" else "-o"
     pathlib.Path(args[args.index(flag) + 1]).write_bytes(b"MOCK ICON ONLY\n")
@@ -71,7 +74,7 @@ class Fixture:
         (self.repo / "Directory.Build.props").write_text(
             "<Project><PropertyGroup><VersionPrefix>5.7.9</VersionPrefix></PropertyGroup></Project>\n")
         (self.repo / ".gitignore").write_text("artifacts/\n")
-        for name in ("uname", "dotnet", "hdiutil", "sips", "iconutil"):
+        for name in ("uname", "dotnet", "hdiutil", "codesign", "sips", "iconutil"):
             target = self.bin / name
             target.write_text(FAKE_TOOL)
             target.chmod(0o755)
@@ -139,6 +142,7 @@ class PackagingPreflightTests(unittest.TestCase):
             ((), {"CONFIGURATION": "../Release"}), ((), {"CONFIGURATION": ""}),
             ((), {"BUNDLE_ID": "com.example</string><true/>"}),
             ((), {"BUNDLE_ID": ""}),
+            ((), {"CODESIGN_IDENTITY": ""}),
         ]
         for args, env in cases:
             with self.subTest(args=args, env=env), Fixture() as fixture:
@@ -184,8 +188,8 @@ class PackagingPreflightTests(unittest.TestCase):
             with self.subTest(value=value), Fixture() as fixture:
                 self.assert_rejected_without_output(fixture, env={"APP_NAME": value})
 
-    def test_missing_python_or_hdiutil_fails_before_creating_output(self):
-        for missing in ("python3", "hdiutil"):
+    def test_missing_required_tool_fails_before_creating_output(self):
+        for missing in ("python3", "hdiutil", "codesign"):
             with self.subTest(missing=missing), Fixture() as fixture:
                 minimal_bin = fixture.base / "minimal-bin"
                 minimal_bin.mkdir()
@@ -195,13 +199,13 @@ class PackagingPreflightTests(unittest.TestCase):
                         (minimal_bin / name).symlink_to(shutil.which(name))
                 (minimal_bin / "uname").write_text("#!/bin/sh\nprintf 'Darwin\\n'\n")
                 (minimal_bin / "uname").chmod(0o755)
-                for name in ("dotnet", "hdiutil"):
+                for name in ("dotnet", "hdiutil", "codesign"):
                     if name != missing:
                         (minimal_bin / name).symlink_to(fixture.bin / name)
                 self.assert_rejected_without_output(fixture, env={"PATH": str(minimal_bin)})
 
     def test_publish_or_verify_failure_retains_partial_run_without_success_claim(self):
-        for stage in ("publish", "verify"):
+        for stage in ("publish", "codesign", "verify"):
             with self.subTest(stage=stage), Fixture() as fixture:
                 result = fixture.run(PACKAGING_TEST_FAIL_STAGE=stage)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
@@ -211,6 +215,8 @@ class PackagingPreflightTests(unittest.TestCase):
                 self.assertIn(str(retained[0]), result.stderr)
                 self.assertTrue((retained[0] / "publish/libe_sqlite3.dylib").exists())
                 if stage == "publish":
+                    self.assertFalse(any(call[:2] == ["hdiutil", "create"] for call in fixture.calls()))
+                elif stage == "codesign":
                     self.assertFalse(any(call[:2] == ["hdiutil", "create"] for call in fixture.calls()))
                 else:
                     self.assertTrue((retained[0] / "SZU-Badminton-Draw_5.7.9_osx-arm64.dmg").exists())
@@ -263,6 +269,12 @@ class PackagingPreflightTests(unittest.TestCase):
             self.assertEqual(len(creates), 2)
             self.assertTrue(all("-ov" not in call for call in creates))
             self.assertEqual(len([call for call in fixture.calls() if call[:2] == ["hdiutil", "verify"]]), 2)
+            signatures = [call for call in fixture.calls() if call[:2] == ["codesign", "--force"]]
+            verifications = [call for call in fixture.calls() if call[:2] == ["codesign", "--verify"]]
+            self.assertEqual(len(signatures), 2)
+            self.assertEqual(len(verifications), 2)
+            self.assertTrue(all("--deep" in call and "--sign" in call for call in signatures))
+            self.assertTrue(all("--deep" in call and "--strict" in call for call in verifications))
 
     def assert_bundle(self, fixture, app, dmg, version, dirty, name, rid="osx-arm64"):
         self.assertEqual(dmg.name, f"SZU-Badminton-Draw_{version}_{rid}.dmg")

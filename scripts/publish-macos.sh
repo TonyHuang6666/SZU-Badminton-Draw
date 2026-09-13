@@ -11,7 +11,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
-for REQUIRED_TOOL in python3 dotnet git hdiutil; do
+for REQUIRED_TOOL in python3 dotnet git hdiutil codesign; do
   if ! command -v "$REQUIRED_TOOL" >/dev/null 2>&1; then
     echo "macOS packaging requires $REQUIRED_TOOL; no output has been created." >&2
     exit 1
@@ -22,6 +22,11 @@ RID="${1-osx-arm64}"
 CONFIGURATION="${CONFIGURATION-Release}"
 APP_NAME="${APP_NAME-SZU Badminton Draw}"
 BUNDLE_ID="${BUNDLE_ID-com.szuba.badmintondraw}"
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY--}"
+if [[ -z "$CODESIGN_IDENTITY" ]]; then
+  echo "CODESIGN_IDENTITY must be '-' for ad-hoc signing or a non-empty signing identity." >&2
+  exit 1
+fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PROJECT_PATH="$ROOT_DIR/src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj"
 ICON_SOURCE="$ROOT_DIR/src/BadmintonDraw.Desktop/Assets/szuba-app-icon.png"
@@ -83,6 +88,13 @@ if [[ -n "$ICON_FILE" ]]; then
   sips -z 1024 1024 "$ICON_SOURCE" --out "$ICONSET/icon_512x512@2x.png" >/dev/null
   iconutil -c icns "$ICONSET" -o "$RESOURCES_DIR/AppIcon.icns"
 fi
+
+CODESIGN_ARGS=(--force --deep --sign "$CODESIGN_IDENTITY")
+if [[ "$CODESIGN_IDENTITY" != "-" ]]; then
+  CODESIGN_ARGS+=(--options runtime --timestamp)
+fi
+codesign "${CODESIGN_ARGS[@]}" "$APP_PATH"
+codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 if [[ ! -x "$EXECUTABLE_PATH" ]]; then
   echo "macOS app bundle is missing executable: $EXECUTABLE_PATH" >&2
