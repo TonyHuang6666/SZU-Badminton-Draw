@@ -8,6 +8,67 @@ namespace BadmintonDraw.Desktop.Tests;
 public sealed class WorkspaceRecoveryRaceTests
 {
     [Theory]
+    [InlineData(true, "target")]
+    [InlineData(true, "backup")]
+    [InlineData(true, "close")]
+    [InlineData(true, "session")]
+    [InlineData(true, "dispose")]
+    [InlineData(false, "target")]
+    [InlineData(false, "backup")]
+    [InlineData(false, "close")]
+    [InlineData(false, "session")]
+    [InlineData(false, "dispose")]
+    public async Task LatePickerExceptionCannotOverwriteCurrentStatusErrorOrDrafts(bool target, string change)
+    {
+        var picked = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var fixture = new RecoveryUiFixture(targetPicker: () => picked.Task, backupPicker: () => picked.Task);
+        await fixture.CreateCurrent();
+        var shell = fixture.Shell; var vm = shell.Recovery; var originalSession = shell.CurrentSession;
+        vm.Open(); vm.TargetPath = "original target"; vm.BackupPath = "original backup"; vm.Reason = "current reason";
+        shell.ReportError(new IOException("current visible error"));
+        var pending = (target ? vm.PickTargetCommand : vm.PickBackupCommand).ExecuteAsync();
+        Assert.False(pending.IsCompleted);
+        switch (change)
+        {
+            case "target": vm.TargetPath = "new target"; break;
+            case "backup": vm.BackupPath = "new backup"; break;
+            case "close": vm.Close(); vm.Open(); break;
+            case "session":
+                Assert.True(await shell.CreateWorkspaceAsync(fixture.Request("replacement")));
+                Assert.NotSame(originalSession, shell.CurrentSession);
+                Assert.NotEqual(originalSession!.Workspace.Id, shell.CurrentSession!.Workspace.Id);
+                Assert.Null(shell.LastError);
+                break;
+            case "dispose": shell.Dispose(); break;
+        }
+        var status = shell.Status; var error = shell.LastError;
+        var drafts = (vm.TargetPath, vm.BackupPath, vm.Reason, vm.PreviewDetails, vm.OutputDetails, vm.IsOpen);
+        picked.SetException(new IOException("obsolete picker failure")); await pending;
+        Assert.Equal(status, shell.Status); Assert.Same(error, shell.LastError);
+        Assert.Equal(drafts, (vm.TargetPath, vm.BackupPath, vm.Reason, vm.PreviewDetails, vm.OutputDetails, vm.IsOpen));
+        Assert.False(vm.HasPreview); Assert.False(vm.Confirmed);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CurrentPickerExceptionIsStillReportedWithoutChangingDrafts(bool target)
+    {
+        var picked = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var fixture = new RecoveryUiFixture(targetPicker: () => picked.Task, backupPicker: () => picked.Task);
+        var shell = fixture.Shell; var vm = shell.Recovery;
+        vm.Open(); vm.TargetPath = "current target"; vm.BackupPath = "current backup"; vm.Reason = "current reason";
+        var drafts = (vm.TargetPath, vm.BackupPath, vm.Reason);
+        var pending = (target ? vm.PickTargetCommand : vm.PickBackupCommand).ExecuteAsync();
+        Assert.False(pending.IsCompleted);
+        picked.SetException(new IOException("current picker failure")); await pending;
+        Assert.Equal("desktop.operation-failed", shell.LastError!.Code);
+        Assert.Contains("current picker failure", shell.Status);
+        Assert.Equal(drafts, (vm.TargetPath, vm.BackupPath, vm.Reason));
+        Assert.True(vm.PickTargetCommand.CanExecute(null)); Assert.True(vm.PickBackupCommand.CanExecute(null));
+    }
+
+    [Theory]
     [InlineData("target")]
     [InlineData("backup")]
     [InlineData("session")]

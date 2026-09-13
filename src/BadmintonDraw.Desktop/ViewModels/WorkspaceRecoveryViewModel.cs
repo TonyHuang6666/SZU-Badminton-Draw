@@ -70,6 +70,11 @@ public sealed class WorkspaceRecoveryViewModel : ViewModelBase, IDisposable
             if (selected is not null && IsCurrent(captured, session))
             { if (target) TargetPath = selected; else BackupPath = selected; }
         }
+        catch (Exception exception)
+        {
+            // Picker failures belong to the same captured context as successful selections.
+            if (IsCurrent(captured, session)) shell.ReportError(exception);
+        }
         finally { picking = false; if (!disposed) RefreshAvailability(); }
     }
     private async Task PreviewAsync()
