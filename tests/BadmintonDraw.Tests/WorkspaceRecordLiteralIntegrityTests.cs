@@ -17,6 +17,19 @@ public sealed class WorkspaceRecordLiteralIntegrityTests
     [InlineData("U6", "ResultKind")]
     [InlineData("V6", "ActualPlayedDay")]
     public void MalformedNumericPendingCellRejectsTheWholeBatchWithoutSaving(string address, string field)
+        => VerifyRejected(address, field, "number", false);
+
+    [Theory]
+    [InlineData("shared-outside", false)]
+    [InlineData("shared-outside", true)]
+    [InlineData("number-inline", false)]
+    [InlineData("number-inline", true)]
+    [InlineData("inline-value", false)]
+    [InlineData("inline-value", true)]
+    public void InvalidPhysicalPayloadCannotHideBehindAGenuinePendingRow(string shape, bool isolatedBadRow)
+        => VerifyRejected("I6", "Score", shape, isolatedBadRow);
+
+    private static void VerifyRejected(string address, string field, string shape, bool isolatedBadRow)
     {
         using var f = new WorkspaceResultImportFacadeFixture(1, 2);
         var pending = f.Export("损坏待赛副本.xlsx", fill: false);
@@ -28,6 +41,19 @@ public sealed class WorkspaceRecordLiteralIntegrityTests
                 .Single(c => c.CellReference?.Value == address);
             cell.DataType = null; // An omitted type is numeric, not free text.
             cell.CellValue = new CellValue("not-a-finite-number");
+            if (shape == "shared-outside") { cell.DataType = CellValues.SharedString; cell.CellValue = new CellValue("999999"); }
+            if (shape == "number-inline") { cell.CellValue = null; cell.InlineString = new InlineString(new Text("physical text")); }
+            if (shape == "inline-value") cell.DataType = CellValues.InlineString;
+            if (isolatedBadRow)
+            {
+                var original = (Row)cell.Parent!;
+                var genuine = (Row)original.CloneNode(true); genuine.RowIndex = 7U;
+                foreach (var copy in genuine.Elements<Cell>()) copy.CellReference = copy.CellReference!.Value![..^1] + "7";
+                var score = genuine.Elements<Cell>().Single(c => c.CellReference?.Value == "I7");
+                score.DataType = null; score.CellValue = null; score.InlineString = null;
+                original.Parent!.AppendChild(genuine);
+                var bad = (Cell)cell.CloneNode(true); original.RemoveAllChildren(); original.AppendChild(bad);
+            }
         }
         var before = f.Session; var archiveHash = Hash(before.WorkspacePath);
         var pendingHash = Hash(pending); var validHash = Hash(valid);

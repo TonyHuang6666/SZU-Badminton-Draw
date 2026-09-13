@@ -298,6 +298,85 @@ public sealed class WorkspaceMatchRecordReaderTests
         { Assert.False(cell.HasFormula); Assert.Null(cell.ReadError); });
     }
 
+    [Theory]
+    [InlineData("shared-outside", "999999")]
+    [InlineData("number-inline", "physical text")]
+    [InlineData("inline-value", "physical text")]
+    public void InvalidPhysicalStringReferenceOrPayloadRemainsEvidence(string shape, string text)
+    {
+        var bytes = Workbook(sheet =>
+        {
+            sheet.Cell("I6").Value = 1; // No other value: this malformed row must not disappear.
+            sheet.Cell("I7").Value = 1; sheet.Cell("N7").Value = "retained-row";
+            sheet.Cell("I8").Value = "valid shared string";
+        }, part =>
+        {
+            var table = ((SpreadsheetDocument)part.OpenXmlPackage).WorkbookPart!.SharedStringTablePart!.SharedStringTable!;
+            table.Count = 1_000_000U; table.UniqueCount = 1_000_000U; // Declared counts do not create actual entries.
+            foreach (var address in new[] { "I6", "I7" })
+            {
+                var cell = part.Worksheet.Descendants<Cell>().Single(c => c.CellReference?.Value == address);
+                cell.DataType = shape == "shared-outside" ? CellValues.SharedString : shape == "number-inline" ? CellValues.Number : CellValues.InlineString;
+                cell.CellValue = shape == "number-inline" ? null : new CellValue(text);
+                cell.InlineString = shape == "number-inline" ? new InlineString(new Text(text)) : null;
+            }
+        });
+        var before = bytes.ToArray();
+        var rows = new WorkspaceMatchRecordReader().ReadWorkspaceRecord(bytes).Rows;
+        Assert.Equal(new[] { 6, 7, 8 }, rows.Select(r => r.Location.RowNumber));
+        Assert.All(rows.Take(2), row =>
+        {
+            Assert.Equal(WorkspaceRecordCellKind.Error, row.Score.Kind);
+            Assert.Equal(text, row.Score.Text); Assert.NotNull(row.Score.ReadError); Assert.False(row.Score.HasFormula);
+        });
+        Assert.Equal("valid shared string", rows[2].Score.Text); Assert.Null(rows[2].Score.ReadError);
+        Assert.Equal(before, bytes);
+    }
+
+    [Fact]
+    public void SharedStringFormulaCacheMustResolveAnActualTableItem()
+    {
+        var bytes = Workbook(sheet =>
+        {
+            sheet.Cell("I6").FormulaA1 = "1/0";
+            sheet.Cell("I7").Value = "genuine shared string";
+        }, part => Cache(part, "I6", CellValues.SharedString, "999999"));
+        var row = new WorkspaceMatchRecordReader().ReadWorkspaceRecord(bytes).Rows[0];
+        Assert.True(row.Score.HasFormula); Assert.Equal("999999", row.Score.Text);
+        Assert.Equal(WorkspaceRecordCellKind.Error, row.Score.Kind); Assert.NotNull(row.Score.ReadError);
+    }
+
+    [Fact]
+    public void ActualSharedStringItemsAndInlinePayloadsRemainReadableIncludingEmptyText()
+    {
+        var bytes = Workbook(sheet =>
+        {
+            for (var row = 6; row <= 10; row++) sheet.Cell(row, 14).Value = "row-" + row;
+            sheet.Cell("I6").Value = "真实共享\n文本";
+            sheet.Cell("I7").Value = 1;
+            sheet.Cell("I8").FormulaA1 = "1/0";
+            sheet.Cell("I9").Value = 1; sheet.Cell("I10").Value = 1;
+        }, part =>
+        {
+            var cells = part.Worksheet.Descendants<Cell>().ToDictionary(c => c.CellReference!.Value!);
+            var table = ((SpreadsheetDocument)part.OpenXmlPackage).WorkbookPart!.SharedStringTablePart!.SharedStringTable!;
+            var emptyIndex = table.Elements<SharedStringItem>().Count();
+            table.Append(new SharedStringItem(new Text("")));
+            table.Count = 0U; table.UniqueCount = 0U; // Actual items, not optional advisory metadata, are authoritative.
+            cells["I7"].DataType = CellValues.SharedString; cells["I7"].CellValue = new CellValue(emptyIndex.ToString());
+            Cache(part, "I8", CellValues.SharedString, cells["I6"].CellValue!.Text);
+            foreach (var (address, content) in new[] { ("I9", "内联控制"), ("I10", "") })
+            {
+                cells[address].DataType = CellValues.InlineString; cells[address].CellValue = null;
+                cells[address].InlineString = new InlineString(new Text(content));
+            }
+        });
+        var rows = new WorkspaceMatchRecordReader().ReadWorkspaceRecord(bytes).Rows;
+        Assert.Equal(new[] { "真实共享\n文本", "", "真实共享\n文本", "内联控制", "" }, rows.Select(row => row.Score.Text));
+        Assert.All(rows, row => Assert.Null(row.Score.ReadError));
+        Assert.True(rows[2].Score.HasFormula); Assert.All(rows.Where((_, i) => i != 2), row => Assert.False(row.Score.HasFormula));
+    }
+
     [Fact]
     public void UnreadableWorkbookOrMissingRecordSheetIsADocumentFailure()
     {

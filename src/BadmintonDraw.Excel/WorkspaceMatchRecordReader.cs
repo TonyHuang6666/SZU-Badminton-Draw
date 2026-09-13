@@ -20,6 +20,7 @@ public sealed class WorkspaceMatchRecordReader
             using var packageStream = new MemoryStream(bytes, writable: false);
             using var package = SpreadsheetDocument.Open(packageStream, false);
             var workbookPart = package.WorkbookPart ?? throw new ExcelImportException("记录表缺少工作簿。");
+            var sharedStringCount = workbookPart.SharedStringTablePart?.SharedStringTable?.Elements<SharedStringItem>().Count() ?? 0;
             var recordSheet = workbookPart.Workbook.Sheets?.Elements<Sheet>().SingleOrDefault(sheet => sheet.Name?.Value == WorkspaceRecordSchema.SheetName)
                 ?? throw new ExcelImportException($"记录表缺少“{WorkspaceRecordSchema.SheetName}”工作表。");
             var part = (WorksheetPart)workbookPart.GetPartById(recordSheet.Id!.Value!);
@@ -54,7 +55,7 @@ public sealed class WorkspaceMatchRecordReader
                     cells.TryGetValue((row, column), out var raw);
                     var formula = HasFormula(row, column);
                     var value = sheet.Cell(row, column).CachedValue;
-                    return formula ? ReadFormulaCache(raw, value) : ReadLiteral(raw, value);
+                    return formula ? ReadFormulaCache(raw, value, sharedStringCount) : ReadLiteral(raw, value, sharedStringCount);
                 }).ToArray();
                 // A malformed numeric literal can be silently loaded as blank. Keep its
                 // physical evidence, including an otherwise empty/idless record row.
@@ -76,13 +77,15 @@ public sealed class WorkspaceMatchRecordReader
         }
     }
 
-    private static WorkspaceRecordCell ReadLiteral(Cell? raw, XLCellValue value)
+    private static WorkspaceRecordCell ReadLiteral(Cell? raw, XLCellValue value, int sharedStringCount)
     {
         if (raw is null) return ReadValue(value, false);
-        var text = raw.CellValue?.Text ?? "";
+        var text = raw.CellValue?.Text ?? raw.InlineString?.InnerText ?? "";
         var type = raw.DataType?.Value ?? CellValues.Number;
         WorkspaceRecordCell Invalid() => new(text, WorkspaceRecordCellKind.Error, false,
             "实际单元格内容与存储类型不一致；请检查原文件，不能按空白待赛处理。");
+        if (type == CellValues.InlineString ? raw.InlineString is null || raw.CellValue is not null : raw.InlineString is not null)
+            return Invalid();
         if (type == CellValues.Number)
         {
             // A styled cell without <v> is genuinely blank; an explicit empty or
@@ -106,7 +109,7 @@ public sealed class WorkspaceMatchRecordReader
         }
         else if (type == CellValues.SharedString)
         {
-            if (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var index) || index < 0 || !value.IsText) return Invalid();
+            if (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var index) || index < 0 || index >= sharedStringCount || !value.IsText) return Invalid();
         }
         else if (type == CellValues.Error)
             return new(text, WorkspaceRecordCellKind.Error, false, "单元格错误：" + text);
@@ -114,7 +117,7 @@ public sealed class WorkspaceMatchRecordReader
         return ReadValue(value, false);
     }
 
-    private static WorkspaceRecordCell ReadFormulaCache(Cell? raw, XLCellValue value)
+    private static WorkspaceRecordCell ReadFormulaCache(Cell? raw, XLCellValue value, int sharedStringCount)
     {
         if (raw?.CellValue is null)
             return new("", WorkspaceRecordCellKind.Error, true, "公式没有缓存值，请先在 Excel 或 LibreOffice 中打开并保存。");
@@ -122,6 +125,7 @@ public sealed class WorkspaceMatchRecordReader
         var type = raw.DataType?.Value ?? CellValues.Number;
         WorkspaceRecordCell Invalid() => new(text, WorkspaceRecordCellKind.Error, true,
             "公式缓存与单元格类型不一致，请先在 Excel 或 LibreOffice 中打开并保存。");
+        if (raw.InlineString is not null) return Invalid();
         // <v/> is a legitimate empty string only for a string cache, never for a numeric/boolean/date cache.
         if (type == CellValues.String)
             return text.Length == 0 ? new("", WorkspaceRecordCellKind.Text, true) : value.IsText ? ReadValue(value, true) : Invalid();
@@ -144,7 +148,7 @@ public sealed class WorkspaceMatchRecordReader
             try { System.Xml.XmlConvert.ToDateTime(text, System.Xml.XmlDateTimeSerializationMode.RoundtripKind); }
             catch (FormatException) { return Invalid(); }
         }
-        if (type == CellValues.SharedString && (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var index) || index < 0))
+        if (type == CellValues.SharedString && (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var index) || index < 0 || index >= sharedStringCount))
             return Invalid();
         if (type != CellValues.Number && type != CellValues.Date && type != CellValues.SharedString || value.IsBlank)
             return Invalid();
