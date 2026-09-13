@@ -431,14 +431,14 @@
           "Avalonia.Fonts.Inter": "[12.0.4, )",
           "Avalonia.Themes.Fluent": "[12.0.4, )",
           "AvaloniaUI.DiagnosticsSupport": "[2.2.1, )",
-          "BadmintonDraw.Core": "[4.6.0, )",
-          "BadmintonDraw.Workflows": "[4.6.0, )"
+          "BadmintonDraw.Core": "[5.0.0, )",
+          "BadmintonDraw.Workflows": "[5.0.0, )"
         }
       },
       "badmintondraw.excel": {
         "type": "Project",
         "dependencies": {
-          "BadmintonDraw.Core": "[4.6.0, )",
+          "BadmintonDraw.Core": "[5.0.0, )",
           "ClosedXML": "[0.104.2, )",
           "SkiaSharp": "[2.88.9, )"
         }
@@ -446,7 +446,7 @@
       "badmintondraw.persistence": {
         "type": "Project",
         "dependencies": {
-          "BadmintonDraw.Core": "[4.6.0, )",
+          "BadmintonDraw.Core": "[5.0.0, )",
           "Microsoft.Data.Sqlite": "[8.0.24, )",
           "SQLitePCLRaw.lib.e_sqlite3": "[2.1.13, )"
         }
@@ -454,9 +454,9 @@
       "badmintondraw.workflows": {
         "type": "Project",
         "dependencies": {
-          "BadmintonDraw.Core": "[4.6.0, )",
-          "BadmintonDraw.Excel": "[4.6.0, )",
-          "BadmintonDraw.Persistence": "[4.6.0, )"
+          "BadmintonDraw.Core": "[5.0.0, )",
+          "BadmintonDraw.Excel": "[5.0.0, )",
+          "BadmintonDraw.Persistence": "[5.0.0, )"
         }
       }
     }

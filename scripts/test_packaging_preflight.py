@@ -25,6 +25,9 @@ elif tool == "dotnet":
     if args[0] == "msbuild":
         props = pathlib.Path(args[1]).parents[2] / "Directory.Build.props"
         print(os.environ.get("PACKAGING_TEST_VERSION", ET.parse(props).findtext(".//VersionPrefix")))
+    elif args[0] == "restore":
+        if os.environ.get("PACKAGING_TEST_FAIL_STAGE") == "restore":
+            sys.exit(83)
     elif args[0] == "publish":
         target = pathlib.Path(args[args.index("-o") + 1])
         target.mkdir(parents=True, exist_ok=True)
@@ -249,8 +252,13 @@ class PackagingPreflightTests(unittest.TestCase):
             publishes = [call for call in fixture.calls() if call[:2] == ["dotnet", "publish"]]
             self.assertEqual(len(publishes), 2)
             for call in publishes:
+                self.assertIn("--no-restore", call)
                 self.assertIn("-p:Version=5.7.9", call)
                 self.assertIn("-p:VersionPrefix=5.7.9", call)
+            restores = [call for call in fixture.calls() if call[:2] == ["dotnet", "restore"]]
+            self.assertEqual(len(restores), 2)
+            for call in restores:
+                self.assertIn("--locked-mode", call)
             creates = [call for call in fixture.calls() if call[:2] == ["hdiutil", "create"]]
             self.assertEqual(len(creates), 2)
             self.assertTrue(all("-ov" not in call for call in creates))

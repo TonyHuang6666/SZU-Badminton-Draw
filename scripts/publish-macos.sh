@@ -52,10 +52,15 @@ DMG_PATH="$OUTPUT_ROOT/SZU-Badminton-Draw_${VERSION}_${RID}.dmg"
 
 mkdir -p "$PUBLISH_DIR" "$MACOS_DIR" "$RESOURCES_DIR"
 
+dotnet restore "$PROJECT_PATH" \
+  --locked-mode \
+  -p:Configuration="$CONFIGURATION"
+
 dotnet publish "$PROJECT_PATH" \
   -c "$CONFIGURATION" \
   -r "$RID" \
   --self-contained true \
+  --no-restore \
   "-p:Version=$VERSION" \
   "-p:VersionPrefix=$VERSION" \
   -o "$PUBLISH_DIR"
