@@ -1,128 +1,105 @@
-# 构建与发布
+# 5.0 构建、验收与发布准备
 
-## 开发机准备
+5.0 在独立开发分支实施；本说明中的打包命令只生成本地产物，不推送代码、创建标签或发布 GitHub Release。当前门禁状态见[开发进度](superpowers/plans/2026-09-13-v5-progress.md)，历史版本验收不能替代当前结果。
 
-安装：
+## 开发环境
 
-- .NET 8 SDK
-- Windows 可使用 Visual Studio 2022、Rider 或 VS Code。
-- macOS/Linux 可使用终端、Rider 或 VS Code。
+- 使用仓库 `global.json` 指定的 .NET 10 SDK；从仓库根目录运行命令，确保 SDK 选择规则生效。
+- 桌面入口只有 `src/BadmintonDraw.Desktop`（Avalonia）。使用支持该 SDK 的编辑器或 IDE。
+- macOS 打包另外需要 Bash、Python 3 标准库、Git 和系统 `hdiutil`；系统 `sips` / `iconutil` 可用且图标存在时会生成应用图标。安全测试需要 Python 3.9 或更高版本。
+- 普通用户运行自包含应用不需要安装 Python、.NET SDK 或 Office。若要填写、重算 Excel 记录表，需要另备办公软件；应用自身的导出不依赖后台启动 Office。
+- Windows 与 macOS 是本次交付目标；Linux 未纳入最终运行验收，不能仅凭跨平台框架推断已经支持所有桌面环境。
 
-项目主要依赖：
+项目依赖由 NuGet 和各工程的 `packages.lock.json` 管理。不要用关闭漏洞审计、忽略还原失败或跳过测试来让流水线变绿。
 
-- ClosedXML：读取名单、生成对阵表和赛程表 Excel。
-- SkiaSharp：从 Excel 工作表渲染 JPG、透明 PNG 和 PDF。
-- xUnit：测试核心算法、Excel 导入导出和视觉导出。
+## 本地构建与测试
 
-这些依赖通过 NuGet 管理。发布为自包含 Windows 程序后，普通用户不需要安装 Office、Adobe、Python、MinerU 或其他额外运行环境。
+从仓库根目录执行：
 
-## 本地运行
-
-在仓库根目录执行：
-
-```powershell
-dotnet restore
+```sh
+dotnet restore BadmintonDraw.sln --locked-mode -p:Configuration=Release
 bash scripts/check-vulnerable-packages.sh BadmintonDraw.sln
-dotnet build
-dotnet test
-dotnet run --project src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj
+dotnet build BadmintonDraw.sln -c Release --no-restore
+dotnet test BadmintonDraw.sln -c Release --no-build
+dotnet run --project src/BadmintonDraw.Desktop -c Release --no-build
 ```
 
-Avalonia 是当前唯一 GUI 主线，macOS、Windows 和 Linux 都使用这个入口。也可以直接用 Visual Studio、Rider 或 VS Code 打开 `BadmintonDraw.sln`，启动项目选择 `BadmintonDraw.Desktop`。历史 WPF 项目已经从仓库移除，不再单独构建或发布。
+先构建再使用 `--no-build`；修改代码后不要用旧输出验证新源码。跨 RID 发布需要相应运行时还原，不能假设普通本机还原已经包含 Windows/macOS 发布资产。
 
-## 测试入口
+共享测试覆盖类型化比赛图、统一硬约束、真实 SQLite、记录表读写、备份和故障；桌面测试覆盖实际 Avalonia 控件、导航、确认失效与迟到回调。Headless 通过不等于真实窗口、文件选择器、打印或另一个操作系统通过。
 
-推荐使用：
+依赖审计包含直接和传递包。还原锁文件与漏洞查询服务不可用属于门禁异常，应保留错误，不标记为“没有漏洞”。审计结果只反映执行当时的数据。
 
-```powershell
-dotnet test tests\BadmintonDraw.Tests\BadmintonDraw.Tests.csproj -c Debug --no-restore -v minimal
+## 有界端到端验收
+
+正式验收工具位于 `tools/BadmintonDraw.Acceptance`，5.0 版本的入口为：
+
+```sh
+dotnet run --project tools/BadmintonDraw.Acceptance -c Release -- --output artifacts/acceptance/v5.0.0/local-review-01
 ```
 
-依赖恢复后可运行 `bash scripts/check-vulnerable-packages.sh BadmintonDraw.sln` 检查直接和传递 NuGet 依赖；Windows、macOS 的 GitHub Actions 都会执行同一检查，发现已知漏洞即停止构建。
+使用全新的、专门用于本次验收的输出目录；再次运行换一个目录，不删除上次证据。工具使用真实工作流创建赛事、导入虚拟名单、显式抽签确认、生成全局赛程、导出实际材料、填写副本、导入结果、重开和恢复，并运行独立的大规模成功/安全拒绝场景。
 
-测试覆盖范围包括：
+每个必需场景在有界子进程执行，保留步骤、耗时、标准输出/错误、退出状态、存档和产物清单；缺失或失败场景不能算通过。故障注入只作用于隔离副本。原始导出与填写副本分别保留哈希，不在正常验收运行中改写仓库样例。
 
-- 单打、双打、团体名单导入。
-- 自动识别项目类型。
-- 种子数量和签位保护。
-- 淘汰赛首轮赛、轮空、每组出线和决冠军。
-- 循环赛矩阵、轮转顺序和同单位先赛。
-- Excel 对阵表、赛程表、图片和 PDF 导出。
-- 多比赛日赛程编排和带比赛时间/场地的对阵表。
-- 对阵记录表导入、逐条提醒、赛事存档和重复导入保护。
-- 单项目时间场地窗口拖拽调整。
-- 多项目冲突检测、兼项明细、全局自动编排未完成赛程、合并材料包导出。
-- 多存档保存预检、部分写入后的自动恢复和手动恢复边界。
-- 内置 Noto CJK 字体的中文图片/PDF 导出。
+具体场景、实际规模和本次报告路径以验收报告为准。工具里的 managed 文件读回与静态公式检查不能替代 LibreOffice/Microsoft Excel 真正重算；实际视觉检查、原生桌面、Windows 和物理打印未做时应标记未执行。
 
-## 发布单文件程序
+## macOS 本地打包
 
-### Windows
+打包脚本的版本默认来自实际 MSBuild `VersionPrefix`，不是文件名猜测或另一个硬编码常量。
 
-```powershell
-dotnet publish src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
-```
-
-生成文件位于：
-
-```text
-src\BadmintonDraw.Desktop\bin\Release\net8.0\win-x64\publish
-```
-
-把发布目录中的 `.exe` 发给干事即可使用。Windows 桌面版也使用 Avalonia，与 macOS 版共享同一套界面和工作流。
-
-### macOS
-
-在 macOS 上运行：
-
-```bash
+```sh
+python3 scripts/test_packaging_preflight.py
 bash scripts/publish-macos.sh osx-arm64
 ```
 
-生成文件位于：
+第一条是使用隔离假发布工具的安全回归，不是真实 DMG 验证。第二条才执行真实自包含发布、组装 `.app`、生成和校验 DMG。支持 `osx-arm64` 与 `osx-x64`；发布出另一种架构不表示已经在该架构上启动测试。
+
+实际输出路径由脚本打印，结构为：
 
 ```text
-artifacts/macos/osx-arm64/SZU Badminton Draw.app
-artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg
+artifacts/macos/<RID>/<version>/run-<unique>/
+  publish/
+  dmg-root/<APP_NAME>.app/
+  SZU-Badminton-Draw_<version>_<RID>.dmg
 ```
 
-当前 macOS 包未签名、未公证，适合作为内部测试包。正式公开分发前需要接入 Apple Developer ID 签名、公证和 stapler。
+每次运行创建新目录，保留旧产物；不再递归清理输出根目录。固定输出父目录有符号链接或不是实际目录时拒绝。不要通过自建软链接把发布目录指向其他资料。
 
-正式发布到 GitHub Release 时，建议：
+可显式设置 `VERSION=x.y.z`，但必须是无前缀、无后缀的三段数字；同一值传给程序集发布和 Info.plist。`CONFIGURATION` 支持 Release/Debug；应用名称与 bundle ID 也会预检，非法值在输出创建前拒绝。
 
-1. 先跑 `bash scripts/check-vulnerable-packages.sh BadmintonDraw.sln`。
-2. 再跑 `dotnet test tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj --no-restore --verbosity minimal`。
-3. 接着跑 `dotnet build BadmintonDraw.sln --no-restore --verbosity minimal`。
-4. macOS 包使用 `VERSION=x.y.z bash scripts/publish-macos.sh osx-arm64` 生成，并上传 `artifacts/macos/osx-arm64/SZU-Badminton-Draw_osx-arm64.dmg`。
-5. Windows 版上传 Avalonia 单文件 `.exe`。4.2 起主线 release 发布 Avalonia 双平台包；4.5 后 WPF 项目已移除。
-6. Release 说明中列出规则化抽签、单项目/多项目赛程编排、多格式导出、赛事存档、记录表导入确认、合并材料包、深色模式和跨平台桌面版等重要变化。
+应用内 `Contents/Resources/build-metadata.json` 保存版本来源、完整 Git 提交、dirty 标记、RID、配置和预检时间。它描述开始打包时的工作树，不是数字签名，也不能证明构建期间无人修改源码。正式验收应先冻结源码，并确认元数据、程序集版本、实际可执行架构和最终文件哈希相互对应。
 
-GitHub CLI 示例（先设置要发布的版本号）：
+脚本失败会保留本次目录；即使已有 DMG 文件，也必须确认真实 `hdiutil verify` 成功。当前脚本不进行 Developer ID 签名、公证或 stapling，不宣称通过 Gatekeeper 或已经完成公开分发验收。
 
-```bash
-release_version=4.6.0
-gh release create "v${release_version}" \
-  "artifacts/release/SZU-Badminton-Draw_Avalonia_macOS_osx-arm64_v${release_version}.dmg" \
-  "artifacts/release/SZU-Badminton-Draw_Avalonia_Windows_win-x64_v${release_version}.exe" \
-  artifacts/release/SHA256SUMS.txt \
-  --title "Release ${release_version}" \
-  --notes-file "docs/releases/v${release_version}.md"
+## Windows 本地发布
+
+在 Windows PowerShell、仓库根目录执行；Python 仅用于构建时读取并校验版本：
+
+```powershell
+$packageVersion = python scripts/packaging_metadata.py version src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj Release
+if ($LASTEXITCODE -ne 0) { throw "无法读取版本" }
+$packageRun = [guid]::NewGuid().ToString("N")
+$packageDirectory = "artifacts/windows/win-x64/$packageVersion/run-$packageRun"
+dotnet publish src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true "-p:Version=$packageVersion" "-p:VersionPrefix=$packageVersion" -o $packageDirectory
+if ($LASTEXITCODE -ne 0) { throw "Windows 发布失败，保留本次输出检查" }
 ```
 
-## 示例名单
+检查输出中的真实 PE 架构、程序集/文件版本、源提交信息和 SHA-256，并在实际 Windows 环境启动、打开存档、使用文件选择器与完成现场操作。macOS 上交叉发布成功仅证明可以生成 Windows 资产，不能代替这些运行检查。
 
-仓库的 `samples` 目录包含可直接导入软件的虚拟测试名单。它们不会参与自动化测试，但方便读者验证 GUI 流程：
+不要只上传某个旧目录里碰巧存在的 `.exe`；必须绑定本次构建输入与实际输出。若发布目录包含必要的附属文件，应按实际验证结果交付，不能只凭“单文件”参数假定任何文件都可删除。
 
-- `深大羽协虚拟双打参赛名单_159人.xlsx`
-- `深圳大学虚拟双打参赛名单_29人.xlsx`
-- `深圳大学虚拟29学院参赛名单.xlsx`
+## CI 与正式交付门禁
 
-## 跨平台说明
+现有 Windows、macOS 两个任务均执行锁定还原、依赖审计、构建、测试及实际发布。两者分别读取一次实际版本，用于发布参数和带版本的 artifact 名称；缺少输出即失败。macOS 另运行独立的脚本安全测试，并实际生成、校验 DMG。
 
-`BadmintonDraw.Core`、`BadmintonDraw.Excel` 和 `BadmintonDraw.Workflows` 是普通 .NET 项目，可以在 macOS/Linux 上参与构建和测试。Avalonia GUI 位于 `src/BadmintonDraw.Desktop`，用于 macOS/Windows/Linux 跨平台桌面版，也是当前唯一 GUI 主线。
+CI 上传 artifact 不等于发布 Release。5.0 最终交付前应有：
 
-跨平台维护时应保持：
+1. 冻结的源提交与干净状态，完整测试、锁文件和漏洞审计记录。
+2. 五条真实生命周期/故障流程及两个规模场景的验收结果，保留失败与修复复测证据。
+3. 原始材料与填写/办公软件副本的哈希、公式重算、逐页视觉检查范围和明确限制。
+4. Windows、macOS 的真实构建与运行结果；未执行平台不得写成通过。
+5. 真实安装包、版本和来源核对、SHA-256 清单及清楚的未签名/未公证说明。
+6. 用户审阅验收报告后，再按授权进行推送、远端 CI、合并、标签和正式发布。
 
-- 保留 `BadmintonDraw.Core` 作为跨平台核心。
-- 新功能优先落在 Avalonia、`Core`、`Excel` 和 `Workflows`，避免 UI 层重复业务逻辑。
-- 保持 Excel、图片、PDF 导出逻辑在独立类库中，减少界面迁移成本。
+任何耗时数字都应注明输入规模、资源、平台、源版本与失败/成功状态；测试数变化应说明新增或等价替换的覆盖，而不是只追求总数。
