@@ -1,6 +1,8 @@
 # 5.0 构建、验收与发布准备
 
-5.0 在独立开发分支实施；本说明中的打包命令只生成本地产物，不推送代码、创建标签或发布 GitHub Release。当前门禁状态见[开发进度](superpowers/plans/2026-09-13-v5-progress.md)，历史版本验收不能替代当前结果。
+5.0 在 `feature/v5-unified-workspace` 分支实施；本说明中的命令只操作本地构建和产物，不推送代码、创建标签或发布 GitHub Release。当前产品状态见[文档中心](index.md)，冻结的候选证据见[v5.0.0 本地候选验收报告](acceptance/v5.0.0.md)。历史验收和较早提交的通过结果不能替代当前源码验证。
+
+截至 2026-09-23，开发分支已推送，但没有该分支的 GitHub Actions 运行记录。现有 CI 只在 `main` 推送或 Pull Request 时触发，因此“分支存在于 GitHub”不等于远端双平台门禁已通过。
 
 ## 开发环境
 
@@ -23,6 +25,8 @@ dotnet build BadmintonDraw.sln -c Release --no-restore
 dotnet test BadmintonDraw.sln -c Release --no-build
 dotnet run --project src/BadmintonDraw.Desktop -c Release --no-build
 ```
+
+若只想开发调试，可省略 Release 链条直接运行 `dotnet run --project src/BadmintonDraw.Desktop`；但不能用这种运行代替发布候选验证。发布判断必须保留完整命令、提交、工作区是否干净和实际输出。
 
 先构建再使用 `--no-build`；修改代码后不要用旧输出验证新源码。桌面工程声明并锁定 `win-x64`、`osx-arm64` 和 `osx-x64` 三个发布 RID；依赖变化后应显式刷新并评审锁文件，正式发布只允许锁定还原和 `--no-restore` 发布。
 
@@ -91,7 +95,7 @@ if ($LASTEXITCODE -ne 0) { throw "Windows 发布失败，保留本次输出检�
 
 ## CI 与正式交付门禁
 
-现有 Windows、macOS 两个任务均执行锁定还原、依赖审计、构建、测试及实际发布。两者分别读取一次实际版本，用于发布参数和带版本的 artifact 名称；缺少输出即失败。macOS 另运行独立的脚本安全测试，并实际生成、校验 DMG。
+`.github/workflows/ci.yml` 现有 Windows、macOS 两个任务，均执行锁定还原、依赖审计、构建、测试及实际发布。两者分别读取一次实际版本，用于发布参数和带版本的 artifact 名称；缺少输出即失败。macOS 另运行独立的脚本安全测试，并实际生成、校验 DMG。
 
 CI 上传 artifact 不等于发布 Release。5.0 最终交付前应有：
 
@@ -103,3 +107,11 @@ CI 上传 artifact 不等于发布 Release。5.0 最终交付前应有：
 6. 用户审阅验收报告后，再按授权进行推送、远端 CI、合并、标签和正式发布。
 
 任何耗时数字都应注明输入规模、资源、平台、源版本与失败/成功状态；测试数变化应说明新增或等价替换的覆盖，而不是只追求总数。
+
+## 文档和证据更新规则
+
+- 普通操作变化同步更新 `README.md`、`docs/usage.md` 和 `docs/troubleshooting.md`。
+- 领域模型、存储或模块边界变化同步更新 `docs/architecture.md` 与 `docs/algorithm.md`。
+- 排程约束或策略变化同步更新 `docs/scheduling.md`、`docs/fairness.md` 和 `docs/rules-compliance.md`。
+- 测试数量、耗时、哈希、安装包路径和平台结论只能来自一次明确记录的重新运行；不要为“看起来最新”手工滚动历史验收数字。
+- 已批准但未实现的设计留在 `docs/superpowers/specs/`，并明确标注状态；用户文档只描述已进入代码并通过相应验证的行为。
