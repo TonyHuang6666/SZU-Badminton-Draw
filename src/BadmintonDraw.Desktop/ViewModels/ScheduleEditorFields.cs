@@ -17,7 +17,7 @@ internal static class ScheduleEditorInput
         ? value.ToString("HH:mm", CultureInfo.InvariantCulture)
         : value.ToString("HH:mm:ss.fffffff", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.');
     internal static DateOnly Date(string text) => DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var value)
-        ? value : throw Error("比赛日请输入有效日期，格式 yyyy-MM-dd。");
+        ? value : throw Error("请选择有效的比赛日期。");
     internal static double? Percent(string text, string label)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
@@ -40,9 +40,38 @@ public sealed class ScheduleDayEditorViewModel : ScheduleEditorViewModel
     private readonly Func<bool> canEdit;
     private readonly Action<Exception>? onError;
     private string dateText, startText, endText, courtsText, targetLoadText, warningLoadText, stageProgressText;
-    public string DateText { get => dateText; set => Edit(ref dateText, value, nameof(DateText)); }
-    public string StartText { get => startText; set => Edit(ref startText, value, nameof(StartText)); }
-    public string EndText { get => endText; set => Edit(ref endText, value, nameof(EndText)); }
+    public string DateText
+    {
+        get => dateText;
+        set
+        {
+            if (!SetProperty(ref dateText, value)) return;
+            OnPropertyChanged(nameof(SelectedDate));
+            changed();
+        }
+    }
+    // Calendar controls use DateTime, but a competition day has no time zone.
+    public DateTime? SelectedDate
+    {
+        get => DateOnly.TryParseExact(DateText, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            ? date.ToDateTime(TimeOnly.MinValue) : null;
+        set => DateText = value?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "";
+    }
+    public string StartText
+    {
+        get => startText;
+        set { if (SetProperty(ref startText, value)) { OnPropertyChanged(nameof(StartTime)); changed(); } }
+    }
+    public string EndText
+    {
+        get => endText;
+        set { if (SetProperty(ref endText, value)) { OnPropertyChanged(nameof(EndTime)); changed(); } }
+    }
+    public TimeSpan? StartTime { get => SelectedTime(StartText); set => StartText = SelectedTimeText(value); }
+    public TimeSpan? EndTime { get => SelectedTime(EndText); set => EndText = SelectedTimeText(value); }
+    private static TimeSpan? SelectedTime(string text) => TimeOnly.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var time)
+        ? time.ToTimeSpan() : null;
+    private static string SelectedTimeText(TimeSpan? time) => time.HasValue ? ScheduleEditorInput.TimeText(TimeOnly.FromTimeSpan(time.Value)) : "";
     public string CourtsText
     {
         get => courtsText;
@@ -89,8 +118,15 @@ public sealed class ScheduleDayEditorViewModel : ScheduleEditorViewModel
         item => chooseUnavailable?.Invoke(this, item) ?? Task.CompletedTask,
         () => canEdit() && chooseUnavailable is not null && ScheduleEditorInput.Courts(CourtsText).Length > 0, onError));
     private void AddReferees(ScheduleRefereeCapacityWindow value) => RefereeWindows.Add(new(value, changed, item => { RefereeWindows.Remove(item); changed(); }));
-    public ScheduleDaySettings Build() => new(ScheduleEditorInput.Date(DateText), ScheduleEditorInput.Time(StartText, "开始时间"), ScheduleEditorInput.Time(EndText, "结束时间"),
-        ScheduleEditorInput.Courts(CourtsText), RefereeWindows.Select(w => w.Build()).ToArray(), Unavailable.Select(w => w.Build()).ToArray());
+    public ScheduleDaySettings Build()
+    {
+        var date = ScheduleEditorInput.Date(DateText);
+        var start = ScheduleEditorInput.Time(StartText, "开始时间");
+        var end = ScheduleEditorInput.Time(EndText, "结束时间");
+        if (end <= start) throw ScheduleEditorInput.Error($"{DateText} 的结束时间必须晚于开始时间，请重新选择。");
+        return new(date, start, end, ScheduleEditorInput.Courts(CourtsText),
+            RefereeWindows.Select(w => w.Build()).ToArray(), Unavailable.Select(w => w.Build()).ToArray());
+    }
     public void RefreshCommands()
     {
         ChooseCourtsCommand?.NotifyCanExecuteChanged(); CopyPreviousCourtsCommand?.NotifyCanExecuteChanged();

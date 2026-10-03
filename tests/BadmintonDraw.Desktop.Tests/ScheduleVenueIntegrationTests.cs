@@ -17,7 +17,7 @@ public sealed class ScheduleVenueIntegrationTests
         Assert.Null(page.CapacityEstimate);
         page.Days[0].CourtsText = "市民体育中心 · 1号场";
         page.AddDayCommand.Execute(null);
-        Assert.Empty(page.Days[1].Build().Courts);
+        Assert.Empty(page.Days[0].Build().Courts);
         Assert.Null(fixture.Workflow.CurrentSession!.Workspace.Resources);
     }
 
@@ -122,9 +122,9 @@ public sealed class ScheduleVenueIntegrationTests
         using var fixture = new ScheduleUiFixture();
         var page = Page(fixture, model => Task.FromResult(true));
         page.Days[0].DateText = "2026-10-05"; page.Days[0].CourtsText = "丽湖至畅 · 2号场";
-        page.AddDayCommand.Execute(null); page.Days[1].DateText = "2026-10-03";
-        page.Days[1].CourtsText = "粤海东馆 · C2";
-        page.AddDayCommand.Execute(null); var target = page.Days[2]; target.DateText = "2026-10-04";
+        page.AddDayCommand.Execute(null); page.Days[0].DateText = "2026-10-03";
+        page.Days[0].CourtsText = "粤海东馆 · C2";
+        page.AddDayCommand.Execute(null); var target = page.Days[0]; target.DateText = "2026-10-04";
         target.StartText = "14:00"; target.EndText = "18:00";
         await target.CopyPreviousCourtsCommand.ExecuteAsync();
         Assert.Equal(["粤海东馆 · C2"], target.Build().Courts);

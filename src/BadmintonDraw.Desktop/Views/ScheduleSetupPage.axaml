@@ -1,12 +1,80 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:BadmintonDraw.Desktop.Controls"
              xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" x:Class="BadmintonDraw.Desktop.Views.ScheduleSetupPage" x:DataType="vm:ScheduleSetupPageViewModel" Classes.read-only="{Binding !CanEdit}">
   <UserControl.Styles>
-    <Style Selector=".read-only TextBox, .read-only ComboBox, .read-only CheckBox, .read-only StackPanel.editable-settings Button">
+    <Style Selector="CalendarDatePicker">
+      <Setter Property="MinHeight" Value="40" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="Padding" Value="12,9" />
+      <Setter Property="Background" Value="{DynamicResource AppInputBackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AppInputBorderBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+    </Style>
+    <Style Selector="CalendarDatePicker:focus /template/ Border#Background">
+      <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="CalendarDatePicker /template/ Button#PART_Button">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="AutomationProperties.Name" Value="打开日历" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Path Width="20" Height="20" Stretch="Uniform" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5"
+                Data="M 4,5 L 20,5 L 20,21 L 4,21 Z M 4,10 L 20,10 M 8,2 L 8,7 M 16,2 L 16,7 M 8,14 L 11,14 M 14,14 L 17,14 M 8,18 L 11,18" />
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="TimePicker">
+      <Setter Property="MinHeight" Value="40" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="Background" Value="{DynamicResource AppInputBackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AppInputBorderBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+    </Style>
+    <!-- Keep the native picker/popup; only replace its closed button presentation. -->
+    <Style Selector="TimePicker /template/ Button#PART_FlyoutButton">
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="Padding" Value="12,9" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Name="TimeFieldBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+            <Grid ColumnDefinitions="*,20">
+              <TextBlock Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Left" VerticalAlignment="Center">
+                <TextBlock.Text>
+                  <Binding Path="$parent[TimePicker].SelectedTime" StringFormat="hh\:mm" TargetNullValue="选择时间" />
+                </TextBlock.Text>
+              </TextBlock>
+              <Path Grid.Column="1" Width="20" Height="20" Stretch="Uniform" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5"
+                    VerticalAlignment="Center" IsHitTestVisible="False"
+                    Data="M 12,2 A 10,10 0 1 1 12,22 A 10,10 0 1 1 12,2 M 12,6 L 12,12 L 16,14" />
+            </Grid>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="TimePicker /template/ Button#PART_FlyoutButton:pointerover:not(:disabled) /template/ Border#TimeFieldBorder">
+      <Setter Property="Background" Value="{DynamicResource AppInputHoverBackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AppInputHoverBorderBrush}" />
+    </Style>
+    <Style Selector="TimePicker /template/ Button#PART_FlyoutButton:focus:not(:disabled) /template/ Border#TimeFieldBorder">
+      <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="TimePicker:disabled">
+      <Setter Property="Background" Value="{DynamicResource AppDisabledBackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AppDisabledBorderBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource AppDisabledTextBrush}" />
+    </Style>
+    <Style Selector=".read-only TextBox, .read-only ComboBox, .read-only CalendarDatePicker, .read-only TimePicker, .read-only CheckBox, .read-only StackPanel.editable-settings Button">
       <Setter Property="IsEnabled" Value="False" />
     </Style>
   </UserControl.Styles>
   <Grid RowDefinitions="*,Auto">
-    <ScrollViewer>
+    <ScrollViewer x:Name="ScheduleContent">
       <StackPanel Margin="28,28,28,24" Spacing="22">
         <StackPanel Spacing="8">
           <TextBlock Classes="eyebrow" Text="第四步 · 安排比赛时间" />
@@ -39,7 +107,7 @@
             </StackPanel>
           </Border>
           <StackPanel Spacing="14">
-            <Grid ColumnDefinitions="*,Auto">
+            <Grid x:Name="ScheduleDaysHeader" ColumnDefinitions="*,Auto">
               <StackPanel Spacing="4"><TextBlock Classes="section-title" Text="比赛日期与场地" /><TextBlock Classes="muted" Text="选择场馆，再勾选已预约或确认可用的场地；也可以使用自定义场馆。" TextWrapping="Wrap" /></StackPanel>
               <Button Grid.Column="1" Content="＋ 添加比赛日" Command="{Binding AddDayCommand}" Classes="secondary" VerticalAlignment="Center" />
             </Grid>
@@ -47,9 +115,9 @@
               <Border Classes="card" Margin="0,0,0,12">
                 <StackPanel Spacing="14">
                   <WrapPanel>
-                    <StackPanel Width="174" Spacing="6" Margin="0,0,16,8"><TextBlock Text="比赛日期" /><TextBox Text="{Binding DateText}" PlaceholderText="yyyy-MM-dd" AutomationProperties.Name="比赛日期" /></StackPanel>
-                    <StackPanel Width="140" Spacing="6" Margin="0,0,16,8"><TextBlock Text="每天开始" /><TextBox Text="{Binding StartText}" AutomationProperties.Name="比赛日开始时间" /></StackPanel>
-                    <StackPanel Width="140" Spacing="6" Margin="0,0,16,8"><TextBlock Text="每天结束" /><TextBox Text="{Binding EndText}" AutomationProperties.Name="比赛日结束时间" /></StackPanel>
+                <StackPanel Width="174" Spacing="6" Margin="0,0,16,8"><TextBlock Text="比赛日期" /><controls:CalendarDateSelector SelectedDate="{Binding SelectedDate, Mode=TwoWay}" SelectedDateFormat="Custom" CustomDateFormatString="yyyy-MM-dd" PlaceholderText="选择日期" AutomationProperties.Name="比赛日期" ToolTip.Tip="点击选择比赛日期" /></StackPanel>
+                    <StackPanel Width="140" Spacing="6" Margin="0,0,16,8"><TextBlock Text="每天开始" /><controls:ClockTimeSelector SelectedTime="{Binding StartTime, Mode=TwoWay}" ClockIdentifier="24HourClock" MinuteIncrement="1" AutomationProperties.Name="比赛日开始时间" ToolTip.Tip="点击选择开始时间（24 小时制）" /></StackPanel>
+                    <StackPanel Width="140" Spacing="6" Margin="0,0,16,8"><TextBlock Text="每天结束" /><controls:ClockTimeSelector SelectedTime="{Binding EndTime, Mode=TwoWay}" ClockIdentifier="24HourClock" MinuteIncrement="1" AutomationProperties.Name="比赛日结束时间" ToolTip.Tip="点击选择结束时间（24 小时制）" /></StackPanel>
                     <Button Content="移除这一天" Command="{Binding RemoveCommand}" Classes="quiet" VerticalAlignment="Bottom" Margin="0,0,0,8" />
                   </WrapPanel>
                   <StackPanel Spacing="8">

@@ -23,6 +23,7 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
     private int strategyIndex;
     private SchedulingFailure? failure;
     public ObservableCollection<ScheduleDayEditorViewModel> Days { get; } = [];
+    public event Action<ScheduleDayEditorViewModel>? DayAdded;
     public ObservableCollection<ScheduleProjectTimingViewModel> ProjectTimings { get; } = [];
     public IReadOnlyList<string> Strategies { get; } = ["尽快完成", "时间安排均衡", "重要比赛集中在最后一天", "自定义安排"];
     public bool IsSingleProject => Session.Workspace.Projects.Count == 1;
@@ -94,7 +95,7 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
             if (await shell.RunWorkspaceCommandAsync(expected, (workflow, revision) => workflow.GenerateSchedule(request.Resources, request.Policy, revision), "赛程已生成并自动保存，可以查看赛程板。")) Load();
             else Failure = shell.LastError?.SchedulingFailure;
         }, () => CanSelectCourts, shell.ReportError);
-        AddDayCommand = new(() => { var date = Days.Count > 0 && DateOnly.TryParse(Days[^1].DateText, out var last) ? last.AddDays(1) : DateOnly.FromDateTime(DateTime.Today); AddDay(new(date, new(9, 0), new(18, 0), []), null); Edited(); }, () => CanSelectCourts);
+        AddDayCommand = new(AddNewDay, () => CanSelectCourts);
         ResetCommand = new(Load, () => !shell.IsBusy);
         BoardCommand = new(() => shell.Navigate(WorkspaceRoute.ScheduleBoard), () => shell.CanNavigate(WorkspaceRoute.ScheduleBoard));
         UseStrategyDefaultsCommand = new(() =>
@@ -129,13 +130,29 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         { ProjectTimings = ProjectTimings.ToDictionary(p => p.ProjectId, p => p.BuildTiming()) };
         return new(resources, policy);
     }
-    private void AddDay(ScheduleDaySettings day, TournamentSchedulingPolicy? policy)
+    private void AddNewDay()
+    {
+        var latest = Days.Select(d => d.SelectedDate).Max();
+        if (latest == DateTime.MaxValue.Date)
+        {
+            shell.ReportError(ScheduleEditorInput.Error("已有比赛日达到支持的最晚日期，无法再添加下一天。请先调整日期。"));
+            return;
+        }
+        var date = DateOnly.FromDateTime(latest?.AddDays(1) ?? DateTime.Today);
+        var day = AddDay(new(date, new(9, 0), new(18, 0), []), null);
+        Edited();
+        DayAdded?.Invoke(day);
+    }
+    private ScheduleDayEditorViewModel AddDay(ScheduleDaySettings day, TournamentSchedulingPolicy? policy)
     {
         var target = policy?.DayLoadTargets.FirstOrDefault(t => t.DayLabel == day.DayLabel);
-        Days.Add(new(day, target?.TargetUtilization, target?.WarningUtilization, policy?.StageWaveTargets.FirstOrDefault(t => t.DayLabel == day.DayLabel)?.CumulativeProgress,
+        var editor = new ScheduleDayEditorViewModel(day, target?.TargetUtilization, target?.WarningUtilization, policy?.StageWaveTargets.FirstOrDefault(t => t.DayLabel == day.DayLabel)?.CumulativeProgress,
             Edited, item => { Days.Remove(item); Edited(); }, day => SelectCourtsAsync(day, ScheduleEditorInput.Courts(day.CourtsText)),
             SelectUnavailableCourtsAsync, day => SelectCourtsAsync(day, PreviousCourts(day)), () => CanSelectCourts,
-            day => PreviousCourts(day).Count > 0, shell.ReportError));
+            day => PreviousCourts(day).Count > 0, shell.ReportError);
+        // Keep new drafts within reach; BuildSetup still submits dates in chronological order.
+        Days.Insert(0, editor);
+        return editor;
     }
     private void Load()
     {
