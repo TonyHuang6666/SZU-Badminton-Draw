@@ -40,7 +40,7 @@
           </Border>
           <StackPanel Spacing="14">
             <Grid ColumnDefinitions="*,Auto">
-              <StackPanel Spacing="4"><TextBlock Classes="section-title" Text="比赛日期与场地" /><TextBlock Classes="muted" Text="场地名称用逗号分开，例如：1 号场，2 号场。" TextWrapping="Wrap" /></StackPanel>
+              <StackPanel Spacing="4"><TextBlock Classes="section-title" Text="比赛日期与场地" /><TextBlock Classes="muted" Text="选择场馆，再勾选已预约或确认可用的场地；也可以使用自定义场馆。" TextWrapping="Wrap" /></StackPanel>
               <Button Grid.Column="1" Content="＋ 添加比赛日" Command="{Binding AddDayCommand}" Classes="secondary" VerticalAlignment="Center" />
             </Grid>
             <ItemsControl ItemsSource="{Binding Days}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ScheduleDayEditorViewModel">
@@ -52,7 +52,14 @@
                     <StackPanel Width="140" Spacing="6" Margin="0,0,16,8"><TextBlock Text="每天结束" /><TextBox Text="{Binding EndText}" AutomationProperties.Name="比赛日结束时间" /></StackPanel>
                     <Button Content="移除这一天" Command="{Binding RemoveCommand}" Classes="quiet" VerticalAlignment="Bottom" Margin="0,0,0,8" />
                   </WrapPanel>
-                  <StackPanel Spacing="6"><TextBlock Text="可用场地" /><TextBox Text="{Binding CourtsText}" AutomationProperties.Name="比赛日可用场地" /></StackPanel>
+                  <StackPanel Spacing="8">
+                    <TextBlock Text="{Binding VenueSummary}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding CourtsSummary}" Classes="muted" TextWrapping="Wrap" ToolTip.Tip="{Binding CourtsText}" />
+                    <WrapPanel>
+                      <Button x:Name="ChooseVenueCourtsButton" Content="选择场馆与场地…" Command="{Binding ChooseCourtsCommand}" Classes="secondary" Margin="0,0,8,0" AutomationProperties.Name="选择比赛日的场馆与场地" />
+                      <Button Content="沿用上一比赛日的场地…" Command="{Binding CopyPreviousCourtsCommand}" Classes="quiet" AutomationProperties.Name="沿用上一比赛日的场地" />
+                    </WrapPanel>
+                  </StackPanel>
                 </StackPanel>
               </Border>
             </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
@@ -98,14 +105,17 @@
                     <StackPanel Width="180" Spacing="6" Margin="0,0,12,8"><TextBlock Text="累计阶段进度 %" /><TextBox Text="{Binding StageProgressText}" PlaceholderText="使用默认值" AutomationProperties.Name="累计阶段进度百分比" /></StackPanel>
                   </WrapPanel>
                   <Expander Header="不可用场地时段" HorizontalAlignment="Stretch"><StackPanel Spacing="10" Margin="0,12,0,0">
-                    <TextBlock Classes="muted" Text="依次填写开始、结束时间和场地；场地留空表示全部场地。" TextWrapping="Wrap" />
+                    <TextBlock Classes="muted" Text="填写不能使用的时间，再从当天已选场地中勾选；选择“当天全部场地”可设置全场暂停。" TextWrapping="Wrap" />
                     <ItemsControl ItemsSource="{Binding Unavailable}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ScheduleUnavailableEditorViewModel">
-                      <Grid ColumnDefinitions="110,110,*,Auto" Margin="0,0,0,8">
-                        <TextBox Text="{Binding StartText}" Margin="0,0,8,0" AutomationProperties.Name="不可用时段开始" />
-                        <TextBox Grid.Column="1" Text="{Binding EndText}" Margin="0,0,8,0" AutomationProperties.Name="不可用时段结束" />
-                        <TextBox Grid.Column="2" Text="{Binding CourtsText}" PlaceholderText="全部场地" Margin="0,0,8,0" AutomationProperties.Name="不可用场地" />
-                        <Button Grid.Column="3" Content="移除" Command="{Binding RemoveCommand}" Classes="quiet" />
-                      </Grid>
+                      <StackPanel Spacing="8" Margin="0,0,0,12">
+                        <WrapPanel>
+                          <TextBox Text="{Binding StartText}" Width="110" Margin="0,0,8,0" AutomationProperties.Name="不可用时段开始" />
+                          <TextBox Text="{Binding EndText}" Width="110" Margin="0,0,8,0" AutomationProperties.Name="不可用时段结束" />
+                          <Button Content="选择不可用场地…" Command="{Binding ChooseCourtsCommand}" Classes="secondary" Margin="0,0,8,0" />
+                          <Button Content="移除" Command="{Binding RemoveCommand}" Classes="quiet" />
+                        </WrapPanel>
+                        <TextBlock Text="{Binding CourtsSummary}" Classes="muted" TextWrapping="Wrap" ToolTip.Tip="{Binding CourtsText}" />
+                      </StackPanel>
                     </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                     <Button Content="＋ 添加不可用时段" Command="{Binding AddUnavailableCommand}" Classes="secondary" />
                   </StackPanel></Expander>

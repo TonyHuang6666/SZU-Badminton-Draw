@@ -1,0 +1,67 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BadmintonDraw.Desktop.ViewModels"
+        x:Class="BadmintonDraw.Desktop.Views.UnavailableCourtSelectionDialog" x:DataType="vm:UnavailableCourtSelectionViewModel"
+        Title="选择不可用场地" Width="640" Height="640" MinWidth="440" MinHeight="400"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource AppTextBrush}">
+  <Window.Styles>
+    <Style Selector="CheckBox.court-choice">
+      <Setter Property="MinWidth" Value="140" />
+      <Setter Property="MinHeight" Value="44" />
+      <Setter Property="MaxWidth" Value="280" />
+      <Setter Property="Padding" Value="12,8" />
+      <Setter Property="Margin" Value="0,0,8,8" />
+      <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="CheckBox.court-choice:checked">
+      <Setter Property="Background" Value="{DynamicResource AppSuccessCardBackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" />
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Margin="20" RowSpacing="12">
+    <StackPanel Spacing="6">
+      <TextBlock Classes="section-title" Text="选择不可用场地" />
+      <TextBlock Classes="muted" Text="从当天选定的场地中，勾选此时段不能使用的场地。" TextWrapping="Wrap" />
+    </StackPanel>
+    <ScrollViewer x:Name="SettingsScroll" Grid.Row="1"
+                  HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="16" Margin="0,0,8,0">
+        <Border Classes="inset" Padding="14">
+          <StackPanel Spacing="8">
+            <CheckBox x:Name="AllCourtsToggle" Content="当天全部场地" IsChecked="{Binding AllCourts}"
+                      AutomationProperties.Name="此时段当天全部场地不可用" />
+            <TextBlock Classes="muted" Text="适用于当天所有场地；之后调整场地清单时也会保留此设置。"
+                       FontSize="12" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <TextBlock x:Name="SelectionSummaryText" Text="{Binding SelectionSummary}" FontWeight="SemiBold" TextWrapping="Wrap" />
+        <ItemsControl x:Name="CourtChoices" ItemsSource="{Binding Courts}" IsEnabled="{Binding !AllCourts}">
+          <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:CourtChoiceViewModel">
+              <CheckBox Classes="court-choice" IsChecked="{Binding IsSelected}" AutomationProperties.Name="{Binding Name}">
+                <TextBlock Text="{Binding Name}" TextWrapping="Wrap" />
+              </CheckBox>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </ScrollViewer>
+    <StackPanel Grid.Row="2" Spacing="10">
+      <ScrollViewer x:Name="ValidationScroll" MaxHeight="64" HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Auto" AutomationProperties.Name="不可用场地选择校验提示，完整内容可滚动查看">
+        <TextBlock x:Name="ValidationText" Text="{Binding ValidationMessage}" TextWrapping="Wrap"
+                   Foreground="{DynamicResource AppErrorTextBrush}" FontSize="12" />
+      </ScrollViewer>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12">
+        <Button x:Name="CancelButton" Classes="secondary" Content="取消" IsDefault="True" IsCancel="True"
+                Click="CancelClicked" AutomationProperties.Name="取消不可用场地选择" />
+        <Button x:Name="AcceptButton" Classes="primary" Content="使用所选场地" IsEnabled="{Binding CanAccept}"
+                Click="AcceptClicked" AutomationProperties.Name="使用所选不可用场地" />
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+</Window>

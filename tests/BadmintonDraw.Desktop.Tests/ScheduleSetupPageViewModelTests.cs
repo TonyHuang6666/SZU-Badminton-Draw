@@ -42,7 +42,10 @@ public sealed class ScheduleSetupPageViewModelTests
     {
         fixture.Shell.RegisterPageFactory(WorkspaceRoute.ScheduleSetup, s => new ScheduleSetupPageViewModel(fixture.Shell, s));
         fixture.Shell.Navigate(WorkspaceRoute.ScheduleSetup);
-        return Assert.IsType<ScheduleSetupPageViewModel>(fixture.Shell.CurrentPage);
+        var page = Assert.IsType<ScheduleSetupPageViewModel>(fixture.Shell.CurrentPage);
+        // Resource tests explicitly choose courts; new days no longer imply an existing booking.
+        page.Days[0].CourtsText = "B1, B2";
+        return page;
     }
     [Theory]
     [InlineData(1)]

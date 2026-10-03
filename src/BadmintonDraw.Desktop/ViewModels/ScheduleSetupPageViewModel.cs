@@ -15,7 +15,7 @@ public sealed record ScheduleCapacityEstimate(int MatchCount, long AvailableMinu
     public long EquivalentMatches => RequiredMinutes > 0 ? AvailableMinutes * MatchCount / RequiredMinutes : 0;
 }
 
-public sealed class ScheduleSetupPageViewModel : WorkspacePageViewModel
+public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel, IDisposable
 {
     private readonly AppShellViewModel shell;
     private string baseline = "", refereeCountText = "", minimumRestText = "30", dailyMaximumText = "4";
@@ -65,7 +65,7 @@ public sealed class ScheduleSetupPageViewModel : WorkspacePageViewModel
     public int StrategyIndex { get => strategyIndex; set { if (SetProperty(ref strategyIndex, value)) { OnPropertyChanged(nameof(StrategyDescription)); Edited(); } } }
     public bool SynchronizeStageWaves { get => synchronizeStageWaves; set { if (SetProperty(ref synchronizeStageWaves, value)) Edited(); } }
     public bool HasEditorConflict => conflict;
-    public bool CanEdit => shell.CanMutate && !conflict && Session.Workspace.Purpose == TournamentPurpose.FullTournament && Session.Workspace.Results.Count == 0 &&
+    public bool CanEdit => !disposed && shell.CanMutate && !conflict && Session.Workspace.Purpose == TournamentPurpose.FullTournament && Session.Workspace.Results.Count == 0 &&
         Session.Workspace.Stage is TournamentStage.DrawsConfirmed or TournamentStage.ScheduleReady;
     public string EditHint => conflict ? "赛程、抽签或资源已被其他操作更改。输入仍保留；请载入最新设置后再编排。" : Session.Workspace.Results.Count > 0
         ? "已有赛果，不能重新生成整场赛程；请到赛程板调整未完成场次。" : "修改设置不会自动重排。点击生成后才保存；失败时，已保存的数据保持不变。";
@@ -81,16 +81,20 @@ public sealed class ScheduleSetupPageViewModel : WorkspacePageViewModel
     public DelegateCommand ResetCommand { get; }
     public DelegateCommand BoardCommand { get; }
     public DelegateCommand UseStrategyDefaultsCommand { get; }
-    public ScheduleSetupPageViewModel(AppShellViewModel shell, WorkspaceSession session) : base(session)
+    public ScheduleSetupPageViewModel(AppShellViewModel shell, WorkspaceSession session,
+        Func<VenueCourtSelectionViewModel, Task<bool>>? chooseCourts = null,
+        Func<UnavailableCourtSelectionViewModel, Task<bool>>? chooseUnavailable = null) : base(session)
     {
         this.shell = shell;
+        this.chooseCourts = chooseCourts ?? (_ => Task.FromResult(false));
+        this.chooseUnavailable = chooseUnavailable ?? (_ => Task.FromResult(false));
         GenerateCommand = new(async () =>
         {
             var request = BuildSetup(); var expected = Session; Failure = null;
             if (await shell.RunWorkspaceCommandAsync(expected, (workflow, revision) => workflow.GenerateSchedule(request.Resources, request.Policy, revision), "赛程已生成并自动保存，可以查看赛程板。")) Load();
             else Failure = shell.LastError?.SchedulingFailure;
-        }, () => CanEdit, shell.ReportError);
-        AddDayCommand = new(() => { var date = Days.Count > 0 && DateOnly.TryParse(Days[^1].DateText, out var last) ? last.AddDays(1) : DateOnly.FromDateTime(DateTime.Today); AddDay(new(date, new(9, 0), new(18, 0), ["B1", "B2"]), null); Edited(); }, () => CanEdit);
+        }, () => CanSelectCourts, shell.ReportError);
+        AddDayCommand = new(() => { var date = Days.Count > 0 && DateOnly.TryParse(Days[^1].DateText, out var last) ? last.AddDays(1) : DateOnly.FromDateTime(DateTime.Today); AddDay(new(date, new(9, 0), new(18, 0), []), null); Edited(); }, () => CanSelectCourts);
         ResetCommand = new(Load, () => !shell.IsBusy);
         BoardCommand = new(() => shell.Navigate(WorkspaceRoute.ScheduleBoard), () => shell.CanNavigate(WorkspaceRoute.ScheduleBoard));
         UseStrategyDefaultsCommand = new(() =>
@@ -129,23 +133,27 @@ public sealed class ScheduleSetupPageViewModel : WorkspacePageViewModel
     {
         var target = policy?.DayLoadTargets.FirstOrDefault(t => t.DayLabel == day.DayLabel);
         Days.Add(new(day, target?.TargetUtilization, target?.WarningUtilization, policy?.StageWaveTargets.FirstOrDefault(t => t.DayLabel == day.DayLabel)?.CumulativeProgress,
-            Edited, item => { Days.Remove(item); Edited(); }));
+            Edited, item => { Days.Remove(item); Edited(); }, day => SelectCourtsAsync(day, ScheduleEditorInput.Courts(day.CourtsText)),
+            SelectUnavailableCourtsAsync, day => SelectCourtsAsync(day, PreviousCourts(day)), () => CanSelectCourts,
+            day => PreviousCourts(day).Count > 0, shell.ReportError));
     }
     private void Load()
     {
+        selectionGeneration++;
         var workspace = Session.Workspace; var resources = workspace.Schedule?.Resources ?? workspace.Resources; var policy = workspace.Schedule?.Policy;
         baseline = Source(workspace); conflict = false; edited = false;
         refereeCountText = resources?.RefereeCount?.ToString() ?? ""; minimumRestText = (resources?.MinimumRestMinutes ?? 30).ToString(); dailyMaximumText = (resources?.MaxPlayerMatchesPerDay ?? 4).ToString();
         strategyIndex = (int)(policy?.Strategy ?? ScheduleAutoSchedulingStrategy.Compact); synchronizeStageWaves = policy?.SynchronizeStageWaves ?? false;
-        Days.Clear(); foreach (var day in resources?.Days.OrderBy(d => d.Date).ToArray() ?? [new ScheduleDaySettings(DateOnly.FromDateTime(DateTime.Today), new(9, 0), new(18, 0), ["B1", "B2"])]) AddDay(day, policy);
+        Days.Clear(); foreach (var day in resources?.Days.OrderBy(d => d.Date).ToArray() ?? [new ScheduleDaySettings(DateOnly.FromDateTime(DateTime.Today), new(9, 0), new(18, 0), [])]) AddDay(day, policy);
         ProjectTimings.Clear(); foreach (var project in workspace.Projects.OrderBy(p => p.SortOrder)) ProjectTimings.Add(new(project, policy, Edited));
         foreach (var property in new[] { nameof(RefereeCountText), nameof(MinimumRestText), nameof(DailyMaximumText), nameof(StrategyIndex), nameof(SynchronizeStageWaves), nameof(PolicyLabel), nameof(IsSingleProject), nameof(IsMultiProject), nameof(ScheduleSummary), nameof(StrategyDescription) }) OnPropertyChanged(property);
         RefreshAvailability();
     }
     private static string Source(TournamentWorkspace workspace) => JsonSerializer.Serialize(new { workspace.Projects, workspace.Resources, workspace.Schedule, Results = workspace.Results.Values.OrderBy(r => r.Key.ProjectId).ThenBy(r => r.Key.MatchId).ToArray() });
-    private void Edited() { edited = true; RefreshAvailability(); }
+    private void Edited() { selectionGeneration++; edited = true; RefreshAvailability(); }
     public override void RefreshSession(WorkspaceSession next)
     {
+        if (!ReferenceEquals(Session, next)) selectionGeneration++;
         var changed = baseline != Source(next.Workspace);
         if (changed && edited) conflict = true;
         base.RefreshSession(next);
@@ -157,5 +165,6 @@ public sealed class ScheduleSetupPageViewModel : WorkspacePageViewModel
         OnPropertyChanged(nameof(CanEdit)); OnPropertyChanged(nameof(HasEditorConflict)); OnPropertyChanged(nameof(EditHint));
         OnPropertyChanged(nameof(CapacityEstimate)); OnPropertyChanged(nameof(CapacitySummary));
         GenerateCommand?.NotifyCanExecuteChanged(); AddDayCommand?.NotifyCanExecuteChanged(); ResetCommand?.NotifyCanExecuteChanged(); BoardCommand?.NotifyCanExecuteChanged(); UseStrategyDefaultsCommand?.NotifyCanExecuteChanged();
+        foreach (var day in Days) day.RefreshCommands();
     }
 }

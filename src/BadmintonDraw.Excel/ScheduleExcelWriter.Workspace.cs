@@ -130,6 +130,8 @@ public sealed partial class ScheduleExcelWriter
             ApplyGridPhaseStyle(sheet.Cell(group.Row, index + 2), context.Nodes[record.Key].Phase);
         }
         sheet.Columns(1, lastColumn).Width = 24; sheet.Column(1).Width = 26;
+        sheet.Range(4, 1, 4, lastColumn).Style.Alignment.WrapText = true;
+        sheet.Row(4).Height = Math.Max(30, 12 + courts.Max(c => EstimateWrappedLineCount(c, 8)) * 14);
         sheet.Row(2).Height = 38;
         SetupWorkspacePrint(sheet, currentRow - 1, lastColumn, XLPageOrientation.Landscape);
     }
@@ -164,6 +166,10 @@ public sealed partial class ScheduleExcelWriter
                 ScheduleAutoSchedulingStrategy.BalancedRelaxed => "均衡宽松", ScheduleAutoSchedulingStrategy.FinalsDayFriendly => "决赛日友好", _ => "自定义" }),
             ("同步阶段进度", policy.SynchronizeStageWaves ? "是" : "否")
         };
+        var configuredCourts = resources.Days.SelectMany(d => d.Courts).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var venue in BuiltInVenueCatalog.Venues)
+            if (venue.Groups.SelectMany(g => g.Courts).Any(c => configuredCourts.Contains(venue.QualifiedCourtName(c))))
+                rows.Add(($"场馆说明 {venue.ShortName}", venue.DisplayName));
         foreach (var configured in resources.Days.OrderBy(d => d.Date))
         {
             rows.Add(($"赛程日 {configured.DayLabel}", $"{WorkspaceTimeRange(configured.DayStart, configured.DayEnd)}；场地：{string.Join("、", configured.Courts)}"));

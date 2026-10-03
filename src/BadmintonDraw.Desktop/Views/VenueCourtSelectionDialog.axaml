@@ -1,0 +1,134 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BadmintonDraw.Desktop.ViewModels"
+        x:Class="BadmintonDraw.Desktop.Views.VenueCourtSelectionDialog" x:DataType="vm:VenueCourtSelectionViewModel"
+        Title="选择场馆与场地" Width="640" Height="640" MinWidth="440" MinHeight="400"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource AppTextBrush}">
+  <Window.Styles>
+    <Style Selector="CheckBox.court-choice">
+      <Setter Property="MinWidth" Value="90" />
+      <Setter Property="MinHeight" Value="40" />
+      <Setter Property="Padding" Value="10,6" />
+      <Setter Property="Margin" Value="0,0,8,8" />
+      <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="CheckBox.court-choice:checked">
+      <Setter Property="Background" Value="{DynamicResource AppSuccessCardBackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" />
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Margin="20" RowSpacing="12">
+    <StackPanel Spacing="6">
+      <TextBlock Classes="section-title" Text="选择场馆与场地" />
+      <TextBlock Classes="muted" Text="勾选本次实际使用的场地，默认不会自动选择。" TextWrapping="Wrap" />
+    </StackPanel>
+    <ScrollViewer x:Name="SettingsScroll" Grid.Row="1"
+                  HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="16" Margin="0,0,8,0">
+        <StackPanel Spacing="8">
+          <TextBlock Text="场馆" FontWeight="SemiBold" />
+          <ComboBox x:Name="VenueSelector" ItemsSource="{Binding Venues}" SelectedIndex="{Binding VenueIndex}"
+                    HorizontalAlignment="Stretch" AutomationProperties.Name="选择本次使用的场馆">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="x:String">
+                <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <TextBlock Classes="muted" Text="场馆与场地清单用于排程；实际预约情况请由组织者确认。" FontSize="12" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Spacing="12" IsVisible="{Binding IsPreset}">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <TextBlock x:Name="SelectionSummaryText" Text="{Binding SelectionSummary}" VerticalAlignment="Center" FontWeight="SemiBold" TextWrapping="Wrap" />
+            <Button x:Name="SelectAllButton" Grid.Column="1" Classes="secondary" Content="全选"
+                    Command="{Binding SelectAllCommand}" AutomationProperties.Name="全选本场馆全部场地" />
+            <Button x:Name="ClearButton" Grid.Column="2" Classes="secondary" Content="清空"
+                    Command="{Binding ClearCommand}" AutomationProperties.Name="清空本场馆全部场地选择" />
+          </Grid>
+          <ItemsControl x:Name="PresetGroups" ItemsSource="{Binding Groups}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:VenueCourtGroupViewModel">
+                <Border Classes="inset" Padding="12" Margin="0,0,0,12">
+                  <StackPanel Spacing="10">
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                      <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                      <Button Grid.Column="1" Classes="secondary" Content="全选" Command="{Binding SelectAllCommand}"
+                              AutomationProperties.Name="{Binding Name, StringFormat='全选 {0} 分组场地'}" />
+                      <Button Grid.Column="2" Classes="secondary" Content="清空" Command="{Binding ClearCommand}"
+                              AutomationProperties.Name="{Binding Name, StringFormat='清空 {0} 分组场地选择'}" />
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding Courts}">
+                      <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:CourtChoiceViewModel">
+                          <CheckBox Classes="court-choice" Content="{Binding Label}" IsChecked="{Binding IsSelected}"
+                                    AutomationProperties.Name="{Binding Name}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+        <StackPanel x:Name="CustomSettings" Spacing="12" IsVisible="{Binding IsCustom}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="场馆名称（可选）" FontWeight="SemiBold" />
+            <TextBox x:Name="CustomVenueNameInput" Text="{Binding CustomVenueName}" PlaceholderText="留空保留原名称"
+                     AutomationProperties.Name="自定义场馆名称，留空保留原名称" />
+          </StackPanel>
+          <Border Classes="inset" Padding="12">
+            <StackPanel Spacing="10">
+              <TextBlock Text="快速生成编号场地" FontWeight="SemiBold" />
+              <Grid ColumnDefinitions="80,*" ColumnSpacing="12">
+                <TextBox x:Name="NumberedCourtCountInput" Text="{Binding NumberedCourtCountText}"
+                         AutomationProperties.Name="生成编号场地的数量" />
+                <Button x:Name="GenerateNumberedCourtsButton" Grid.Column="1" Classes="secondary"
+                        Content="{Binding GenerateNumberedCourtsLabel}" Command="{Binding GenerateNumberedCourtsCommand}"
+                        AutomationProperties.Name="{Binding GenerateNumberedCourtsLabel}" />
+              </Grid>
+              <TextBlock Classes="muted" FontSize="12" Text="生成后可继续编辑下面的场地名称。" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <StackPanel Spacing="8">
+            <TextBlock Text="场地名称" FontWeight="SemiBold" />
+            <TextBlock Classes="muted" Text="每行一个名称，也支持中文逗号分隔。" FontSize="12" TextWrapping="Wrap" />
+            <TextBox x:Name="CustomCourtsInput" Text="{Binding CustomCourtsText}" AcceptsReturn="True"
+                     MinHeight="140" TextWrapping="Wrap" VerticalContentAlignment="Top"
+                     AutomationProperties.Name="自定义场地名称，每行一个或用中文逗号分隔" />
+            <TextBlock Text="{Binding SelectionSummary}" FontWeight="SemiBold" TextWrapping="Wrap" />
+          </StackPanel>
+        </StackPanel>
+        <Border IsVisible="{Binding HasAffectedWindows}" Background="{DynamicResource AppWarningCardBackgroundBrush}"
+                BorderBrush="{DynamicResource AppWarningCardBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
+          <StackPanel Spacing="10">
+            <TextBlock x:Name="AffectedWindowsText" Text="{Binding AffectedWindowsMessage}" TextWrapping="Wrap"
+                       Foreground="{DynamicResource AppWarningTextBrush}" />
+            <CheckBox x:Name="ConfirmAdjustUnavailableToggle" IsChecked="{Binding ConfirmAdjustUnavailable}"
+                      AutomationProperties.Name="确认调整受影响的不可用时段场地">
+              <TextBlock Text="我确认调整这些不可用时段中的场地。" TextWrapping="Wrap" />
+            </CheckBox>
+          </StackPanel>
+        </Border>
+        <TextBlock Classes="muted" Text="选择“当天全部场地”的不可用时段将继续适用于全部场地。" FontSize="12" TextWrapping="Wrap" />
+      </StackPanel>
+    </ScrollViewer>
+    <StackPanel Grid.Row="2" Spacing="10">
+      <ScrollViewer x:Name="ValidationScroll" MaxHeight="64" HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Auto" AutomationProperties.Name="场馆与场地选择校验提示，完整内容可滚动查看">
+        <TextBlock x:Name="ValidationText" Text="{Binding ValidationMessage}" TextWrapping="Wrap"
+                   Foreground="{DynamicResource AppErrorTextBrush}" FontSize="12" />
+      </ScrollViewer>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12">
+        <Button x:Name="CancelButton" Classes="secondary" Content="取消" IsDefault="True" IsCancel="True"
+                Click="CancelClicked" AutomationProperties.Name="取消场馆与场地选择" />
+        <Button x:Name="AcceptButton" Classes="primary" Content="使用所选场地" IsEnabled="{Binding CanAccept}"
+                Click="AcceptClicked" AutomationProperties.Name="使用所选场地" />
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+</Window>
