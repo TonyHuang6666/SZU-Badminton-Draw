@@ -16,14 +16,16 @@ public partial class AppShellWindow : Window
     public AppShellWindow(TournamentWorkspaceWorkflow workflow, RecentWorkspaceStore recentStore,
         Func<Task<string?>>? openPicker = null, Func<Task<string?>>? recoveryTargetPicker = null,
         Func<Task<string?>>? recoveryBackupPicker = null,
-        Func<Task<IReadOnlyList<string>?>>? resultFilesPicker = null, Func<Task<string?>>? operationalOutputPicker = null)
+        Func<Task<IReadOnlyList<string>?>>? resultFilesPicker = null, Func<Task<string?>>? operationalOutputPicker = null,
+        Func<Task<string?>>? drawOutputPicker = null)
     {
         InitializeComponent();
         var shell = new AppShellViewModel(workflow, openPicker ?? PickOpenPathAsync, PickSavePathAsync,
             recentStore, action => Dispatcher.UIThread.Post(action), recoveryTargetPicker ?? PickRecoveryTargetAsync,
-            recoveryBackupPicker ?? PickRecoveryBackupAsync);
+            recoveryBackupPicker ?? PickRecoveryBackupAsync, ConfirmExportOverwriteAsync);
         shell.RegisterPageFactory(WorkspaceRoute.Rosters, session => new RostersPageViewModel(shell, session, PickRosterPathAsync, PickTemplatePathAsync));
-        shell.RegisterPageFactory(WorkspaceRoute.PublicDraw, session => new PublicDrawPageViewModel(shell, session, PickDrawOutputDirectoryAsync));
+        shell.RegisterPageFactory(WorkspaceRoute.PublicDraw, session => new PublicDrawPageViewModel(shell, session,
+            drawOutputPicker ?? PickDrawOutputDirectoryAsync, options => new Views.DrawExportOptionsDialog(options).ShowDialog<bool>(this)));
         shell.RegisterPageFactory(WorkspaceRoute.ScheduleSetup, session => new ScheduleSetupPageViewModel(shell, session));
         shell.RegisterPageFactory(WorkspaceRoute.ScheduleBoard, session => new ScheduleBoardPageViewModel(shell, session));
         shell.RegisterPageFactory(WorkspaceRoute.Operations, session => new OperationsPageViewModel(shell, session,
@@ -37,6 +39,9 @@ public partial class AppShellWindow : Window
         }
         catch (IOException) { /* The application bundle retains its platform icon. */ }
     }
+    private Task<bool> ConfirmExportOverwriteAsync(IReadOnlyList<string> paths) =>
+        new Views.ExportOverwriteDialog(paths).ShowDialog<bool>(this);
+
     private async Task<string?> PickOpenPathAsync()
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -75,7 +80,7 @@ public partial class AppShellWindow : Window
     {
         var safeName = string.Concat(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
         return LocalPath(await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        { Title = "导出名单模板", SuggestedFileName = safeName, DefaultExtension = "xlsx", FileTypeChoices = [RosterFileType] }));
+        { Title = "导出名单模板", SuggestedFileName = safeName, DefaultExtension = "xlsx", FileTypeChoices = [RosterFileType], ShowOverwritePrompt = true }));
     }
     private async Task<string?> PickDrawOutputDirectoryAsync()
     {
@@ -86,7 +91,7 @@ public partial class AppShellWindow : Window
     private async Task<IReadOnlyList<string>?> PickResultFilesAsync()
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        { Title = "选择 v5 赛果记录表（可多选，选择后需预览）", AllowMultiple = true, FileTypeFilter = [RosterFileType] });
+        { Title = "选择 v5 赛果记录表（可多选，选择后需检查）", AllowMultiple = true, FileTypeFilter = [RosterFileType] });
         return files.Count == 0 ? null : Array.AsReadOnly(files.Select(file => LocalPath(file)!).ToArray());
     }
     private async Task<string?> PickOperationalOutputAsync()

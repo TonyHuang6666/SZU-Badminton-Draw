@@ -1,56 +1,88 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" x:Class="BadmintonDraw.Desktop.Views.NewWorkspaceWizardPage" x:DataType="vm:NewWorkspaceWizardViewModel">
-  <ScrollViewer>
-    <StackPanel Margin="36" Spacing="24" MaxWidth="900" HorizontalAlignment="Stretch">
-      <TextBlock Text="新建赛事工作区" FontSize="28" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" />
-      <TextBlock Text="1  赛事信息    →    2  参赛项目    →    3  保存与创建" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
-      <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="28">
-        <StackPanel Spacing="22">
-          <StackPanel IsVisible="{Binding IsStepOne}" Spacing="14">
-            <TextBlock Text="赛事名称" FontWeight="SemiBold" />
-            <TextBox Text="{Binding Name}" PlaceholderText="例如：校长杯羽毛球赛" />
-            <TextBlock Text="赛事类型" FontWeight="SemiBold" Margin="0,10,0,0" />
-            <StackPanel Orientation="Horizontal" Spacing="24">
-              <RadioButton Content="团体赛" GroupName="kind" IsChecked="{Binding IsTeam}" />
-              <RadioButton Content="单项赛" GroupName="kind" IsChecked="{Binding IsIndividual}" />
-            </StackPanel>
-            <TextBlock Text="本次工作目标" FontWeight="SemiBold" Margin="0,10,0,0" />
-            <RadioButton Content="仅公开抽签" GroupName="purpose" IsChecked="{Binding IsDrawOnly}" />
-            <TextBlock Text="先导入名单、公开抽签并确认；之后可继续筹备完整赛事。" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
-            <RadioButton Content="完整赛事筹备" GroupName="purpose" IsChecked="{Binding IsFullTournament}" />
-            <TextBlock Text="各项目抽签确认后，再统一安排时间、场地与赛程。" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
-          </StackPanel>
-          <StackPanel IsVisible="{Binding IsStepTwo}" Spacing="16">
-            <TextBlock Text="选择项目与赛制" FontSize="20" FontWeight="SemiBold" />
-            <TextBlock Text="单项赛选择 1–5 个项目；团体赛包含一个团体项目。" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
-            <ItemsControl ItemsSource="{Binding Projects}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:WorkspaceProjectOptionViewModel">
-                  <Grid ColumnDefinitions="*,180" Margin="0,0,0,12">
-                    <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" IsEnabled="{Binding IsOptional}" />
-                    <ComboBox Grid.Column="1" ItemsSource="{Binding CompetitionModes}" SelectedIndex="{Binding CompetitionModeIndex}" IsEnabled="{Binding IsSelected}" HorizontalAlignment="Stretch" />
-                  </Grid>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </StackPanel>
-          <StackPanel IsVisible="{Binding IsStepThree}" Spacing="16">
-            <TextBlock Text="确认并选择保存位置" FontSize="20" FontWeight="SemiBold" />
-            <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
-            <TextBlock Text="工作区文件（.szbd）" FontWeight="SemiBold" />
-            <Grid ColumnDefinitions="*,Auto">
-              <TextBox Text="{Binding WorkspacePath}" PlaceholderText="选择本地保存位置" />
-              <Button Grid.Column="1" Content="选择位置…" Command="{Binding BrowsePathCommand}" Margin="12,0,0,0" />
-            </Grid>
-            <TextBlock Text="创建后进入赛事信息。准备好名单时，再按项目导入。" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
-          </StackPanel>
+  <UserControl.Styles>
+    <Style Selector="Border.wizard-step"><Setter Property="Padding" Value="16,14" /><Setter Property="CornerRadius" Value="12" /><Setter Property="Background" Value="{DynamicResource AppSurfaceMutedBrush}" /></Style>
+    <Style Selector="Border.wizard-step.active"><Setter Property="Background" Value="{DynamicResource AppSuccessCardBackgroundBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" /><Setter Property="BorderThickness" Value="1" /></Style>
+    <Style Selector="RadioButton.choice"><Setter Property="Padding" Value="18" /><Setter Property="MinHeight" Value="94" /><Setter Property="HorizontalAlignment" Value="Stretch" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Background" Value="{DynamicResource AppSurfaceMutedBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="14" /></Style>
+    <Style Selector="RadioButton.choice:checked"><Setter Property="Background" Value="{DynamicResource AppSuccessCardBackgroundBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" /></Style>
+  </UserControl.Styles>
+  <Grid RowDefinitions="*,Auto">
+    <ScrollViewer>
+      <StackPanel Margin="32" Spacing="24" MaxWidth="940" HorizontalAlignment="Stretch">
+        <StackPanel Spacing="8">
+          <TextBlock Text="从这里开始" Classes="eyebrow" />
+          <TextBlock Text="创建一场新比赛" Classes="page-title" />
+          <TextBlock Text="先告诉我们比赛的基本安排。名单、抽签和赛程会在后续逐步完成。" Classes="page-subtitle" />
         </StackPanel>
-      </Border>
-      <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
-        <Button Content="上一步" Command="{Binding BackCommand}" />
-        <Button Content="下一步" Command="{Binding NextCommand}" IsVisible="{Binding !IsStepThree}" />
-        <Button Content="创建赛事工作区" Command="{Binding CreateCommand}" IsVisible="{Binding IsStepThree}" />
+        <Grid ColumnDefinitions="*,12,*,12,*">
+          <Border Classes="wizard-step" Classes.active="{Binding IsStepOne}"><StackPanel Spacing="5"><TextBlock Text="01  比赛信息" FontWeight="SemiBold" /><TextBlock Text="名称、类型与目标" Classes="muted" FontSize="12" TextWrapping="Wrap" /></StackPanel></Border>
+          <Border Grid.Column="2" Classes="wizard-step" Classes.active="{Binding IsStepTwo}"><StackPanel Spacing="5"><TextBlock Text="02  参赛项目" FontWeight="SemiBold" /><TextBlock Text="项目与比赛方式" Classes="muted" FontSize="12" TextWrapping="Wrap" /></StackPanel></Border>
+          <Border Grid.Column="4" Classes="wizard-step" Classes.active="{Binding IsStepThree}"><StackPanel Spacing="5"><TextBlock Text="03  保存比赛" FontWeight="SemiBold" /><TextBlock Text="选择赛事文件位置" Classes="muted" FontSize="12" TextWrapping="Wrap" /></StackPanel></Border>
+        </Grid>
+        <Border Classes="card">
+          <StackPanel Spacing="24">
+            <StackPanel Spacing="6"><TextBlock Text="{Binding StepCaption}" Classes="eyebrow" /><TextBlock Text="{Binding StepTitle}" Classes="section-title" /></StackPanel>
+            <StackPanel IsVisible="{Binding IsStepOne}" Spacing="20">
+              <StackPanel Spacing="8"><TextBlock Text="比赛名称" FontWeight="SemiBold" /><TextBox Text="{Binding Name}" PlaceholderText="例如：校长杯羽毛球赛" AutomationProperties.Name="比赛名称" /></StackPanel>
+              <StackPanel Spacing="10">
+                <TextBlock Text="比赛类型" FontWeight="SemiBold" />
+                <Grid ColumnDefinitions="*,16,*">
+                  <RadioButton Classes="choice" GroupName="kind" IsChecked="{Binding IsTeam}" AutomationProperties.Name="团体赛，以队伍为单位参赛">
+                    <StackPanel Spacing="6" Margin="6,0,0,0"><TextBlock Text="团体赛" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="以队伍为单位参赛，共同争夺团体成绩。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
+                  </RadioButton>
+                  <RadioButton Grid.Column="2" Classes="choice" GroupName="kind" IsChecked="{Binding IsIndividual}" AutomationProperties.Name="单项赛，选择单打或双打项目">
+                    <StackPanel Spacing="6" Margin="6,0,0,0"><TextBlock Text="单项赛" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="选择单打或双打项目，各项目分别抽签。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
+                  </RadioButton>
+                </Grid>
+              </StackPanel>
+              <StackPanel Spacing="10">
+                <TextBlock Text="本次先做什么？" FontWeight="SemiBold" />
+                <RadioButton Classes="choice" GroupName="purpose" IsChecked="{Binding IsDrawOnly}" AutomationProperties.Name="先完成公开抽签">
+                  <StackPanel Spacing="6" Margin="6,0,0,0"><TextBlock Text="先完成公开抽签" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="导入名单、公开抽签并导出结果。以后随时可以继续安排赛程。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
+                </RadioButton>
+                <RadioButton Classes="choice" GroupName="purpose" IsChecked="{Binding IsFullTournament}" AutomationProperties.Name="从抽签到现场，筹备整场比赛">
+                  <StackPanel Spacing="6" Margin="6,0,0,0"><TextBlock Text="从抽签到现场，筹备整场比赛" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" /><TextBlock Text="确认抽签结果后，再安排时间、场地，准备现场材料和记录赛果。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
+                </RadioButton>
+              </StackPanel>
+            </StackPanel>
+            <StackPanel IsVisible="{Binding IsStepTwo}" Spacing="18">
+              <TextBlock Text="单项赛可选择 1–5 个项目；团体赛保留一个团体项目。各项目的名单将在创建后分别导入。" Classes="muted" TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding Projects}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:WorkspaceProjectOptionViewModel">
+                    <Border Classes="inset" Margin="0,0,0,12">
+                      <Grid ColumnDefinitions="*,220">
+                        <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" IsEnabled="{Binding IsOptional}" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="比赛方式" Classes="muted" FontSize="12" /><ComboBox ItemsSource="{Binding CompetitionModes}" SelectedIndex="{Binding CompetitionModeIndex}" IsEnabled="{Binding IsSelected}" HorizontalAlignment="Stretch" AutomationProperties.Name="项目比赛方式" /></StackPanel>
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Text="淘汰赛：胜者晋级，逐轮决出名次。循环赛：组内每两位参赛方都进行比赛。" Classes="muted" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel IsVisible="{Binding IsStepThree}" Spacing="20">
+              <Border Classes="inset"><StackPanel Spacing="8"><TextBlock Text="即将创建" Classes="eyebrow" /><TextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontSize="17" LineHeight="28" /></StackPanel></Border>
+              <StackPanel Spacing="8">
+                <TextBlock Text="赛事文件的保存位置" FontWeight="SemiBold" />
+                <Grid ColumnDefinitions="*,Auto"><TextBox Text="{Binding WorkspacePath}" PlaceholderText="选择本地保存位置（.szbd）" AutomationProperties.Name="赛事文件保存位置" /><Button Grid.Column="1" Content="选择位置…" Classes="secondary" Command="{Binding BrowsePathCommand}" Margin="12,0,0,0" /></Grid>
+                <TextBlock Text="名单、抽签、赛程和赛果都会保存在这个赛事文件中。下次打开它，就能继续筹备。" Classes="muted" TextWrapping="Wrap" />
+              </StackPanel>
+              <Border Classes="callout"><TextBlock Text="创建后，先准备参赛名单。你始终可以查看抽签结果，再决定何时继续。" TextWrapping="Wrap" /></Border>
+            </StackPanel>
+          </StackPanel>
+        </Border>
       </StackPanel>
-    </StackPanel>
-  </ScrollViewer>
+    </ScrollViewer>
+    <Border Grid.Row="1" Classes="action-bar">
+      <Grid ColumnDefinitions="*,Auto" MaxWidth="940">
+        <TextBlock Text="{Binding StepHint}" Classes="muted" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,20,0" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+          <Button Content="上一步" Classes="quiet" Command="{Binding BackCommand}" IsVisible="{Binding !IsStepOne}" />
+          <Button Content="{Binding NextLabel}" Classes="primary" Command="{Binding NextCommand}" IsVisible="{Binding !IsStepThree}" />
+          <Button Content="创建比赛" Classes="primary" Command="{Binding CreateCommand}" IsVisible="{Binding IsStepThree}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+  </Grid>
 </UserControl>

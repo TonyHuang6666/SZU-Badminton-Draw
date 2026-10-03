@@ -1,69 +1,131 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" xmlns:views="using:BadmintonDraw.Desktop.Views"
              x:Class="BadmintonDraw.Desktop.Views.OperationsPage" x:DataType="vm:OperationsPageViewModel">
-  <Grid RowDefinitions="Auto,*" Margin="24,18">
-    <StackPanel Spacing="8" Margin="0,0,0,14">
+  <Grid RowDefinitions="Auto,*" Margin="28,24">
+    <StackPanel Spacing="8" Margin="0,0,0,22">
+      <TextBlock Classes="eyebrow" Text="05 / MATCH DAY" />
       <Grid ColumnDefinitions="*,Auto">
-        <TextBlock Text="现场执行 / 完成" FontSize="23" FontWeight="SemiBold" />
-        <Button Grid.Column="1" Content="备份与恢复" Command="{Binding OpenRecoveryCommand}" />
+        <TextBlock Classes="page-title" Text="比赛现场" />
+        <Button Grid.Column="1" Classes="quiet" Content="备份与恢复" Command="{Binding OpenRecoveryCommand}" />
       </Grid>
-      <views:ResultImportEvidenceText x:Name="OperationsHeader" Text="{Binding Header}" />
-      <views:ResultImportEvidenceText Text="{Binding ProjectSummary}" />
+      <TextBlock Classes="page-subtitle" Text="准备现场材料，收集比赛结果，让后续对阵随比赛进展更新。" />
+      <TextBlock Classes="muted"><Run Text="已记录 " /><Run Text="{Binding CompletedMatchCount}" /><Run Text=" / " /><Run Text="{Binding TotalMatchCount}" /><Run Text=" 场比赛结果" /></TextBlock>
+      <Border Classes="callout" IsVisible="{Binding Session.RequiresReload}">
+        <TextBlock Text="赛事文件已保存，但重新读取失败。请重新载入赛事后继续；下方显示的是最后已知内容。" TextWrapping="Wrap" />
+      </Border>
     </StackPanel>
     <TabControl x:Name="OperationsTabs" Grid.Row="1" SelectedIndex="{Binding SelectedTabIndex}">
-      <TabItem Header="赛果导入"><views:ResultImportPanel x:Name="OperationsResultImport" DataContext="{Binding ResultImport}" /></TabItem>
-      <TabItem Header="材料导出">
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-          <StackPanel x:DataType="vm:WorkspaceOperationalExportViewModel" DataContext="{Binding Materials}" Spacing="12" Margin="4,12">
-            <views:ResultImportEvidenceText Text="{Binding SourceDetails}" />
-            <TextBlock Text="项目范围" FontWeight="SemiBold" />
-            <ComboBox x:Name="OperationalProject" ItemsSource="{Binding ProjectChoices}" SelectedItem="{Binding SelectedProject}" HorizontalAlignment="Stretch">
-              <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:OperationalProjectChoice"><TextBlock Text="{Binding Label}" TextWrapping="Wrap" /></DataTemplate></ComboBox.ItemTemplate>
-            </ComboBox>
-            <TextBlock Text="记录日期（可多选；全部取消不会自动改成全选）" FontWeight="SemiBold" TextWrapping="Wrap" />
-            <ItemsControl ItemsSource="{Binding Days}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:OperationalDayChoice">
-              <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" />
-            </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-            <CheckBox x:Name="IncludePendingCarryover" Content="明确纳入较早的待填记录" IsChecked="{Binding IncludePendingCarryover}" />
-            <ComboBox x:Name="PendingCarryoverDay" ItemsSource="{Binding PendingDays}" SelectedItem="{Binding SelectedCarryoverDay}" IsEnabled="{Binding IncludePendingCarryover}" PlaceholderText="选择一个已选记录日" HorizontalAlignment="Stretch">
-              <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:OperationalDayChoice"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
-            </ComboBox>
-            <TextBlock Text="仅将有有效未填记录证据且原计划更早的待赛纳入此记录日；不会移动比赛。跨日待赛时间/场地为待安排，原计划保留在说明。" TextWrapping="Wrap" />
-            <TextBlock Text="淘汰赛 A4 PDF 分页（正整数）" FontWeight="SemiBold" />
-            <StackPanel Orientation="Horizontal" Spacing="8">
-              <TextBlock Text="行" VerticalAlignment="Center" /><NumericUpDown x:Name="OperationalPdfRows" Value="{Binding PdfRows}" Minimum="1" Maximum="2147483647" FormatString="0" Width="110" />
-              <TextBlock Text="列" VerticalAlignment="Center" /><NumericUpDown x:Name="OperationalPdfColumns" Value="{Binding PdfColumns}" Minimum="1" Maximum="2147483647" FormatString="0" Width="110" />
+      <TabItem Header="1  导出比赛材料">
+        <Grid x:DataType="vm:WorkspaceOperationalExportViewModel" DataContext="{Binding Materials}" RowDefinitions="*,Auto" Margin="0,14,0,0">
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="20" Margin="0,0,4,20">
+              <Border Classes="card">
+                <StackPanel Spacing="16">
+                  <StackPanel Spacing="5">
+                    <TextBlock Classes="section-title" Text="为裁判和参赛者准备材料" />
+                    <TextBlock Classes="muted" Text="生成比赛记录表、带时间的抽签图和检查报告。导出后可查看文件、打印或分发。" />
+                  </StackPanel>
+                  <TextBlock Text="需要哪些日期的记录表？" FontWeight="SemiBold" />
+                  <ItemsControl ItemsSource="{Binding Days}">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:OperationalDayChoice"><CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" Margin="0,0,22,4" /></DataTemplate></ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Classes="muted" Text="至少选择一天。取消所有日期后，将无法生成材料。" />
+                  <TextBlock Text="材料保存在哪里？" FontWeight="SemiBold" />
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBox x:Name="OperationalOutputDirectory" Text="{Binding OutputDirectory}" PlaceholderText="选择一个文件夹" AutomationProperties.Name="比赛材料保存文件夹" />
+                    <Button x:Name="PickOperationalOutput" Grid.Column="1" Classes="secondary" Content="选择文件夹" Command="{Binding PickOutputCommand}" Margin="10,0,0,0" />
+                  </Grid>
+                </StackPanel>
+              </Border>
+              <Expander x:Name="OperationalAdvancedSettings" Header="高级导出设置 · 项目范围、补录与打印分页">
+                <Border Classes="card" Margin="0,10,0,0">
+                  <StackPanel Spacing="14">
+                    <TextBlock Text="项目范围" FontWeight="SemiBold" />
+                    <ComboBox x:Name="OperationalProject" ItemsSource="{Binding ProjectChoices}" SelectedItem="{Binding SelectedProject}" HorizontalAlignment="Stretch" AutomationProperties.Name="导出项目范围">
+                      <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:OperationalProjectChoice"><TextBlock Text="{Binding Label}" TextWrapping="Wrap" /></DataTemplate></ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <CheckBox x:Name="IncludePendingCarryover" IsChecked="{Binding IncludePendingCarryover}">
+                      <TextBlock Text="把较早日期尚未填写的记录，一并放入本次材料" TextWrapping="Wrap" />
+                    </CheckBox>
+                    <StackPanel Spacing="8" IsVisible="{Binding IncludePendingCarryover}">
+                      <TextBlock Text="将待填记录放在哪一天？" />
+                      <ComboBox x:Name="PendingCarryoverDay" ItemsSource="{Binding PendingDays}" SelectedItem="{Binding SelectedCarryoverDay}" IsEnabled="{Binding IncludePendingCarryover}" PlaceholderText="选择一个已选日期" HorizontalAlignment="Stretch" AutomationProperties.Name="待填记录目标日期">
+                        <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:OperationalDayChoice"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
+                      </ComboBox>
+                      <TextBlock Classes="muted" Text="只补入已有未填记录的待赛场次，不会移动比赛。跨日记录的时间与场地显示为待安排，原计划保留在说明中。" />
+                    </StackPanel>
+                    <TextBlock Text="淘汰赛 A4 PDF 分页" FontWeight="SemiBold" />
+                    <WrapPanel>
+                      <StackPanel Spacing="6" Margin="0,0,18,0"><TextBlock Text="纵向页数" /><NumericUpDown x:Name="OperationalPdfRows" Value="{Binding PdfRows}" Minimum="1" Maximum="2147483647" FormatString="0" Width="140" AutomationProperties.Name="PDF 纵向页数" /></StackPanel>
+                      <StackPanel Spacing="6"><TextBlock Text="横向页数" /><NumericUpDown x:Name="OperationalPdfColumns" Value="{Binding PdfColumns}" Minimum="1" Maximum="2147483647" FormatString="0" Width="140" AutomationProperties.Name="PDF 横向页数" /></StackPanel>
+                    </WrapPanel>
+                    <TextBlock Classes="muted" Text="增加页数可以放大复杂对阵图。分页可能切开连接线或单元格，请在打印前预览。" />
+                    <Expander Header="技术详情 · 材料来源"><views:ResultImportEvidenceText Text="{Binding SourceDetails}" Margin="0,12,0,0" /></Expander>
+                  </StackPanel>
+                </Border>
+              </Expander>
+              <Border Classes="inset">
+                <StackPanel Spacing="10">
+                  <TextBlock Classes="section-title" Text="确认这次要生成的材料" />
+                  <views:ResultImportEvidenceText Text="{Binding ScopeSummary}" />
+                </StackPanel>
+              </Border>
+              <Border Classes="callout">
+                <StackPanel Spacing="10">
+                  <TextBlock FontWeight="SemiBold" Text="生成状态" />
+                  <ProgressBar IsVisible="{Binding IsWorking}" IsIndeterminate="True" Height="3" />
+                  <views:ResultImportEvidenceText x:Name="OperationalExportState" Text="{Binding StateMessage}" />
+                  <views:ResultImportEvidenceText x:Name="OperationalExportOutcome" Text="{Binding OutcomeDetails}" />
+                </StackPanel>
+              </Border>
             </StackPanel>
-            <TextBlock Text="打印前预览；复杂淘汰赛可调整 PDF 分页以放大，分页可能切开连接线或单元格。" TextWrapping="Wrap" />
-            <TextBlock Text="输出目录" FontWeight="SemiBold" />
-            <Grid ColumnDefinitions="*,Auto">
-              <TextBox x:Name="OperationalOutputDirectory" Text="{Binding OutputDirectory}" PlaceholderText="选择本地输出目录" />
-              <Button x:Name="PickOperationalOutput" Grid.Column="1" Content="选择目录" Command="{Binding PickOutputCommand}" Margin="8,0,0,0" />
-            </Grid>
-            <views:ResultImportEvidenceText Text="{Binding ScopeSummary}" />
-            <CheckBox x:Name="OverwriteOperationalOutputs" Content="允许覆盖本次同名材料（范围或来源变化后需重新同意）" IsChecked="{Binding OverwriteExisting}" />
-            <CheckBox x:Name="ConfirmOperationalScope" Content="已核对当前工作区、范围、日期、分页与输出目录" IsChecked="{Binding ScopeConfirmed}" />
-            <Button x:Name="ExportOperationalPackage" Content="导出材料并记录审计" Command="{Binding ExportCommand}" HorizontalAlignment="Left" />
-            <TextBlock Text="最近一次操作的实际证据（与上方待提交草稿分别显示）" FontWeight="SemiBold" TextWrapping="Wrap" />
-            <views:ResultImportEvidenceText x:Name="OperationalExportState" Text="{Binding StateMessage}" />
-            <views:ResultImportEvidenceText x:Name="OperationalExportOutcome" Text="{Binding OutcomeDetails}" />
+          </ScrollViewer>
+          <Border Grid.Row="1" Classes="action-bar">
+            <StackPanel Spacing="10">
+              <CheckBox x:Name="ConfirmOperationalScope" IsChecked="{Binding ScopeConfirmed}"><TextBlock Text="我已核对项目、日期、打印设置与保存文件夹。" TextWrapping="Wrap" /></CheckBox>
+              <Button x:Name="ExportOperationalPackage" Classes="primary" Content="生成现场比赛材料" Command="{Binding ExportCommand}" HorizontalAlignment="Right" />
+            </StackPanel>
+          </Border>
+        </Grid>
+      </TabItem>
+      <TabItem Header="2  记录比赛结果"><views:ResultImportPanel x:Name="OperationsResultImport" DataContext="{Binding ResultImport}" /></TabItem>
+      <TabItem Header="3  查看比赛进展">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="20" Margin="0,16,4,20">
+            <Border Classes="card">
+              <StackPanel Spacing="12">
+                <TextBlock Classes="section-title" Text="查看更新后的赛程与对阵" />
+                <TextBlock Classes="muted" Text="已保存的比赛结果会用于后续对阵。可以回到赛程板查看场次、时间与场地。" />
+                <views:ResultImportEvidenceText Text="{Binding ProjectSummary}" />
+                <Button x:Name="OpenUpdatedSchedule" Classes="secondary" Content="查看赛程与后续对阵" Command="{Binding OpenScheduleCommand}" HorizontalAlignment="Left" />
+              </StackPanel>
+            </Border>
+            <Border Classes="card">
+              <StackPanel Spacing="14">
+                <TextBlock Classes="section-title" Text="已记录的比赛结果" />
+                <TextBlock Classes="muted" Text="以下内容来自已保存的赛事文件。导入了记录表，不表示其中所有比赛都已完成。" />
+                <ItemsControl ItemsSource="{Binding History.Results}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+              </StackPanel>
+            </Border>
+            <Expander Header="导入记录与更正历史">
+              <Border Classes="card" Margin="0,10,0,0"><StackPanel Spacing="14">
+                <TextBlock Text="记录表覆盖情况 · 不代表当天完赛" FontWeight="SemiBold" />
+                <ItemsControl ItemsSource="{Binding History.Coverage}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                <TextBlock Text="全部导入回执（含作废记录）" FontWeight="SemiBold" />
+                <ItemsControl x:Name="OperationsReceipts" ItemsSource="{Binding History.Receipts}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                <TextBlock Text="更正历史" FontWeight="SemiBold" />
+                <ItemsControl ItemsSource="{Binding History.Corrections}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+              </StackPanel></Border>
+            </Expander>
+            <Expander x:Name="OperationsAuditDetails" Header="技术详情 · 赛事文件与原始操作记录">
+              <Border Classes="card" Margin="0,10,0,0"><StackPanel Spacing="14">
+                <views:ResultImportEvidenceText x:Name="OperationsHeader" Text="{Binding Header}" />
+                <ItemsControl x:Name="OperationsAudits" ItemsSource="{Binding History.Audits}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+              </StackPanel></Border>
+            </Expander>
           </StackPanel>
         </ScrollViewer>
-      </TabItem>
-      <TabItem Header="只读记录">
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled"><StackPanel Spacing="12" Margin="4,12">
-          <TextBlock Text="记录来自当前已发布快照；导入覆盖不代表当日或赛事完赛。" TextWrapping="Wrap" />
-          <TextBlock Text="当前赛果" FontWeight="SemiBold" />
-          <ItemsControl ItemsSource="{Binding History.Results}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-          <TextBlock Text="有效导入记录覆盖（非当日完赛）" FontWeight="SemiBold" />
-          <ItemsControl ItemsSource="{Binding History.Coverage}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-          <TextBlock Text="全部导入回执（含作废）" FontWeight="SemiBold" />
-          <ItemsControl x:Name="OperationsReceipts" ItemsSource="{Binding History.Receipts}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-          <TextBlock Text="更正历史" FontWeight="SemiBold" />
-          <ItemsControl ItemsSource="{Binding History.Corrections}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-          <TextBlock Text="原始审计" FontWeight="SemiBold" />
-          <ItemsControl x:Name="OperationsAudits" ItemsSource="{Binding History.Audits}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="x:String"><views:ResultImportEvidenceText Text="{Binding .}" Margin="0,0,0,14" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-        </StackPanel></ScrollViewer>
       </TabItem>
     </TabControl>
   </Grid>

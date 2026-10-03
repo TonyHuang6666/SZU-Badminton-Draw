@@ -1,67 +1,69 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" x:Class="BadmintonDraw.Desktop.Views.WorkspaceOverviewPage" x:DataType="vm:WorkspaceOverviewPageViewModel">
-  <ScrollViewer>
-    <StackPanel Margin="32" Spacing="22" MaxWidth="1050" HorizontalAlignment="Stretch">
-      <Grid ColumnDefinitions="*,Auto">
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="32" Spacing="24" MaxWidth="1050" HorizontalAlignment="Stretch">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
         <StackPanel Spacing="8">
-          <TextBlock Text="赛事信息" FontSize="28" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" />
-          <TextBlock Text="{Binding Revision}" Foreground="{DynamicResource AppMutedTextBrush}" />
+          <TextBlock Text="01 / YOUR TOURNAMENT" Classes="eyebrow" />
+          <TextBlock Text="一眼掌握筹备进度" Classes="page-title" />
+          <TextBlock Text="每一步都有记录，随时都能从这里继续。" Classes="page-subtitle" />
         </StackPanel>
-        <Button Grid.Column="1" Content="编辑赛事信息" Command="{Binding BeginEditCommand}" VerticalAlignment="Center" />
+        <Button Grid.Column="1" Content="编辑比赛信息" Classes="secondary" Command="{Binding BeginEditCommand}" VerticalAlignment="Center" />
       </Grid>
-      <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="24">
-        <StackPanel Spacing="16">
-          <TextBlock Text="{Binding Name}" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" />
+      <Grid ColumnDefinitions="*,*,*" ColumnSpacing="16">
+        <Border Classes="card" Padding="20"><StackPanel Spacing="7"><TextBlock Text="参赛项目" Classes="muted" FontSize="12" /><TextBlock Text="{Binding ProjectCount}" Classes="metric" /><TextBlock Text="{Binding Kind}" Classes="muted" FontSize="12" /></StackPanel></Border>
+        <Border Grid.Column="1" Classes="card" Padding="20"><StackPanel Spacing="7"><TextBlock Text="名单已准备" Classes="muted" FontSize="12" /><TextBlock Text="{Binding RosterProgress}" Classes="metric" /><TextBlock Text="导入后记得核对姓名与种子" Classes="muted" FontSize="11" /></StackPanel></Border>
+        <Border Grid.Column="2" Classes="card" Padding="20"><StackPanel Spacing="7"><TextBlock Text="抽签已确认" Classes="muted" FontSize="12" /><TextBlock Text="{Binding DrawProgress}" Classes="metric" /><TextBlock Text="确认后可导出正式结果" Classes="muted" FontSize="11" /></StackPanel></Border>
+      </Grid>
+      <Border Classes="callout" Padding="26">
+        <StackPanel Spacing="15">
+          <TextBlock Text="接下来可以做什么" Classes="eyebrow" />
+          <TextBlock Text="{Binding NextStep}" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap" LineHeight="30" />
           <WrapPanel>
-            <TextBlock Text="{Binding Kind}" Margin="0,0,24,8" />
-            <TextBlock Text="{Binding Purpose}" Margin="0,0,24,8" />
-            <TextBlock Text="{Binding Stage}" Foreground="{DynamicResource AppAccentBrush}" />
-          </WrapPanel>
-          <TextBlock Text="{Binding NextStep}" TextWrapping="Wrap" />
-          <WrapPanel>
-            <Button Content="前往下一步" Command="{Binding NextCommand}" Margin="0,0,12,8" />
-            <Button Content="继续筹备完整赛事" Command="{Binding UpgradeCommand}" IsVisible="{Binding CanUpgrade}" Margin="0,0,0,8" />
+            <Button Content="{Binding NextLabel}" Classes="primary" Command="{Binding NextCommand}" Margin="0,0,12,8" />
+            <Button Content="继续筹备完整赛事" Classes="secondary" Command="{Binding UpgradeCommand}" IsVisible="{Binding CanUpgrade}" Margin="0,0,0,8" />
           </WrapPanel>
         </StackPanel>
       </Border>
-      <StackPanel Spacing="12" IsVisible="{Binding !IsEditing}">
-        <TextBlock Text="各项目进度" FontSize="20" FontWeight="SemiBold" />
+      <StackPanel Spacing="14" IsVisible="{Binding !IsEditing}">
+        <Grid ColumnDefinitions="*,Auto"><TextBlock Text="各项目准备情况" Classes="section-title" /><TextBlock Grid.Column="1" Text="{Binding Purpose}" Classes="muted" FontSize="12" VerticalAlignment="Center" /></Grid>
         <ItemsControl ItemsSource="{Binding ProjectProgress}">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:WorkspaceProjectProgress">
-              <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,0,8">
-                <Grid ColumnDefinitions="*,*,*">
+              <Border Classes="card" Padding="20" Margin="0,0,0,10">
+                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="18">
                   <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                  <TextBlock Grid.Column="1" Text="{Binding RosterStatus}" TextWrapping="Wrap" />
-                  <TextBlock Grid.Column="2" Text="{Binding DrawStatus}" TextWrapping="Wrap" />
+                  <TextBlock Grid.Column="1" Text="{Binding RosterStatus}" Classes="muted" />
+                  <TextBlock Grid.Column="2" Text="{Binding DrawStatus}" Foreground="{DynamicResource AppAccentBrush}" TextWrapping="Wrap" />
                 </Grid>
               </Border>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
       </StackPanel>
-      <Border IsVisible="{Binding IsEditing}" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="24">
-        <StackPanel Spacing="16">
-          <TextBlock Text="赛事配置" FontSize="20" FontWeight="SemiBold" />
-          <TextBox Text="{Binding EditableName}" IsEnabled="{Binding CanEditFields}" PlaceholderText="赛事名称" />
+      <Border IsVisible="{Binding IsEditing}" Classes="card">
+        <StackPanel Spacing="18">
+          <TextBlock Text="修改比赛信息" Classes="section-title" />
+          <StackPanel Spacing="7"><TextBlock Text="比赛名称" FontWeight="Medium" /><TextBox Text="{Binding EditableName}" IsEnabled="{Binding CanEditFields}" PlaceholderText="例如：深圳大学校长杯羽毛球赛" /></StackPanel>
+          <TextBlock Text="选择项目，为每个项目确定赛制" Classes="muted" />
           <ItemsControl ItemsSource="{Binding Projects}" IsEnabled="{Binding CanEditFields}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:WorkspaceProjectOptionViewModel">
-                <Grid ColumnDefinitions="140,*,140" Margin="0,0,0,12">
+                <Grid ColumnDefinitions="120,*,150" Margin="0,0,0,12">
                   <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" IsEnabled="{Binding IsOptional}" />
-                  <TextBox Grid.Column="1" Text="{Binding DisplayName}" IsEnabled="{Binding IsSelected}" Margin="8,0" />
-                  <ComboBox Grid.Column="2" ItemsSource="{Binding CompetitionModes}" SelectedIndex="{Binding CompetitionModeIndex}" IsEnabled="{Binding IsSelected}" HorizontalAlignment="Stretch" />
+                  <TextBox Grid.Column="1" Text="{Binding DisplayName}" IsEnabled="{Binding IsSelected}" Margin="8,0" AutomationProperties.Name="项目名称" />
+                  <ComboBox Grid.Column="2" ItemsSource="{Binding CompetitionModes}" SelectedIndex="{Binding CompetitionModeIndex}" IsEnabled="{Binding IsSelected}" HorizontalAlignment="Stretch" AutomationProperties.Name="项目赛制" />
                 </Grid>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
           <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
-            <Button Content="取消编辑" Command="{Binding CancelEditCommand}" />
-            <Button Content="保存赛事信息" Command="{Binding SaveCommand}" />
+            <Button Content="取消编辑" Command="{Binding CancelEditCommand}" Classes="quiet" />
+            <Button Content="保存比赛信息" Command="{Binding SaveCommand}" Classes="primary" />
           </StackPanel>
         </StackPanel>
       </Border>
-      <TextBlock Text="{Binding EditHint}" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
+      <TextBlock Text="{Binding EditHint}" Classes="muted" FontSize="12" />
     </StackPanel>
   </ScrollViewer>
 </UserControl>

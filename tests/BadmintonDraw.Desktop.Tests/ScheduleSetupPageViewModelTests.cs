@@ -11,6 +11,33 @@ namespace BadmintonDraw.Desktop.Tests;
 
 public sealed class ScheduleSetupPageViewModelTests
 {
+    [Fact]
+    public void CapacityEstimateUsesCourtBlocksRefereeLimitsAndEditedProjectDurations()
+    {
+        using var fixture = new ScheduleUiFixture(3); var page = Page(fixture);
+        page.Days[0].StartText = "09:00"; page.Days[0].EndText = "11:00"; page.Days[0].CourtsText = "B1, B2";
+        page.RefereeCountText = "1";
+        page.Days[0].AddUnavailableCommand.Execute(null);
+        var blocked = page.Days[0].Unavailable[0]; blocked.StartText = "09:00"; blocked.EndText = "10:00"; blocked.CourtsText = "";
+        page.ProjectTimings[0].MinutesText = "45";
+        var estimate = Assert.IsType<ScheduleCapacityEstimate>(page.CapacityEstimate);
+        Assert.Equal(3, estimate.MatchCount);
+        Assert.Equal(60, estimate.AvailableMinutes);
+        Assert.Equal(105, estimate.RequiredMinutes);
+        Assert.True(estimate.IsInsufficient);
+        page.Days[0].StartText = "09:";
+        Assert.Null(page.CapacityEstimate);
+    }
+
+    [Fact]
+    public void NormalTimesAreReadableWhileSubMinuteTimesRoundTripExactly()
+    {
+        var date = new DateOnly(2026, 9, 13);
+        var editor = new ScheduleDayEditorViewModel(new(date, new(9, 0), new(12, 30, 0, 123), ["B1"]), null, null, null, () => { }, _ => { });
+        Assert.Equal("09:00", editor.StartText);
+        Assert.Equal(new TimeOnly(12, 30, 0, 123), editor.Build().DayEnd);
+    }
+
     private static ScheduleSetupPageViewModel Page(ScheduleUiFixture fixture)
     {
         fixture.Shell.RegisterPageFactory(WorkspaceRoute.ScheduleSetup, s => new ScheduleSetupPageViewModel(fixture.Shell, s));

@@ -23,23 +23,23 @@ public sealed partial class TournamentWorkspaceWorkflow
         ResultCorrectionConfirmation confirmation, long expectedRevision) => WithCapturedSession(captured =>
     {
         Require(preview is not null && ReferenceEquals(preview.Owner, this) && ReferenceEquals(preview.Source, captured),
-            "results.preview-session-changed", "导入预览所属会话已变化，请保留原文件选择并重新预览。");
-        Require(preview!.SourceRevision == expectedRevision, "results.preview-stale", "导入修订与预览不一致，请重新预览。");
+            "results.preview-session-changed", "记录表检查结果所属会话已变化，请保留原文件选择并重新检查记录表。");
+        Require(preview!.SourceRevision == expectedRevision, "results.preview-stale", "导入修订与检查时不一致，请重新检查记录表。");
         Require(confirmation is not null, "results.confirmation", "请明确确认本次导入。");
         Require(preview.Evaluation.Status != ResultImportEvaluationStatus.Rejected, "results.preview-rejected",
-            "预览包含不能接受的记录，请修正文件后重新预览。" + ImportDiagnosticText(preview.Evaluation));
+            "检查结果包含不能接受的记录，请修正文件后重新检查记录表。" + ImportDiagnosticText(preview.Evaluation));
         var source = ReadImportSource(captured, expectedRevision);
         RequireImportSource(source, preview.SourceIdentity);
 
         var files = CaptureResultFiles(preview.Files.Select(f => f.FullPath).ToArray());
         for (var i = 0; i < files.Count; i++)
             Require(string.Equals(files[i].Document.ContentHash, preview.Files[i].ContentHash, StringComparison.OrdinalIgnoreCase),
-                "results.file-changed", "记录表在预览后已变化，请重新预览：“" + preview.Files[i].FullPath + "”。");
+                "results.file-changed", "记录表在检查后已变化，请重新检查记录表：“" + preview.Files[i].FullPath + "”。");
 
         var evaluation = new ResultImportWorkflow().Evaluate(source, files,
             new(confirmation!.AllowCorrections, confirmation.Reason, DateTimeOffset.UtcNow, Guid.NewGuid()));
         Require(CorrectionIdentity(evaluation) == CorrectionIdentity(preview.Evaluation), "results.correction-changed",
-            "更正前后内容与已检查的预览不同，请重新预览并核对。");
+            "更正前后内容与已检查的内容不同，请重新检查记录表并核对。");
         Require(evaluation.Status is ResultImportEvaluationStatus.Ready or ResultImportEvaluationStatus.NoChanges,
             evaluation.Status == ResultImportEvaluationStatus.RequiresConfirmation ? "results.correction-confirmation" : "results.rejected",
             "本次导入未保存。" + ImportDiagnosticText(evaluation));
@@ -58,17 +58,17 @@ public sealed partial class TournamentWorkspaceWorkflow
 
     private TournamentWorkspace ReadImportSource(WorkspaceSession captured, long expectedRevision)
     {
-        Require(captured.Workspace.Revision == expectedRevision, "RevisionConflict", "界面修订已变化，请重新预览导入。");
+        Require(captured.Workspace.Revision == expectedRevision, "RevisionConflict", "界面修订已变化，请重新检查记录表。");
         var source = store.Read(captured.WorkspacePath);
         RequireWorkspaceIdentity(source, captured);
-        Require(source.Revision == expectedRevision, "RevisionConflict", "正式工作区已由其他操作修改，请重新打开并预览。");
+        Require(source.Revision == expectedRevision, "RevisionConflict", "正式工作区已由其他操作修改，请重新打开并检查记录表。");
         RequireImportSource(source, RecoverySourceIdentity(captured.Workspace));
         return source;
     }
 
     private static void RequireImportSource(TournamentWorkspace workspace, string identity) =>
         Require(RecoverySourceIdentity(workspace) == identity, "results.source-changed",
-            "正式工作区的内容已变化，请重新打开并检查赛果导入预览。");
+            "正式工作区的内容已变化，请重新打开并检查记录表。");
 
     private static IReadOnlyList<WorkspaceRecordImportFile> CaptureResultFiles(IReadOnlyList<string> paths)
     {

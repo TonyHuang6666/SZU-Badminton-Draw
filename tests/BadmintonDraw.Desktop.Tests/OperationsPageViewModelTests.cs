@@ -39,10 +39,10 @@ public sealed class OperationsPageViewModelTests
     {
         using var f = new OperationsUiFixture(); var page = f.Page; var file = f.Record();
         f.NextFiles = [file]; await page.ResultImport.PickFilesCommand.ExecuteAsync(); await page.ResultImport.PreviewCommand.ExecuteAsync();
-        page.ResultImport.Confirmed = true; f.PrepareExport(); page.Materials.OverwriteExisting = true; page.Materials.ScopeConfirmed = true;
+        page.ResultImport.Confirmed = true; f.PrepareExport(); page.Materials.ScopeConfirmed = true;
         f.Workflow.CreateBackup(f.Workflow.CurrentSession!.Workspace.Revision);
         Assert.Same(page, f.Page); Assert.False(page.ResultImport.HasCurrentPreview); Assert.False(page.ResultImport.Confirmed);
-        Assert.False(page.Materials.ScopeConfirmed); Assert.False(page.Materials.OverwriteExisting);
+        Assert.False(page.Materials.ScopeConfirmed);
         Assert.Equal(new[] { file }, page.ResultImport.SelectedPaths); Assert.EndsWith("materials", page.Materials.OutputDirectory);
         Assert.Contains(page.History.Audits, a => a.Contains("BackupCreated", StringComparison.Ordinal));
     }

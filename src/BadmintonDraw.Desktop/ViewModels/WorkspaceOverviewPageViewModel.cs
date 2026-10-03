@@ -24,6 +24,18 @@ public sealed class WorkspaceOverviewPageViewModel : WorkspacePageViewModel
     public string Purpose => Session.Workspace.Purpose == TournamentPurpose.PublicDrawOnly ? "仅公开抽签" : "完整赛事筹备";
     public string Kind => Session.Workspace.Kind == TournamentKind.Team ? "团体赛" : "单项赛";
     public string Revision => $"修订 {Session.Workspace.Revision} · 修改自动保存";
+    public int ProjectCount => Session.Workspace.Projects.Count;
+    public string RosterProgress => $"{Session.Workspace.Projects.Count(p => p.Roster is not null)} / {ProjectCount}";
+    public string DrawProgress => $"{Session.Workspace.Projects.Count(p => p.Draw?.ConfirmedAt is not null)} / {ProjectCount}";
+    public string NextLabel => Session.Workspace.Stage switch
+    {
+        TournamentStage.Draft => "下一步：准备参赛名单 →",
+        TournamentStage.RostersReady => "下一步：公开抽签 →",
+        TournamentStage.DrawsConfirmed when CanUpgrade => "查看与导出抽签结果 →",
+        TournamentStage.DrawsConfirmed => "下一步：安排比赛时间 →",
+        TournamentStage.ScheduleReady => "查看与调整赛程 →",
+        _ => "前往比赛现场 →"
+    };
     public string EditHint => Session.RequiresReload ? "请重新载入工作区后再修改。" : configurationConflict
         ? "赛事配置已被其他操作更新，当前输入已保留且暂不能保存。请取消编辑后重新编辑，载入最新配置。"
         : CanEditConfiguration ? "确认抽签前可修改名称、项目和赛制。" : "已有确认抽签，项目配置已锁定。";
@@ -39,7 +51,7 @@ public sealed class WorkspaceOverviewPageViewModel : WorkspacePageViewModel
     };
     public ObservableCollection<WorkspaceProjectOptionViewModel> Projects { get; } = [];
     public IReadOnlyList<WorkspaceProjectProgress> ProjectProgress => Session.Workspace.Projects.OrderBy(p => p.SortOrder)
-        .Select(p => new WorkspaceProjectProgress(p.DisplayName, p.Roster is null ? "待导入名单" : $"名单 {p.Roster.Participants.Count} 组",
+        .Select(p => new WorkspaceProjectProgress(WorkspaceProjectDisplay.Label(Session.Workspace, p), p.Roster is null ? "待导入名单" : $"{p.Roster.Participants.Count} {ParticipantUnit(p.Discipline)}已报名",
             p.Draw?.ConfirmedAt is not null ? "抽签已确认" : p.Draw is not null ? "抽签待确认" : "待抽签")).ToArray();
     public DelegateCommand BeginEditCommand { get; }
     public DelegateCommand CancelEditCommand { get; }
@@ -95,7 +107,10 @@ public sealed class WorkspaceOverviewPageViewModel : WorkspacePageViewModel
         base.RefreshSession(next);
         if (!IsEditing) LoadConfiguration();
         foreach (var name in new[] { nameof(Name), nameof(Stage), nameof(Purpose), nameof(Kind), nameof(Revision), nameof(NextStep), nameof(ProjectProgress) }) OnPropertyChanged(name);
+        foreach (var name in new[] { nameof(ProjectCount), nameof(RosterProgress), nameof(DrawProgress), nameof(NextLabel) }) OnPropertyChanged(name);
     }
+    private static string ParticipantUnit(EventDiscipline discipline) => discipline == EventDiscipline.Team ? "队" :
+        discipline is EventDiscipline.MenDoubles or EventDiscipline.WomenDoubles or EventDiscipline.MixedDoubles ? "对" : "人";
     private static bool SameConfiguration(TournamentWorkspace baseline, TournamentWorkspace current) =>
         baseline.Name == current.Name && baseline.Kind == current.Kind &&
         baseline.Projects.OrderBy(p => p.SortOrder).Select(p => (p.Id, p.Discipline, p.DisplayName, p.CompetitionMode, p.SortOrder))

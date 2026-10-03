@@ -1,4 +1,5 @@
 using BadmintonDraw.Workflows.Tournaments;
+using BadmintonDraw.Desktop.Navigation;
 
 namespace BadmintonDraw.Desktop.ViewModels;
 
@@ -10,6 +11,7 @@ public sealed class OperationsPageViewModel : WorkspacePageViewModel, IDisposabl
     public WorkspaceOperationalExportViewModel Materials { get; }
     public WorkspaceOperationsHistory History { get; private set; }
     public DelegateCommand OpenRecoveryCommand { get; }
+    public DelegateCommand OpenScheduleCommand { get; }
     public int SelectedTabIndex { get => selectedTabIndex; set => SetProperty(ref selectedTabIndex, value); }
     public int CompletedMatchCount => Session.Workspace.Results.Count;
     public int TotalMatchCount => Session.Workspace.Projects.Sum(p => p.MatchGraph?.Matches.Count(n => n.IsPlayable) ?? 0);
@@ -17,12 +19,14 @@ public sealed class OperationsPageViewModel : WorkspacePageViewModel, IDisposabl
         $"工作区：{Session.Workspace.Id:D}；修订：{Session.Workspace.Revision}；已记录赛果：{CompletedMatchCount}/{TotalMatchCount}" +
         (Session.RequiresReload ? "\n此为最后已知快照；保存后重读失败，请重新载入，不能继续写入。" : "");
     public string ProjectSummary => string.Join("\n", Session.Workspace.Projects.Select(p =>
-        $"{p.DisplayName} [{p.Id:D}]：{Session.Workspace.Results.Count(r => r.Key.ProjectId == p.Id)}/{p.MatchGraph?.Matches.Count(n => n.IsPlayable) ?? 0}"));
+        (Session.Workspace.Projects.Count(other => other.DisplayName == p.DisplayName) > 1 ? $"{p.DisplayName} [{p.Id:D}]" : p.DisplayName) +
+        $"：已记录 {Session.Workspace.Results.Count(r => r.Key.ProjectId == p.Id)} / {p.MatchGraph?.Matches.Count(n => n.IsPlayable) ?? 0} 场结果"));
     public OperationsPageViewModel(AppShellViewModel shell, WorkspaceSession session,
         Func<Task<IReadOnlyList<string>?>> pickResultFiles, Func<Task<string?>> pickOutputDirectory) : base(session)
     {
         ResultImport = new(shell, session, pickResultFiles); Materials = new(shell, session, pickOutputDirectory);
         History = new(session.Workspace); OpenRecoveryCommand = shell.OpenRecoveryCommand;
+        OpenScheduleCommand = new(() => shell.Navigate(WorkspaceRoute.ScheduleBoard), () => !disposed && shell.CanNavigate(WorkspaceRoute.ScheduleBoard));
     }
     public override void RefreshSession(WorkspaceSession next)
     {
@@ -36,10 +40,11 @@ public sealed class OperationsPageViewModel : WorkspacePageViewModel, IDisposabl
     {
         if (disposed) return;
         ResultImport?.RefreshAvailability(); Materials?.RefreshAvailability();
+        OpenScheduleCommand?.NotifyCanExecuteChanged();
     }
     public void Dispose()
     {
         if (disposed) return;
-        disposed = true; ResultImport.Dispose(); Materials.Dispose();
+        disposed = true; ResultImport.Dispose(); Materials.Dispose(); OpenScheduleCommand.NotifyCanExecuteChanged();
     }
 }

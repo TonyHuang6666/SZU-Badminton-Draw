@@ -13,6 +13,7 @@ public sealed class ProjectDrawViewModel : ViewModelBase
     private bool edited, editorConflict, acknowledgeInvalidation;
     public Guid ProjectId => project.Id;
     public string Name => project.DisplayName;
+    public string DisplayLabel => WorkspaceProjectDisplay.Label(page.Session.Workspace, project);
     public string Mode => project.CompetitionMode is CompetitionMode.TeamKnockout or CompetitionMode.SinglesKnockout ? "分组淘汰赛" : "分组循环赛";
     public bool IsKnockout => project.CompetitionMode is CompetitionMode.TeamKnockout or CompetitionMode.SinglesKnockout;
     public string GroupCountText { get => groupCountText; set { if (SetProperty(ref groupCountText, value)) Edited(); } }
@@ -28,11 +29,20 @@ public sealed class ProjectDrawViewModel : ViewModelBase
     public bool HasEditorConflict => editorConflict;
     public bool IsConfirmed => project.Draw?.ConfirmedAt is not null;
     public bool HasPreview => project.Draw is not null;
+    public string PendingDrawLabel => $"{DisplayLabel} · {(HasPreview ? "待确认" : "未抽签")}";
+    public bool IsPreviewPending => HasPreview && !IsConfirmed;
+    public bool ShowPreviewAction => !IsConfirmed && (!HasPreview || !MatchesPreview || editorConflict);
+    public bool ShowConfirmAction => IsPreviewPending && MatchesPreview && !editorConflict;
+    public string PreviewActionLabel => HasPreview ? "按当前设置重新抽签" : "开始公开抽签";
+    public string PreparationSummary => $"{project.Roster?.Participants.Count ?? 0} 个参赛方 · {project.Roster?.Participants.Count(p => p.IsSeed) ?? 0} 个种子 · {Mode}";
+    public string StageHint => IsConfirmed ? "结果已确认。可以导出并结束本次工作，也可以继续安排比赛时间。"
+        : HasPreview ? "请向参赛者展示下方结果，核对分组与种子位置，再确认本项目抽签。"
+        : "核对参赛人数和分组方式，准备好后点击「开始公开抽签」。";
     public bool CanEditSettings => page.Shell.CanMutate && !IsConfirmed && !editorConflict && page.Session.Workspace.Results.Count == 0;
-    public string Status => IsConfirmed ? "已确认抽签结果（只读）" : HasPreview ? "未确认抽签预览" : "尚未抽签";
+    public string Status => IsConfirmed ? "✓ 抽签已确认" : HasPreview ? "待确认抽签结果" : "准备开始抽签";
     public string EditHint => editorConflict ? "名单或抽签设置已更新，旧输入已保留。请载入最新设置后再抽签或确认。"
-        : HasPreview && !MatchesPreview ? "当前输入不同于已保存预览。请明确重新预览，或载入预览设置后确认；导出仍使用已保存预览。"
-        : "导入、查看和导出均不会自动抽签。请在公开会议中主动点击生成预览，检查后再确认。";
+        : HasPreview && !MatchesPreview ? "设置已修改，但抽签结果尚未改变。请按当前设置重新抽签，或恢复这份结果使用的设置后确认；导出仍使用已保存的抽签结果。"
+        : "导入、查看和导出均不会自动抽签。请在公开会议中点击「开始公开抽签」，核对结果后再确认。";
     public string DrawAudit => project.Draw is not { } draw ? "尚未生成抽签审计。原始名单文件 SHA-256：" + project.Roster?.ContentHash
         : $"随机种子：{draw.Result.Audit.RandomSeed}\n当前名单 SHA-256：{draw.Result.Audit.InputHash}\n算法：{draw.Result.Audit.AlgorithmVersion}\n生成时间：{draw.Result.Audit.GeneratedAt.LocalDateTime:yyyy-MM-dd HH:mm:ss}\n参赛方：{draw.Result.Audit.ParticipantCount} · 种子：{draw.Result.Audit.SeedCount} · 分组：{draw.Result.Audit.GroupCount}\n确认时间：{(draw.ConfirmedAt is { } confirmed ? confirmed.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss") : "尚未确认")}";
     public IReadOnlyList<DrawGroupDisplay> Groups => project.Draw is not { } draw ? [] : draw.Result.Groups.Select(group =>
@@ -49,15 +59,18 @@ public sealed class ProjectDrawViewModel : ViewModelBase
     public AsyncCommand ReopenCommand { get; }
     public DelegateCommand ResetSettingsCommand { get; }
     public DelegateCommand GenerateSeedCommand { get; }
+    public DelegateCommand ReviewDrawCommand { get; }
 
     public ProjectDrawViewModel(PublicDrawPageViewModel page, TournamentProject project)
     {
         this.page = page; this.project = project; editorBaseline = project;
+        ReviewDrawCommand = new(() => page.SelectedProject = this,
+            () => page.CanReviewPendingDraws && page.Projects.Contains(this) && !IsConfirmed);
         PreviewDrawCommand = new(async () =>
         {
             var expected = page.Session; var id = ProjectId; var settings = BuildSettings();
             if (await page.Shell.RunWorkspaceCommandAsync(expected, (workflow, revision) => workflow.PreviewDraw(id, settings, revision),
-                "抽签预览已保存，尚未确认或排程。")) LoadSettings();
+                "抽签结果已保存，请核对后确认；尚未安排比赛时间。")) LoadSettings();
         }, () => CanEditSettings && page.Session.Workspace.Stage >= TournamentStage.RostersReady, page.Shell.ReportError);
         ConfirmDrawCommand = new(async () =>
         {
@@ -66,9 +79,9 @@ public sealed class ProjectDrawViewModel : ViewModelBase
                 "此项目抽签已确认，比赛结构已保存；尚未生成赛程。")) LoadSettings();
         }, () => CanEditSettings && HasPreview && MatchesPreview, page.Shell.ReportError);
         ExportPreviewCommand = new(() => page.ExportAsync(ProjectId, Workflows.Tournaments.DrawExportState.Preview),
-            () => page.Shell.CanMutate && HasPreview && !IsConfirmed, page.Shell.ReportError);
+            () => page.CanStartExport && HasPreview && !IsConfirmed, page.Shell.ReportError);
         ExportConfirmedCommand = new(() => page.ExportAsync(ProjectId, Workflows.Tournaments.DrawExportState.Confirmed),
-            () => page.Shell.CanMutate && IsConfirmed, page.Shell.ReportError);
+            () => page.CanStartExport && IsConfirmed, page.Shell.ReportError);
         ReopenCommand = new(async () =>
         {
             var expected = page.Session; var id = ProjectId; var reason = ReopenReason.Trim();
@@ -114,14 +127,15 @@ public sealed class ProjectDrawViewModel : ViewModelBase
         if (edited && changed) editorConflict = true;
         project = next;
         if (changed && !edited && !editorConflict) LoadSettings();
-        foreach (var name in new[] { nameof(Name), nameof(Mode), nameof(IsKnockout), nameof(DrawAudit), nameof(Groups), nameof(Status), nameof(IsConfirmed), nameof(HasPreview) }) OnPropertyChanged(name);
+        foreach (var name in new[] { nameof(Name), nameof(DisplayLabel), nameof(Mode), nameof(IsKnockout), nameof(DrawAudit), nameof(Groups), nameof(Status), nameof(IsConfirmed), nameof(HasPreview), nameof(IsPreviewPending), nameof(PreparationSummary), nameof(StageHint), nameof(PreviewActionLabel), nameof(PendingDrawLabel) }) OnPropertyChanged(name);
         RefreshAvailability();
     }
     internal void RefreshAvailability()
     {
-        foreach (var name in new[] { nameof(CanEditSettings), nameof(HasEditorConflict), nameof(EditHint), nameof(ShowKnockoutGoal), nameof(ShowPlacementPlayoff), nameof(GoalHint), nameof(CanReopen) }) OnPropertyChanged(name);
+        foreach (var name in new[] { nameof(CanEditSettings), nameof(HasEditorConflict), nameof(EditHint), nameof(ShowKnockoutGoal), nameof(ShowPlacementPlayoff), nameof(GoalHint), nameof(CanReopen), nameof(ShowPreviewAction), nameof(ShowConfirmAction) }) OnPropertyChanged(name);
         PreviewDrawCommand?.NotifyCanExecuteChanged(); ConfirmDrawCommand?.NotifyCanExecuteChanged(); ExportPreviewCommand?.NotifyCanExecuteChanged();
         ExportConfirmedCommand?.NotifyCanExecuteChanged(); ReopenCommand?.NotifyCanExecuteChanged(); ResetSettingsCommand?.NotifyCanExecuteChanged(); GenerateSeedCommand?.NotifyCanExecuteChanged();
+        ReviewDrawCommand?.NotifyCanExecuteChanged();
     }
     private static string Format(DrawParticipant participant) => participant.DisplayName + (participant.IsSeed ? participant.SeedRank is { } rank ? $"（{rank} 号种子）" : "（种子）" : "");
     private static string FormatGroup(DrawGroup? group) => group is { Count: > 0 } ? string.Join("、", group.Participants.Select(Format)) : "无";

@@ -93,7 +93,7 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
         Change(expectedRevision, workspace =>
         {
             var project = EditableProject(workspace, projectId);
-            Require(project.Draw is not null, "draw.preview-required", "请先生成并检查抽签预览。");
+            Require(project.Draw is not null, "draw.preview-required", "请先开始公开抽签并检查待确认的抽签结果。");
             var graph = MatchGraphFactory.Create(projectId, project.Draw!.Result);
             var updated = ReplaceProject(workspace, project with
                 { Draw = project.Draw with { ConfirmedAt = DateTimeOffset.UtcNow }, MatchGraph = graph });

@@ -12,7 +12,9 @@ internal static class ScheduleEditorInput
         ? value : throw Error($"{label}应为不小于 {minimum} 的整数。");
     internal static TimeOnly Time(string text, string label) => TimeOnly.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var value)
         ? value : throw Error($"{label}请输入有效时间，例如 09:00。");
-    internal static string TimeText(TimeOnly value) => value.ToString("HH:mm:ss.fffffff", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.');
+    internal static string TimeText(TimeOnly value) => value.Ticks % TimeSpan.TicksPerMinute == 0
+        ? value.ToString("HH:mm", CultureInfo.InvariantCulture)
+        : value.ToString("HH:mm:ss.fffffff", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.');
     internal static DateOnly Date(string text) => DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var value)
         ? value : throw Error("比赛日请输入有效日期，格式 yyyy-MM-dd。");
     internal static double? Percent(string text, string label)

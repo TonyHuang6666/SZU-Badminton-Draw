@@ -134,6 +134,26 @@ internal sealed class DeferredUiContext : SynchronizationContext
     public override void Post(SendOrPostCallback callback, object? state) { jobs.Enqueue((callback, state)); first.TrySetResult(); }
     internal Task Start(Func<Task> action)
     { var old = Current; SetSynchronizationContext(this); try { return action(); } finally { SetSynchronizationContext(old); } }
+    internal async Task WaitForPostAfter(Func<bool> boundaryReached)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (!boundaryReached())
+        {
+            if (jobs.TryDequeue(out var job))
+            {
+                var old = Current; SetSynchronizationContext(this);
+                try { job.Callback(job.State); } finally { SetSynchronizationContext(old); }
+            }
+            if (DateTime.UtcNow > deadline) throw new TimeoutException("Publication boundary was not reached.");
+            if (!boundaryReached()) await Task.Delay(5);
+        }
+        // Leave the actual export completion queued, after all preview continuations.
+        while (jobs.IsEmpty)
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException("Publication completion was not posted.");
+            await Task.Delay(5);
+        }
+    }
     internal async Task Complete(Task operation)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);

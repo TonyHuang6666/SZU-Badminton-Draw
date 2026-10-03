@@ -9,7 +9,7 @@ namespace BadmintonDraw.Desktop.Tests;
 
 public sealed class WorkspaceOperationalExportRaceTests
 {
-    public static IEnumerable<object[]> PickerCases => new[] { "output", "project", "day", "carry", "pdf", "overwrite", "consent", "reopen", "audit", "foreign", "dispose" }
+    public static IEnumerable<object[]> PickerCases => new[] { "output", "project", "day", "carry", "pdf", "consent", "reopen", "audit", "foreign", "dispose" }
         .SelectMany(change => new[] { new object[] { change, false }, new object[] { change, true } });
     [Theory, MemberData(nameof(PickerCases))]
     public async Task LatePickerSuccessAndExceptionCannotOverrideNewScopeOrFeedback(string change, bool throws)
@@ -21,6 +21,58 @@ public sealed class WorkspaceOperationalExportRaceTests
         if (throws) returned.SetException(new IOException("late picker failure")); else returned.SetResult("late-output");
         await pending; Assert.Equal(expected, Feedback(f, vm)); Assert.Null(vm.Outcome); Assert.False(vm.IsWorking);
     }
+
+    public static IEnumerable<object[]> ConfirmationCases => new[] { "output", "project", "day", "carry", "pdf", "consent", "reopen", "audit", "foreign", "dispose", "navigate" }
+        .SelectMany(change => new[] { new object[] { change, false }, new object[] { change, true } });
+
+    [Theory]
+    [InlineData("output")]
+    [InlineData("day")]
+    [InlineData("reopen")]
+    [InlineData("foreign")]
+    [InlineData("dispose")]
+    [InlineData("navigate")]
+    public async Task LateConflictPreviewCannotStartExportForStaleInputsOrReplacementPage(string change)
+    {
+        var prompts = 0;
+        using var f = new OperationsUiFixture(confirmOverwrite: _ => { prompts++; return Task.FromResult(true); });
+        f.PrepareExport(); var vm = f.Page.Materials; var original = f.Shell.CurrentSession!;
+        var output = vm.OutputDirectory;
+        var deferred = new DeferredUiContext(); var pending = deferred.Start(() => vm.ExportCommand.ExecuteAsync());
+        await deferred.FirstPost.WaitAsync(TimeSpan.FromSeconds(20));
+        if (change == "navigate") Assert.True(f.Shell.Navigate(WorkspaceRoute.Start));
+        else Change(f, vm, change);
+        var expected = Feedback(f, vm);
+        await deferred.Complete(pending);
+        Assert.Equal(expected, Feedback(f, vm)); Assert.False(Directory.Exists(output));
+        Assert.Equal(0, prompts); Assert.Null(vm.Outcome); Assert.Null(vm.ExportFailure);
+        Assert.DoesNotContain(new TournamentWorkspaceStore().Read(original.WorkspacePath).AuditEvents,
+            audit => audit.Action == "OperationalPackageExported");
+    }
+
+    [Theory, MemberData(nameof(ConfirmationCases))]
+    public async Task LateConfirmationCannotExportChangedInputsOrReplacementPage(string change, bool throws)
+    {
+        var shown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var returned = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var f = new OperationsUiFixture(confirmOverwrite: _ => { shown.TrySetResult(); return returned.Task; });
+        f.PrepareExport(); var vm = f.Page.Materials; await vm.ExportCommand.ExecuteAsync();
+        var original = f.Shell.CurrentSession!;
+        var paths = vm.Outputs.Select(file => file.Path).ToArray();
+        var hashes = paths.Select(BadmintonDraw.Tests.WorkspaceResultImportFacadeFixture.Hash).ToArray();
+        vm.ScopeConfirmed = true; var pending = vm.ExportCommand.ExecuteAsync();
+        await shown.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.False(f.Shell.IsBusy); Assert.True(vm.IsWorking);
+        if (change == "navigate") Assert.True(f.Shell.Navigate(WorkspaceRoute.Start));
+        else Change(f, vm, change);
+        var expected = Feedback(f, vm);
+        if (throws) returned.SetException(new IOException("late confirmation failure")); else returned.SetResult(true);
+        await pending;
+        Assert.Equal(expected, Feedback(f, vm)); Assert.False(vm.IsWorking); Assert.Null(vm.Outcome); Assert.Null(vm.ExportFailure);
+        Assert.Equal(hashes, paths.Select(BadmintonDraw.Tests.WorkspaceResultImportFacadeFixture.Hash));
+        var durable = new TournamentWorkspaceStore().Read(original.WorkspacePath);
+        Assert.Single(durable.AuditEvents, audit => audit.Action == "OperationalPackageExported");
+    }
     public static IEnumerable<object[]> ExportCases => new[] { "output", "day", "reopen", "audit", "foreign", "dispose" }
         .SelectMany(change => new[] { new object[] { change, "success" }, new object[] { change, "precommit" }, new object[] { change, "committed" } });
     [Theory, MemberData(nameof(ExportCases))]
@@ -30,7 +82,7 @@ public sealed class WorkspaceOperationalExportRaceTests
         using var f = new OperationsUiFixture(store: store); f.PrepareExport(); var vm = f.Page.Materials; var original = f.Shell.CurrentSession!;
         files.Armed = true; files.FailPublish = failure == "precommit"; store.FailCommittedRead = failure == "committed";
         var deferred = new DeferredUiContext(); var pending = deferred.Start(() => vm.ExportCommand.ExecuteAsync());
-        await deferred.FirstPost.WaitAsync(TimeSpan.FromSeconds(20));
+        await deferred.WaitForPostAfter(() => files.PublicationAttempted);
         Assert.True(f.Shell.IsBusy); Assert.False(f.Shell.NewCommand.CanExecute(null)); Assert.False(f.Shell.OpenCommand.CanExecute(null));
         Assert.False(await f.Shell.OpenWorkspaceAsync(original.WorkspacePath)); Assert.False(f.Shell.Navigate(WorkspaceRoute.Start));
         files.FailPublish = false; store.FailCommittedRead = false;
@@ -65,7 +117,6 @@ public sealed class WorkspaceOperationalExportRaceTests
             case "day": vm.Days[0].IsSelected = !vm.Days[0].IsSelected; break;
             case "carry": vm.IncludePendingCarryover = true; break;
             case "pdf": vm.PdfRows = 2; break;
-            case "overwrite": vm.OverwriteExisting = true; break;
             case "consent": vm.ScopeConfirmed = true; break;
             case "reopen": f.Workflow.OpenWorkspace(f.Workflow.CurrentSession!.WorkspacePath); break;
             case "audit":

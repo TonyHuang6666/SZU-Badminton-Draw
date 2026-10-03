@@ -16,14 +16,15 @@ internal sealed class OperationsUiFixture : IDisposable
     internal string? NextOutput { get; set; }
     internal OperationsUiFixture(int projects = 1, int entrants = 2, Action<Action>? post = null,
         Func<Task<string?>>? outputPicker = null, OperationalPackageFileOperations? files = null,
-        ITournamentWorkspaceStore? store = null)
+        ITournamentWorkspaceStore? store = null, Func<IReadOnlyList<string>, Task<bool>>? confirmOverwrite = null)
     {
         Data = new(projects, entrants, store);
         Data.Store.Mutate(Data.Session.WorkspacePath, Data.Revision,
             w => w with { Projects = w.Projects.Select(p => p with { DisplayName = "同名项目" }).ToArray() });
         Workflow = new(Data.Store, operationalPackages: new(files)); Workflow.OpenWorkspace(Data.Session.WorkspacePath);
         Shell = new(Workflow, () => Task.FromResult<string?>(null), _ => Task.FromResult<string?>(null),
-            new RecentWorkspaceStore(Data.PathFor("ops-recent.json")), post ?? (action => action()));
+            new RecentWorkspaceStore(Data.PathFor("ops-recent.json")), post ?? (action => action()),
+            confirmExportOverwrite: confirmOverwrite);
         // Parent lifecycle unit host; actual Window factory/template is separately exercised headlessly.
         Shell.RegisterPageFactory(WorkspaceRoute.Operations, s => new OperationsPageViewModel(Shell, s,
             () => Task.FromResult(NextFiles), outputPicker ?? (() => Task.FromResult(NextOutput))));

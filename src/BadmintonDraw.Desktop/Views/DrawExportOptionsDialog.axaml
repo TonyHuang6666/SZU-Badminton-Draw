@@ -1,0 +1,64 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BadmintonDraw.Desktop.ViewModels"
+        x:Class="BadmintonDraw.Desktop.Views.DrawExportOptionsDialog" x:DataType="vm:DrawExportOptionsViewModel"
+        Title="导出抽签结果" Width="560" Height="520" MinWidth="400" MinHeight="300"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource AppTextBrush}">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="24" RowSpacing="16">
+    <StackPanel Spacing="6">
+      <TextBlock Classes="section-title" Text="导出抽签结果" />
+      <TextBlock Classes="muted" Text="选择范围和格式，随后选择保存文件夹。" />
+    </StackPanel>
+    <ScrollViewer x:Name="SettingsScroll" Grid.Row="1" MaxHeight="420"
+                  HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="18" Margin="0,0,8,0">
+        <StackPanel Spacing="8">
+          <TextBlock Text="导出范围" FontWeight="SemiBold" />
+          <ComboBox x:Name="ScopeSelector" ItemsSource="{Binding Scopes}" SelectedItem="{Binding SelectedScope}"
+                    HorizontalAlignment="Stretch" AutomationProperties.Name="导出范围">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:DrawExportScope">
+                <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <TextBlock x:Name="ScopeHintText" Classes="muted" Text="{Binding ScopeHint}" FontSize="12" />
+        </StackPanel>
+        <Border Classes="inset" Padding="12">
+          <TextBlock x:Name="StateHintText" Text="{Binding StateHint}" FontWeight="SemiBold"
+                     TextWrapping="Wrap" />
+        </Border>
+        <StackPanel Spacing="8">
+          <TextBlock Text="文件格式" FontWeight="SemiBold" />
+          <ComboBox x:Name="FormatSelector" ItemsSource="{Binding ExportFormats}" SelectedIndex="{Binding ExportFormatIndex}"
+                    HorizontalAlignment="Stretch" AutomationProperties.Name="导出文件格式" />
+        </StackPanel>
+        <Expander x:Name="PdfPaginationSettings" Header="PDF 分页设置" IsVisible="{Binding UsesPdf}">
+          <StackPanel Spacing="12" Margin="12,8,12,12">
+            <TextBlock Classes="muted" Text="设置对阵图在 A4 纸上的拼页行数和列数。1 行 × 1 列为单页。" FontSize="12" />
+            <Grid ColumnDefinitions="*,12,*">
+              <StackPanel Spacing="8">
+                <TextBlock Text="行数" FontWeight="SemiBold" />
+                <TextBox x:Name="PdfRowsInput" Text="{Binding PdfRowsText}" AutomationProperties.Name="PDF 拼页行数" />
+              </StackPanel>
+              <StackPanel Grid.Column="2" Spacing="8">
+                <TextBlock Text="列数" FontWeight="SemiBold" />
+                <TextBox x:Name="PdfColumnsInput" Text="{Binding PdfColumnsText}" AutomationProperties.Name="PDF 拼页列数" />
+              </StackPanel>
+            </Grid>
+          </StackPanel>
+        </Expander>
+      </StackPanel>
+    </ScrollViewer>
+    <StackPanel Grid.Row="2" Spacing="12">
+      <TextBlock x:Name="ValidationText" Text="{Binding ValidationMessage}" TextWrapping="Wrap"
+                 Foreground="{DynamicResource AppErrorTextBrush}" FontSize="12" />
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12">
+        <Button x:Name="CancelButton" Classes="secondary" Content="取消" IsDefault="True"
+                IsCancel="True" Click="CancelClicked" />
+        <Button x:Name="ExportButton" Classes="primary" Content="选择导出文件夹…"
+                IsEnabled="{Binding CanExport}" Click="ExportClicked" />
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+</Window>

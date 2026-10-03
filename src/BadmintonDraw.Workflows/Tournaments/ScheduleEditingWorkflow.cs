@@ -38,8 +38,8 @@ public sealed partial class TournamentWorkspaceWorkflow
     public WorkspaceCommandResult CascadeMove(ScheduleEditPreview preview, long expectedRevision) => WithCapturedSession(captured =>
     {
         var source = ReadEditingSource(captured, expectedRevision, RequiredBaseline(preview.Root));
-        Require(preview.IsCascade, "schedule.preview-kind", "连锁移动需要连锁预览。");
-        Require(preview.SourceRevision == expectedRevision, "schedule.preview-stale", "预览后工作区已变化，请重新预览并确认。");
+        Require(preview.IsCascade, "schedule.preview-kind", "连锁移动需要连锁调整方案。");
+        Require(preview.SourceRevision == expectedRevision, "schedule.preview-stale", "查看调整方案后工作区已变化，请重新查看调整方案并确认。");
         return ApplyEdit(captured, source, preview, expectedRevision);
     });
 
@@ -183,7 +183,7 @@ public sealed partial class TournamentWorkspaceWorkflow
     {
         if (validation.IsValid) return;
         throw new WorkspaceCommandException(new(code, message, SchedulingFailure: new(message, [], validation.Violations, [],
-            ["检查目标时间、场地、后续依赖和当前赛果锁定。", "需要时预览连锁移动，或选择其他空位；不会自动移动其他项目比赛。"] )));
+            ["检查目标时间、场地、后续依赖和当前赛果锁定。", "需要时查看连锁调整方案，或选择其他空位；不会自动移动其他项目比赛。"] )));
     }
 
     private static string Fingerprint<T>(T value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value))));

@@ -44,6 +44,8 @@ internal sealed class ResultImportUiFixture : IDisposable
 
 internal sealed class ImportUiFiles : WorkspaceFileOperations
 {
+    private int publicationAttempted;
+    internal bool PublicationAttempted => Volatile.Read(ref publicationAttempted) != 0;
     internal bool Armed { get; set; }
     internal bool Published { get; set; }
     internal bool FailPublish { get; set; }
@@ -56,8 +58,12 @@ internal sealed class ImportUiFiles : WorkspaceFileOperations
     }
     public override void Publish(string candidate, string destination, bool overwrite)
     {
-        if (Armed && FailPublish) throw new IOException("injected publish failure");
-        base.Publish(candidate, destination, overwrite); if (Armed) Published = true;
+        try
+        {
+            if (Armed && FailPublish) throw new IOException("injected publish failure");
+            base.Publish(candidate, destination, overwrite); if (Armed) Published = true;
+        }
+        finally { if (Armed) Volatile.Write(ref publicationAttempted, 1); }
     }
 }
 

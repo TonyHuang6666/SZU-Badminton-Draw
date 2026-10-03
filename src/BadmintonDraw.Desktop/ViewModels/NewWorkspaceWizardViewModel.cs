@@ -18,11 +18,20 @@ public sealed class NewWorkspaceWizardViewModel : ViewModelBase
     public bool IsStepOne => Step == 1;
     public bool IsStepTwo => Step == 2;
     public bool IsStepThree => Step == 3;
+    public string StepTitle => Step switch { 1 => "这是什么比赛？", 2 => "要进行哪些项目？", _ => "把赛事文件保存在哪里？" };
+    public string StepCaption => $"第 {Step} 步，共 3 步";
+    public string NextLabel => Step == 1 ? "下一步：选择项目" : "下一步：选择保存位置";
+    public string StepHint => Step switch
+    {
+        1 => BasicsValid ? "已准备好，接下来选择参赛项目。" : "请填写比赛名称，并选择比赛类型和本次目标。",
+        2 => Projects.Any(p => p.IsSelected) ? $"已选择 {Projects.Count(p => p.IsSelected)} 个项目，可为每个项目选择赛制。" : "至少选择一个项目，再继续下一步。",
+        _ => RequestValid ? "创建后就可以开始准备参赛名单。" : "请选择一个本地保存位置，文件以 .szbd 结尾。"
+    };
     public bool IsTeam { get => kind == TournamentKind.Team; set { if (value) SelectKind(TournamentKind.Team); } }
     public bool IsIndividual { get => kind == TournamentKind.Individual; set { if (value) SelectKind(TournamentKind.Individual); } }
     public bool IsDrawOnly { get => purpose == TournamentPurpose.PublicDrawOnly; set { if (value) SelectPurpose(TournamentPurpose.PublicDrawOnly); } }
     public bool IsFullTournament { get => purpose == TournamentPurpose.FullTournament; set { if (value) SelectPurpose(TournamentPurpose.FullTournament); } }
-    public string Summary => $"{Name} · {(IsTeam ? "团体赛" : "单项赛")} · {(IsDrawOnly ? "仅公开抽签" : "完整赛事筹备")}\n" +
+    public string Summary => $"{Name} · {(IsTeam ? "团体赛" : "单项赛")} · {(IsDrawOnly ? "先完成公开抽签" : "筹备整场比赛")}\n" +
         string.Join("、", Projects.Where(p => p.IsSelected).Select(p => $"{p.DisplayName}（{p.CompetitionModes[p.CompetitionModeIndex]}）"));
     public CreateWorkspaceRequest? CreateRequest { get; private set; }
     public DelegateCommand NextCommand { get; }
@@ -85,7 +94,7 @@ public sealed class NewWorkspaceWizardViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("请填写赛事名称。");
         if (kind is null || purpose is null) throw new ArgumentException("请选择赛事类型和工作目标。");
         if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) || !string.Equals(Path.GetExtension(path), ".szbd", StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("请选择本地 .szbd 工作区保存位置。");
+            throw new ArgumentException("请选择本地赛事文件的保存位置，文件以 .szbd 结尾。");
         var selected = Projects.Where(p => p.IsSelected).ToArray();
         if (selected.Length == 0 || (IsTeam && (selected.Length != 1 || selected[0].Discipline != EventDiscipline.Team)))
             throw new ArgumentException("请选择至少一个项目；团体赛必须保留一个团体项目。");
@@ -96,5 +105,6 @@ public sealed class NewWorkspaceWizardViewModel : ViewModelBase
         NextCommand?.NotifyCanExecuteChanged(); BackCommand?.NotifyCanExecuteChanged();
         BrowsePathCommand?.NotifyCanExecuteChanged(); CreateCommand?.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(IsStepOne)); OnPropertyChanged(nameof(IsStepTwo)); OnPropertyChanged(nameof(IsStepThree)); OnPropertyChanged(nameof(Summary));
+        OnPropertyChanged(nameof(StepTitle)); OnPropertyChanged(nameof(StepCaption)); OnPropertyChanged(nameof(NextLabel)); OnPropertyChanged(nameof(StepHint));
     }
 }

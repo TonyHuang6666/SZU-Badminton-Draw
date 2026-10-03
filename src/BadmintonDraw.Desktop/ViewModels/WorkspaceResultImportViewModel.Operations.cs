@@ -12,7 +12,7 @@ public sealed partial class WorkspaceResultImportViewModel
             var picked = (await pickFiles())?.ToArray();
             if (!Current(token, captured) || picked is null || picked.Length == 0) return;
             generation++; SelectedPaths = Array.AsReadOnly(picked); OnPropertyChanged(nameof(SelectedPaths));
-            ClearEvidence(); StateMessage = "已选择记录表，请预览导入；尚未保存。"; OutcomeDetails = "";
+            ClearEvidence(); StateMessage = "已选择记录表，请检查记录表；尚未保存。"; OutcomeDetails = "";
         }
         catch (Exception error) { if (Current(token, captured)) ShowError(ToError(error)); }
         finally { SetWorking(false); }
@@ -21,7 +21,7 @@ public sealed partial class WorkspaceResultImportViewModel
     {
         generation++; SelectedPaths = Array.Empty<string>(); OnPropertyChanged(nameof(SelectedPaths));
         ClearEvidence(); OutcomeDetails = "";
-        StateMessage = applying ? "已清空文件选择；已发起的导入不会因此回滚，请以当前工作区为准。" : "已清空选择；请重新选择并预览。";
+        StateMessage = applying ? "已清空文件选择；已发起的导入不会因此回滚，请以当前工作区为准。" : "已清空选择；请重新选择并检查记录表。";
     }
     private async Task PreviewAsync()
     {
@@ -36,10 +36,10 @@ public sealed partial class WorkspaceResultImportViewModel
                 preview = value; Install(value.Evaluation); SourceDetails = DescribeSource(value);
                 StateMessage = value.Evaluation.Status switch
                 {
-                    ResultImportEvaluationStatus.Ready => "预览完成，尚未保存；请核对文件和拟变更计数后明确确认。",
+                    ResultImportEvaluationStatus.Ready => "记录表检查完成，尚未保存；请核对文件和拟变更计数后明确确认。",
                     ResultImportEvaluationStatus.RequiresConfirmation => "发现元数据更正，尚未保存；请核对前后值，允许更正并填写原因后确认。",
-                    ResultImportEvaluationStatus.NoChanges => "预览显示文件已处理或已作废；可明确确认检查，预计无需保存。",
-                    _ => "记录表包含不能接受的内容，尚未保存；请修正后重新预览。"
+                    ResultImportEvaluationStatus.NoChanges => "检查结果显示文件已处理或已作废；可明确确认检查，预计无需保存。",
+                    _ => "记录表包含不能接受的内容，尚未保存；请修正后重新检查记录表。"
                 };
             }
             else if (result.Error is { } error) ShowError(error);

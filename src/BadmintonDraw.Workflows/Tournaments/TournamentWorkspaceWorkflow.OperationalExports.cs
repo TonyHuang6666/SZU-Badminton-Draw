@@ -5,6 +5,13 @@ namespace BadmintonDraw.Workflows.Tournaments;
 
 public sealed partial class TournamentWorkspaceWorkflow
 {
+    public IReadOnlyList<string> PreviewOperationalExportConflicts(OperationalExportRequest request, long expectedRevision) =>
+        WithCapturedSession(captured =>
+        {
+            Require(request is not null, "export.request", "请选择导出范围。");
+            return operationalPackages.PreviewConflicts(ReadExportSource(captured, expectedRevision), captured.WorkspacePath, request!);
+        });
+
     public OperationalPackageOutcome ExportOperationalPackage(OperationalExportRequest request, long expectedRevision)
     {
         var progress = new OperationalPackageWorkflow.ExportProgress();

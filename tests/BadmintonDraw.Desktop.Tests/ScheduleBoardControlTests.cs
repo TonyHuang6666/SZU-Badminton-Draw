@@ -2,6 +2,7 @@ using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Layout;
 using Avalonia.Themes.Fluent;
@@ -11,6 +12,8 @@ using BadmintonDraw.Core;
 using BadmintonDraw.Core.Scheduling;
 using BadmintonDraw.Desktop.Controls;
 using BadmintonDraw.Desktop.Scheduling;
+using BadmintonDraw.Desktop.ViewModels;
+using BadmintonDraw.Desktop.Views;
 using Xunit;
 
 namespace BadmintonDraw.Desktop.Tests;
@@ -20,6 +23,47 @@ namespace BadmintonDraw.Desktop.Tests;
 public sealed class ScheduleBoardControlTests : IDisposable
 {
     private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(BoardTestApplication));
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public Task SetupShowsTheApplicableSchedulingModeAndPreservesFoldedOverrides(int projects) => session.Dispatch(() =>
+    {
+        using var fixture = new ScheduleUiFixture(projects);
+        var model = new ScheduleSetupPageViewModel(fixture.Shell, fixture.Workflow.CurrentSession!);
+        model.Days[0].TargetLoadText = "40";
+        model.ProjectTimings[0].FinalPreferenceIndex = 4;
+        var page = new ScheduleSetupPage { DataContext = model };
+        Assert.Equal(projects == 1, page.FindControl<Border>("SingleProjectPreference")!.IsVisible);
+        Assert.Equal(projects > 1, page.FindControl<Border>("MultiProjectNotice")!.IsVisible);
+        var advanced = page.FindControl<Expander>("AdvancedScheduleSettings")!;
+        Assert.False(advanced.IsExpanded);
+        advanced.IsExpanded = true;
+        advanced.IsExpanded = false;
+        var request = model.BuildSetup();
+        Assert.Equal(.4, Assert.Single(request.Policy.DayLoadTargets).TargetUtilization);
+        Assert.Equal(TournamentFinalDayPreference.StronglyPreferFinalDay, Assert.Single(request.Policy.FinalDayRules).Preference);
+    }, CancellationToken.None);
+
+    [Fact]
+    public Task BoardStartsInViewingModeAndSelectionRevealsRetainedAdjustmentFields() => session.Dispatch(() =>
+    {
+        using var fixture = new ScheduleUiFixture();
+        fixture.Workflow.GenerateSchedule(new([new(new(2026, 9, 19), new(9, 0), new(18, 0), ["B1", "B2"])], 2, 30, 4),
+            new(ScheduleAutoSchedulingStrategy.Compact, [], false, [], []), fixture.Workflow.CurrentSession!.Workspace.Revision);
+        using var model = new ScheduleBoardPageViewModel(fixture.Shell, fixture.Workflow.CurrentSession!);
+        var page = new ScheduleBoardPage { DataContext = model };
+        var editor = page.FindControl<ToggleButton>("MoveEditor")!;
+        Assert.False(editor.IsChecked);
+
+        model.SelectMatch(model.Matches[0].Key);
+        Assert.True(editor.IsChecked);
+        model.TargetTimeText = "12:34";
+        editor.IsChecked = false;
+        model.SelectMatch(model.Matches[0].Key);
+        Assert.True(editor.IsChecked);
+        Assert.Equal("12:34", model.TargetTimeText);
+    }, CancellationToken.None);
+
     [Theory]
     [InlineData("ClearHover")]
     [InlineData("ClearDragState")]

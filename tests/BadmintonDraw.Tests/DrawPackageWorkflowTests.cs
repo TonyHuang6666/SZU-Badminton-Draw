@@ -58,7 +58,10 @@ public sealed class DrawPackageWorkflowTests : IDisposable
         var excel = result.Outputs.Single(o => o.Format == WorkflowExportFormat.Excel).Path;
         using var book = new XLWorkbook(excel);
         var bracket = book.Worksheet("对阵表");
-        Assert.Contains("未确认抽签预览", bracket.Cell(1, 1).GetString());
+        Assert.Contains("抽签结果（待确认）", bracket.Cell(1, 1).GetString());
+        Assert.All(result.Outputs, output => Assert.Contains("_待确认抽签结果.", Path.GetFileName(output.Path)));
+        Assert.Null(result.Command.Workspace.Projects[0].Draw!.ConfirmedAt);
+        Assert.Null(new TournamentWorkspaceStore().Read(result.Command.WorkspacePath).Projects[0].Draw!.ConfirmedAt);
         Assert.Contains("合成测试杯", bracket.Cell(1, 1).GetString());
         Assert.Contains("男子单打", bracket.Cell(1, 1).GetString());
         Assert.Equal("首轮赛", bracket.Cell(4, 1).GetString());
@@ -136,8 +139,9 @@ public sealed class DrawPackageWorkflowTests : IDisposable
         foreach (var output in result.Outputs.Where(o => o.Format == WorkflowExportFormat.Excel))
         {
             using var book = new XLWorkbook(output.Path);
-            Assert.Contains("已确认抽签结果", book.Worksheet("对阵表").Cell(1, 1).GetString());
-            Assert.DoesNotContain("未确认抽签预览", book.Worksheet("对阵表").Cell(1, 1).GetString());
+            Assert.Contains("抽签结果（已确认）", book.Worksheet("对阵表").Cell(1, 1).GetString());
+            Assert.DoesNotContain("待确认", book.Worksheet("对阵表").Cell(1, 1).GetString());
+            Assert.Contains("_已确认抽签结果.", Path.GetFileName(output.Path));
             if (output.ProjectId == result.Command.Workspace.Projects[1].Id)
                 Assert.Equal("单打循环赛对阵表", book.Worksheet("对阵表").Cell(1, 1).GetString().Split('\n')[^1]);
         }

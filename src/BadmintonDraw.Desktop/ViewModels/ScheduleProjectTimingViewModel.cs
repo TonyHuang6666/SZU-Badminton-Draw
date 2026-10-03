@@ -16,7 +16,7 @@ public sealed class ScheduleProjectTimingViewModel : ScheduleEditorViewModel
     public string BoundaryText { get => boundaryText; set => Edit(ref boundaryText, value, nameof(BoundaryText)); }
     public string BeforeMinutesText { get => beforeMinutesText; set => Edit(ref beforeMinutesText, value, nameof(BeforeMinutesText)); }
     public bool UseTimingSplit { get => useTimingSplit; set => Edit(ref useTimingSplit, value, nameof(UseTimingSplit)); }
-    public IReadOnlyList<string> Preferences { get; } = ["跟随全局策略", "不偏好日期", "尽量避开末日", "优先末日", "强烈优先末日（软目标）"];
+    public IReadOnlyList<string> Preferences { get; } = ["使用默认安排", "任意比赛日", "尽量避开最后一天", "尽量安排在最后一天", "优先留在最后一天（尽量满足）"];
     public int FinalPreferenceIndex { get => finalPreferenceIndex; set => Edit(ref finalPreferenceIndex, value, nameof(FinalPreferenceIndex)); }
     public int SemifinalPreferenceIndex { get => semifinalPreferenceIndex; set => Edit(ref semifinalPreferenceIndex, value, nameof(SemifinalPreferenceIndex)); }
     public int BronzePreferenceIndex { get => bronzePreferenceIndex; set => Edit(ref bronzePreferenceIndex, value, nameof(BronzePreferenceIndex)); }

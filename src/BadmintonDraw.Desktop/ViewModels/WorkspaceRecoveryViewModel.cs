@@ -12,19 +12,20 @@ public sealed class WorkspaceRecoveryViewModel : ViewModelBase, IDisposable
     private WorkspaceRecoveryPreview? recoveryPreview;
     private int generation;
     private bool isOpen, disposed, picking, recoverCorruptTarget, confirmed;
-    private string targetPath = "", backupPath = "", reason = "", previewDetails = "尚未预览；选择来源不会自动恢复。", outputDetails = "";
+    private string targetPath = "", backupPath = "", reason = "", previewDetails = "尚未检查备份与恢复范围；选择来源不会自动恢复。", outputDetails = "";
     public bool IsOpen { get => isOpen; private set => SetProperty(ref isOpen, value); }
     public bool RecoverCorruptTarget { get => recoverCorruptTarget; set { if (SetProperty(ref recoverCorruptTarget, value)) InvalidatePreview(); } }
     public string TargetPath { get => targetPath; set { if (SetProperty(ref targetPath, value)) InvalidatePreview(); } }
     public string BackupPath { get => backupPath; set { if (SetProperty(ref backupPath, value)) InvalidatePreview(); } }
     public string Reason { get => reason; set { if (SetProperty(ref reason, value)) { Confirmed = false; RefreshAvailability(); } } }
     public bool Confirmed { get => confirmed; set { if (SetProperty(ref confirmed, value)) RefreshAvailability(); } }
-    public string CurrentWorkspaceDetails => context is null ? "尚未打开工作区；可选择损坏目标进行恢复。" :
-        $"当前工作区：{context.Workspace.Name}\n{context.WorkspacePath}\n修订 {context.Workspace.Revision} · {AppShellViewModel.StageName(context.Workspace.Stage)}" +
+    public string CurrentWorkspaceDetails => context is null ? "尚未打开比赛。请先打开比赛以创建备份；文件损坏时，可在下方选择损坏文件进行恢复。" :
+        $"当前比赛：{context.Workspace.Name}\n{context.WorkspacePath}\n保存版本 {context.Workspace.Revision} · {AppShellViewModel.StageName(context.Workspace.Stage)}" +
         (context.RequiresReload ? "\n已保存但无法重读；普通备份/恢复须先重新载入。仍可检查明确选定的损坏目标。" : "");
     public bool HasPreview => restorePreview is not null || recoveryPreview is not null;
     public string PreviewDetails { get => previewDetails; private set => SetProperty(ref previewDetails, value); }
-    public string OutputDetails { get => outputDetails; private set => SetProperty(ref outputDetails, value); }
+    public string OutputDetails { get => outputDetails; private set { if (SetProperty(ref outputDetails, value)) OnPropertyChanged(nameof(HasOutput)); } }
+    public bool HasOutput => !string.IsNullOrWhiteSpace(OutputDetails);
     public string? LastManualBackupPath { get; private set; }
     public WorkspaceBackupInfo? LastValidatedBackup { get; private set; }
     public AsyncCommand PickTargetCommand { get; }
@@ -57,7 +58,7 @@ public sealed class WorkspaceRecoveryViewModel : ViewModelBase, IDisposable
     private void InvalidatePreview()
     {
         generation++; restorePreview = null; recoveryPreview = null; previewSession = null; Confirmed = false;
-        PreviewDetails = "尚无有效恢复预览；请重新检查来源并明确确认。";
+        PreviewDetails = "尚无有效备份检查结果；请重新检查来源并明确确认。";
         OnPropertyChanged(nameof(HasPreview)); RefreshAvailability();
     }
     private bool IsCurrent(int captured, WorkspaceSession? session) => !disposed && IsOpen && generation == captured && ReferenceEquals(shell.CurrentSession, session);

@@ -2,6 +2,7 @@ using System.Text.Json;
 using BadmintonDraw.Core.Scheduling;
 using BadmintonDraw.Core.Tournaments;
 using BadmintonDraw.Desktop.Controls;
+using BadmintonDraw.Desktop.Navigation;
 using BadmintonDraw.Desktop.Scheduling;
 using BadmintonDraw.Workflows.Tournaments;
 
@@ -16,7 +17,7 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     private string sourceIdentity, targetDay = "", targetTimeText = "", targetCourt = "", previewMessage = "";
     private string? selectedDay;
     private double zoom = 1;
-    private bool edited, conflict, disposed, canUndo, initializePending, initializing;
+    private bool edited, conflict, disposed, canUndo, initializePending, initializing, isMoveEditorExpanded;
     private long editorEpoch;
     private ScheduleEditPreview? preview;
     private WorkspaceSession? previewSession;
@@ -37,15 +38,17 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     }
     public string? SelectedDay { get => selectedDay; set => SetProperty(ref selectedDay, value); }
     public double Zoom { get => zoom; set => SetProperty(ref zoom, WorkspaceBoardInteraction.ClampZoom(value)); }
+    public bool IsMoveEditorExpanded { get => isMoveEditorExpanded; set => SetProperty(ref isMoveEditorExpanded, value); }
     public string TargetDay { get => targetDay; set { if (SetProperty(ref targetDay, value)) { TargetEdited(); OnPropertyChanged(nameof(TargetCourts)); } } }
     public string TargetTimeText { get => targetTimeText; set { if (SetProperty(ref targetTimeText, value)) TargetEdited(); } }
     public string TargetCourt { get => targetCourt; set { if (SetProperty(ref targetCourt, value)) TargetEdited(); } }
     public bool HasEditorConflict => conflict;
     public bool CanEdit => !disposed && shell.CanMutate && baseline is not null && !conflict && Session.Workspace.Stage is TournamentStage.ScheduleReady or TournamentStage.InProgress;
-    public string EditHint => conflict ? "赛程、资源或赛果已改变。目标输入仍保留，但必须载入最新位置后重新预览。" : baseline is null
+    public string EditHint => conflict ? "赛程、资源或赛果已改变。目标输入仍保留，但必须载入最新位置后重新查看调整方案。" : baseline is null
         ? initializing || initializePending ? "正在载入移动基准，请稍候…" : "请点击载入最新位置以启用移动。"
-        : "普通合法拖动自动保存；手动和连锁移动先预览、再确认。已完成场次锁定；撤销也会按当前赛果重新校验。";
-    public string PreviewMessage { get => previewMessage; private set => SetProperty(ref previewMessage, value); }
+        : "普通合法拖动自动保存；手动和连锁移动先查看调整方案、再确认。已完成场次锁定；撤销也会按当前赛果重新校验。";
+    public string PreviewMessage { get => previewMessage; private set { if (SetProperty(ref previewMessage, value)) OnPropertyChanged(nameof(HasPreviewMessage)); } }
+    public bool HasPreviewMessage => !string.IsNullOrWhiteSpace(PreviewMessage);
     public bool IsCascadePreview => preview?.IsCascade == true;
     public IReadOnlyList<ScheduleEditChange> PreviewChanges => preview?.Changes ?? [];
     public IReadOnlyList<ScheduleEditChangeDisplay> ChangeRows => PreviewChanges.Select(c => new ScheduleEditChangeDisplay(c)).ToArray();
@@ -59,6 +62,7 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     public DelegateCommand CancelPreviewCommand { get; }
     public AsyncCommand UndoCommand { get; }
     public DelegateCommand FocusSelectedCommand { get; }
+    public DelegateCommand SetupCommand { get; }
     public event Action<WorkspaceMatchKey>? FocusRequested;
     public ScheduleBoardPageViewModel(AppShellViewModel shell, WorkspaceSession session) : base(session)
     {
@@ -74,6 +78,7 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
             if (await shell.RunWorkspaceCommandAsync(Session, (workflow, revision) => workflow.UndoLastScheduleEdit(revision), "已撤销最近一次赛程编辑并保存。")) await ResetEditorAsync();
         }, () => !disposed && shell.CanMutate && canUndo, shell.ReportError);
         FocusSelectedCommand = new(() => { if (SelectedMatch is { } match) FocusRequested?.Invoke(match.Key); }, () => !disposed && SelectedMatch is not null);
+        SetupCommand = new(() => shell.Navigate(WorkspaceRoute.ScheduleSetup), () => !disposed && shell.CanNavigate(WorkspaceRoute.ScheduleSetup));
         LoadTarget();
     }
     public async Task InitializeAsync()
@@ -102,13 +107,16 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     }
     private async Task PreviewAsync(bool cascade)
     {
+        IsMoveEditorExpanded = true;
         var request = BuildRequest(); var expected = Session; ClearPreview(); var requestEpoch = editorEpoch;
         var result = await shell.RunWorkspaceQueryAsync(expected, (workflow, revision) => cascade ? workflow.PreviewCascade(request, revision) : workflow.PreviewMove(request, revision));
         if (disposed || requestEpoch != editorEpoch || !ReferenceEquals(expected, Session)) return;
         if (!result.Succeeded || result.Value is null) { PreviewMessage = result.Error?.Message ?? "未能完成检查。"; return; }
         preview = result.Value; previewSession = expected;
-        PreviewMessage = preview.CanApply ? preview.HasChanges ? $"{(cascade ? "连锁移动" : "移动")}预览：将修改 {preview.Changes.Count} 场比赛，尚未保存。请核对下方原位置与目标位置后确认。" : "目标位置没有变化，无需保存。"
-            : "此方案不能保存。可调整目标或明确预览连锁移动；硬约束不能绕过。";
+        PreviewMessage = preview.CanApply ? preview.HasChanges ? preview.Changes.Count > 1
+            ? $"移动这场比赛还会影响另外 {preview.Changes.Count - 1} 场比赛。以上调整尚未保存，请核对下方变化后确认。"
+            : "只调整这场比赛，尚未保存。请核对下方原位置与新位置后确认。" : "目标位置没有变化，无需保存。"
+            : "这个位置暂时不能使用，赛程尚未改变。请根据下方原因调整位置，或查看连锁调整方案。";
         NotifyPreview();
     }
     private async Task ConfirmAsync()
@@ -136,9 +144,14 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
         var result = await shell.RunWorkspaceQueryAsync(expected, (workflow, revision) => workflow.PreviewMove(request, revision), background: true);
         if (disposed || !ReferenceEquals(expected, Session)) return new(false, "工作区已更新，请重新拖动。");
         return result.Succeeded && result.Value is { } value ? new(value.CanApply, value.CanApply ? "可移动；松开后再次校验并自动保存。" :
-            "不能直接移动；松开查看原因或预览连锁移动。" + string.Join("；", value.Violations.Select(v => v.Message))) : new(false, result.Error?.Message ?? "未能检查目标位置。");
+            "不能直接移动；松开查看原因或查看连锁调整方案。" + string.Join("；", value.Violations.Select(v => v.Message))) : new(false, result.Error?.Message ?? "未能检查目标位置。");
     }
-    public void SelectMatch(WorkspaceMatchKey key) => SelectedMatch = Matches.FirstOrDefault(c => c.Key == key);
+    public void SelectMatch(WorkspaceMatchKey key)
+    {
+        if (Matches.FirstOrDefault(c => c.Key == key) is not { } match) return;
+        SelectedMatch = match;
+        IsMoveEditorExpanded = true;
+    }
     public void ReportError(Exception exception) { if (!disposed) shell.ReportError(exception); }
     private WorkspaceMatchKey? Find(Guid? matchId) => matchId is { } id ? Matches.FirstOrDefault(c => c.Key.MatchId == id)?.Key : null;
     private void TargetEdited() { edited = true; ClearPreview(); }
@@ -173,7 +186,7 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     {
         OnPropertyChanged(nameof(CanEdit)); OnPropertyChanged(nameof(HasEditorConflict)); OnPropertyChanged(nameof(EditHint));
         foreach (var command in new[] { ResetEditorCommand, PreviewMoveCommand, PreviewCascadeCommand, ConfirmMoveCommand, UndoCommand }) command?.NotifyCanExecuteChanged();
-        CancelPreviewCommand?.NotifyCanExecuteChanged(); FocusSelectedCommand?.NotifyCanExecuteChanged();
+        CancelPreviewCommand?.NotifyCanExecuteChanged(); FocusSelectedCommand?.NotifyCanExecuteChanged(); SetupCommand?.NotifyCanExecuteChanged();
         // Native attachment can occur inside Open's busy ApplySession. Retry once when that operation releases busy.
         if (initializePending && !disposed && !shell.IsBusy) _ = InitializeAsync();
     }

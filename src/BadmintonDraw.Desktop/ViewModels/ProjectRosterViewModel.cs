@@ -12,23 +12,32 @@ public sealed class ProjectRosterViewModel : ViewModelBase
     private TournamentProject? editorBaseline;
     private bool isSeedEditing;
     private bool editorConflict;
-    private bool overwriteTemplate;
     private string exportDetails = "";
     public Guid ProjectId => project.Id;
     public string Name => project.DisplayName;
+    public string DisplayLabel => WorkspaceProjectDisplay.Label(page.Session.Workspace, project);
     public string SourceFileName => project.Roster?.SourceFileName ?? "尚未导入";
     public string SourceHash => project.Roster?.ContentHash ?? "";
-    public string Summary => project.Roster is null ? "待导入名单" : $"{project.Roster.Participants.Count} 组参赛方 · {(project.Draw?.ConfirmedAt is not null ? "抽签已确认，名单锁定" : "可审核种子设置")}";
+    public bool HasRoster => project.Roster is not null;
+    public bool HasWarnings => project.Roster?.Warnings.Count > 0;
+    public string ImportLabel => HasRoster ? "替换名单…" : "导入参赛名单…";
+    public string Summary => project.Roster is null ? "尚未导入名单" : $"已导入 {project.Roster.Participants.Count} {ParticipantUnit} · {(project.Draw?.ConfirmedAt is not null ? "抽签已确认" : "待核对")}";
+    public string CheckSummary => !HasRoster ? "使用模板准备名单，再导入这里。" : HasWarnings ? $"有 {project.Roster!.Warnings.Count} 条提醒，请在下方检查。" : "未发现导入提醒，请核对姓名和种子。";
+    public string SeedSummary => !HasRoster ? "导入后可设置种子" : $"已设置 {project.Roster!.Participants.Count(p => p.IsSeed)} 个种子";
+    private string ParticipantUnit => project.Discipline == EventDiscipline.Team ? "支队伍" : project.Discipline is EventDiscipline.MenDoubles or EventDiscipline.WomenDoubles or EventDiscipline.MixedDoubles ? "对组合" : "位选手";
     public string Warnings => string.Join(Environment.NewLine, project.Roster?.Warnings.Select(w => w.Message) ?? []);
-    public bool IsSeedEditing { get => isSeedEditing; private set { SetProperty(ref isSeedEditing, value); RefreshAvailability(); } }
+    public bool IsSeedEditing
+    {
+        get => isSeedEditing;
+        private set { if (SetProperty(ref isSeedEditing, value)) page.SeedEditingChanged(); RefreshAvailability(); }
+    }
     public bool HasEditorConflict => editorConflict;
     public bool CanEdit => page.Shell.CanMutate && project.Draw?.ConfirmedAt is null && page.Session.Workspace.Results.Count == 0;
     public bool CanEditSeedFields => CanEdit && IsSeedEditing && !editorConflict;
-    public bool OverwriteTemplate { get => overwriteTemplate; set => SetProperty(ref overwriteTemplate, value); }
     public string ExportDetails { get => exportDetails; private set => SetProperty(ref exportDetails, value); }
-    public string EditHint => editorConflict ? "名单或项目设置已更新，旧输入已保留但不能保存。请载入最新种子设置后重新审核。"
+    public string EditHint => editorConflict ? "编辑期间，名单或项目设置发生了变化。为避免覆盖新资料，暂时不能保存。点击“重新载入名单后编辑”会放弃这次未保存的种子修改；也可以取消编辑。"
         : project.Draw?.ConfirmedAt is not null ? "抽签已确认。需要更改时，请到公开抽签页明确解除确认。"
-        : "只有种子标记及序号可编辑；姓名、学号和搭档资料请通过替换名单更正。原文件哈希只证明导入来源。";
+        : "种子是需要按实力分开放置的参赛方；不设种子也可以抽签。姓名、学号或搭档有误时，请修改原文件并替换名单。";
     public ObservableCollection<RosterSeedRowViewModel> Rows { get; } = [];
     public AsyncCommand ImportCommand { get; }
     public AsyncCommand ExportTemplateCommand { get; }
@@ -50,23 +59,25 @@ public sealed class ProjectRosterViewModel : ViewModelBase
         }, () => CanEdit && !IsSeedEditing, page.Shell.ReportError);
         ExportTemplateCommand = new(ExportTemplateAsync, () => page.Shell.CanMutate, page.Shell.ReportError);
         BeginSeedEditCommand = new(() => { LoadRows(); IsSeedEditing = true; }, () => CanEdit && this.project.Roster is not null && !IsSeedEditing);
-        ResetSeedsCommand = new(LoadRows, () => !page.Shell.IsBusy && this.project.Roster is not null);
+        ResetSeedsCommand = new(LoadRows, () => IsSeedEditing && HasEditorConflict && !page.Shell.IsBusy && this.project.Roster is not null);
         CancelSeedEditCommand = new(() => { IsSeedEditing = false; LoadRows(); }, () => !page.Shell.IsBusy && IsSeedEditing);
         SaveSeedsCommand = new(async () =>
         {
             var expected = page.Session; var projectId = ProjectId;
             var edits = Rows.Select(row => row.ToEdit()).ToArray();
             if (await page.Shell.RunWorkspaceCommandAsync(expected, (workflow, revision) => workflow.UpdateRosterSeeds(projectId, edits, revision),
-                "种子设置已保存，原有未确认抽签预览已清除。")) { IsSeedEditing = false; LoadRows(); }
+                "种子设置已保存，原有待确认的抽签结果已清除。")) { IsSeedEditing = false; LoadRows(); }
         }, () => CanEditSeedFields, page.Shell.ReportError);
         LoadRows();
     }
     private async Task ExportTemplateAsync()
     {
         var expected = page.Session; var projectId = ProjectId; var name = Name;
-        var overwrite = OverwriteTemplate; OverwriteTemplate = false;
         var path = await page.TemplatePicker(name + "_名单模板");
         if (path is null) return;
+        // The save picker confirms replacement before returning an existing path.
+        // New destinations still use create-only publication if a file appears later.
+        var overwrite = File.Exists(path);
         DrawPackageExportException? failure = null;
         var success = await page.Shell.RunWorkspaceCommandAsync(expected, (workflow, revision) =>
         {
@@ -88,7 +99,7 @@ public sealed class ProjectRosterViewModel : ViewModelBase
         if (IsSeedEditing && editorBaseline is not null && !ProjectEditorBaseline.SameRoster(editorBaseline, next)) editorConflict = true;
         project = next;
         if (!IsSeedEditing) LoadRows();
-        foreach (var property in new[] { nameof(Name), nameof(SourceFileName), nameof(SourceHash), nameof(Summary), nameof(Warnings) }) OnPropertyChanged(property);
+        foreach (var property in new[] { nameof(Name), nameof(DisplayLabel), nameof(SourceFileName), nameof(SourceHash), nameof(Summary), nameof(Warnings), nameof(HasRoster), nameof(HasWarnings), nameof(ImportLabel), nameof(CheckSummary), nameof(SeedSummary) }) OnPropertyChanged(property);
         RefreshAvailability();
     }
     internal void RefreshAvailability()

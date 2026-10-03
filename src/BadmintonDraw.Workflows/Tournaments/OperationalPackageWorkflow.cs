@@ -8,10 +8,22 @@ public sealed partial class OperationalPackageWorkflow(OperationalPackageFileOpe
 {
     private readonly OperationalPackageFileOperations files = files ?? new();
 
+    internal IReadOnlyList<string> PreviewConflicts(TournamentWorkspace source, string workspacePath, OperationalExportRequest request)
+    {
+        var plan = Plan(source, workspacePath, request, new());
+        return Array.AsReadOnly(plan.Materials.Select(m => Path.Combine(plan.OutputDirectory, m.FileName)).Where(File.Exists).ToArray());
+    }
+
     internal void Export(TournamentWorkspace source, string workspacePath, OperationalExportRequest request,
         Guid auditId, DateTimeOffset exportedAt, ExportProgress progress)
     {
         var plan = Plan(source, workspacePath, request, progress);
+        var overwrite = WorkspaceExportPublication.OverwritePolicy(request.OverwriteExisting, request.ConfirmedOverwritePaths);
+        foreach (var material in plan.Materials)
+        {
+            var destination = Path.Combine(plan.OutputDirectory, material.FileName);
+            WorkspaceExportPublication.ValidateDestination(destination, source, workspacePath, overwrite(destination));
+        }
         WorkspaceExportPublication.WithStaging(plan.OutputDirectory, progress, stage =>
         {
             foreach (var material in plan.Materials.Where(m => m.Kind is not OperationalMaterialKind.Description and not OperationalMaterialKind.Manifest))
@@ -36,7 +48,7 @@ public sealed partial class OperationalPackageWorkflow(OperationalPackageFileOpe
                 var output = verified[material.FileName];
                 progress.AttemptedOutputPath = output.Path;
                 WorkspaceExportPublication.Publish(Path.Combine(stage, material.FileName), output.Path, source,
-                    workspacePath, request.OverwriteExisting, files.Publish);
+                    workspacePath, overwrite(output.Path), files.Publish);
                 progress.Outputs.Add(output);
                 progress.AttemptedOutputPath = null;
             }

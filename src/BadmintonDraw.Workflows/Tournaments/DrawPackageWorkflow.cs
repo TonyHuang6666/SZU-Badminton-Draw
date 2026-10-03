@@ -18,6 +18,42 @@ public sealed class DrawPackageWorkflow(DrawPackageFileOperations? files = null)
     internal void Export(TournamentWorkspace workspace, string workspacePath, Guid? projectId, DrawExportRequest request,
         Guid auditId, DateTimeOffset exportedAt, ExportProgress progress)
     {
+        var plan = Plan(workspace, workspacePath, projectId, request);
+        var overwrite = OverwritePolicy(request.OverwriteExisting, request.ConfirmedOverwritePaths);
+        foreach (var output in plan.Outputs) ValidateDestination(output.Path, workspace, workspacePath, overwrite(output.Path));
+        WithStaging(plan.OutputDirectory, progress, stage =>
+        {
+            foreach (var project in plan.Projects)
+            {
+                var context = new DrawExportContext(workspace.Id, workspace.Name, workspace.Revision,
+                    project.Id, project.DisplayName, project.Draw!.ConfirmedAt,
+                    project.Roster!.SourceFileName, project.Roster.ContentHash, auditId, exportedAt,
+                    project.Draw.Result.Audit.RandomSeed, project.Draw.Result.Audit.InputHash);
+                var excel = Path.Combine(stage, project.Id + ".xlsx");
+                new DrawResultExcelWriter().Write(excel, project.Draw.Result, project.Roster.Participants, context: context);
+                foreach (var output in plan.Outputs.Where(p => p.ProjectId == project.Id && p.Format != WorkflowExportFormat.Excel))
+                    new DrawResultVisualWriter().Write(StagedPath(stage, output), excel, VisualFormat(output.Format),
+                        new(plan.Layout.PdfRows, plan.Layout.PdfColumns), context);
+            }
+            foreach (var output in plan.Outputs)
+            {
+                // Recheck every actual target immediately before publication, including explicit overwrites.
+                Publish(StagedPath(stage, output), output.Path, workspace, workspacePath, overwrite(output.Path), files.Publish);
+                progress.Outputs.Add(output);
+            }
+        });
+    }
+
+    internal IReadOnlyList<string> PreviewConflicts(TournamentWorkspace workspace, string workspacePath,
+        Guid? projectId, DrawExportRequest request) =>
+        Array.AsReadOnly(Plan(workspace, workspacePath, projectId, request).Outputs.Select(p => p.Path).Where(File.Exists).ToArray());
+
+    private sealed record DrawPackagePlan(string OutputDirectory, IReadOnlyList<TournamentProject> Projects,
+        IReadOnlyList<DrawPackageOutput> Outputs, DrawExportLayout Layout);
+
+    private static DrawPackagePlan Plan(TournamentWorkspace workspace, string workspacePath, Guid? projectId, DrawExportRequest request)
+    {
+        if (request is null) throw new WorkspaceCommandException(new("export.request", "请选择导出范围。"));
         Require(Enum.IsDefined(request.Format) && Enum.IsDefined(request.State), "export.format", "请选择支持的抽签导出格式和状态。");
         var layout = request.Layout ?? new();
         Require(layout.PdfRows >= 1 && layout.PdfColumns >= 1,
@@ -26,37 +62,17 @@ public sealed class DrawPackageWorkflow(DrawPackageFileOperations? files = null)
         Require(projects.Length > 0, "project.not-found", "当前工作区中找不到该项目。");
         foreach (var project in projects)
         {
-            Require(project.Draw is not null, "draw.preview-required", $"{project.DisplayName}尚无抽签，请先主动生成预览。");
+            Require(project.Draw is not null, "draw.preview-required", $"{project.DisplayName}尚无抽签结果，请先开始公开抽签。");
             Require((project.Draw!.ConfirmedAt is not null) == (request.State == DrawExportState.Confirmed),
-                "draw.export-state", $"{project.DisplayName}的确认状态与所选导出不一致，请选择对应的预览或正式导出。");
+                "draw.export-state", $"{project.DisplayName}的确认状态与所选导出不一致，请选择对应的待确认或已确认抽签结果导出。");
         }
         Require(!string.IsNullOrWhiteSpace(request.OutputDirectory), "export.path", "请选择导出文件夹。");
         var outputDirectory = Path.GetFullPath(request.OutputDirectory);
         var plans = projects.SelectMany(project => WorkflowExportHelpers.Expand(request.Format).Select(format =>
             new DrawPackageOutput(project.Id, format, Path.Combine(outputDirectory,
                 FileStem(project, request.State) + WorkflowExportHelpers.GetExtension(format))))).ToArray();
-        foreach (var plan in plans) ValidateDestination(plan.Path, workspace, workspacePath, request.OverwriteExisting);
-        WithStaging(outputDirectory, progress, stage =>
-        {
-            foreach (var project in projects)
-            {
-                var context = new DrawExportContext(workspace.Id, workspace.Name, workspace.Revision,
-                    project.Id, project.DisplayName, project.Draw!.ConfirmedAt,
-                    project.Roster!.SourceFileName, project.Roster.ContentHash, auditId, exportedAt,
-                    project.Draw.Result.Audit.RandomSeed, project.Draw.Result.Audit.InputHash);
-                var excel = Path.Combine(stage, project.Id + ".xlsx");
-                new DrawResultExcelWriter().Write(excel, project.Draw.Result, project.Roster.Participants, context: context);
-                foreach (var plan in plans.Where(p => p.ProjectId == project.Id && p.Format != WorkflowExportFormat.Excel))
-                    new DrawResultVisualWriter().Write(StagedPath(stage, plan), excel, VisualFormat(plan.Format),
-                        new(layout.PdfRows, layout.PdfColumns), context);
-            }
-            foreach (var plan in plans)
-            {
-                // Recheck every actual target immediately before publication, including explicit overwrites.
-                Publish(StagedPath(stage, plan), plan.Path, workspace, workspacePath, request.OverwriteExisting, files.Publish);
-                progress.Outputs.Add(plan);
-            }
-        });
+        foreach (var plan in plans) ValidateDestination(plan.Path, workspace, workspacePath, true);
+        return new(outputDirectory, projects, plans, layout);
     }
 
     internal void ExportTemplate(TournamentWorkspace workspace, string workspacePath, Guid projectId,
@@ -83,7 +99,7 @@ public sealed class DrawPackageWorkflow(DrawPackageFileOperations? files = null)
     {
         var name = WorkflowFileNames.Sanitize(project.DisplayName);
         if (name.Length > 60) name = name[..60];
-        return $"{name}_{project.Id:N}_{(state == DrawExportState.Preview ? "未确认抽签预览" : "已确认抽签结果")}";
+        return $"{name}_{project.Id:N}_{(state == DrawExportState.Preview ? "待确认抽签结果" : "已确认抽签结果")}";
     }
     private static DrawResultVisualFormat VisualFormat(WorkflowExportFormat format) => format switch
     {

@@ -1,0 +1,27 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" x:Class="BadmintonDraw.Desktop.Views.WorkspaceArchivePage" x:DataType="vm:WorkspaceArchivePageViewModel">
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="32" Spacing="24" MaxWidth="1050">
+      <StackPanel Spacing="8"><TextBlock Text="06 / FINISH &amp; KEEP" Classes="eyebrow" /><TextBlock Text="完成与归档" Classes="page-title" /><TextBlock Text="把比赛成果、最终材料和备份放在一起，方便下一位组织者接手。" Classes="page-subtitle" /></StackPanel>
+      <Border Classes="callout" Padding="28">
+        <StackPanel Spacing="14">
+          <TextBlock Text="{Binding Heading}" Classes="section-title" />
+          <TextBlock Text="{Binding Guidance}" TextWrapping="Wrap" LineHeight="24" />
+          <TextBlock Text="{Binding ProgressLabel}" FontWeight="SemiBold" Foreground="{DynamicResource AppAccentBrush}" />
+        </StackPanel>
+      </Border>
+      <ItemsControl ItemsSource="{Binding Projects}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ArchiveProjectSummary">
+        <Border Classes="card" Margin="0,0,0,10" Padding="20"><Grid ColumnDefinitions="*,*" ColumnSpacing="16"><TextBlock Text="{Binding Name}" Classes="section-title" VerticalAlignment="Center" /><StackPanel Grid.Column="1" Spacing="5"><TextBlock Text="{Binding Progress}" FontWeight="SemiBold" /><TextBlock Text="{Binding Detail}" Classes="muted" FontSize="12" /></StackPanel></Grid></Border>
+      </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+      <Border Classes="card">
+        <StackPanel Spacing="18">
+          <TextBlock Text="留存这次比赛" Classes="section-title" />
+          <TextBlock Text="先导出需要交接的材料，再创建赛事备份。备份会保存当前进度，不会把尚未结束的比赛标记为完成。" Classes="page-subtitle" />
+          <TextBlock Text="{Binding BackupSummary}" Classes="muted" FontSize="12" />
+          <WrapPanel><Button Content="{Binding MaterialsLabel}" Command="{Binding MaterialsCommand}" Classes="secondary" Margin="0,0,12,8" /><Button Content="创建赛事备份 →" Command="{Binding BackupCommand}" Classes="primary" Margin="0,0,0,8" /></WrapPanel>
+        </StackPanel>
+      </Border>
+      <Expander Header="赛事文件信息"><StackPanel Spacing="8" Margin="16"><TextBlock Text="{Binding RevisionText}" Classes="muted" /><SelectableTextBlock Text="{Binding FilePath}" TextWrapping="Wrap" /><TextBlock Text="请保留原始名单、抽签公示、填写后的记录表和最终材料。" Classes="muted" /></StackPanel></Expander>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

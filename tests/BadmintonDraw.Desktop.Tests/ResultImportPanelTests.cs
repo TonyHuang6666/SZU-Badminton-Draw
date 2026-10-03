@@ -60,6 +60,7 @@ public sealed class ResultImportPanelTests : IDisposable
         try
         {
             window.Show(); window.UpdateLayout();
+            Assert.False(panel.FindControl<ResultImportEvidenceText>("ResultImportOutcome")!.IsEffectivelyVisible);
             var pick = panel.FindControl<Button>("PickResultFiles"); Assert.NotNull(pick);
             await Assert.IsType<AsyncCommand>(pick.Command).ExecuteAsync();
             Assert.Contains(f.NextPick[0], panel.FindControl<ResultImportEvidenceText>("SelectedResultPaths")!.Text);
@@ -72,6 +73,7 @@ public sealed class ResultImportPanelTests : IDisposable
             Assert.False(confirm.IsChecked); Assert.False(apply.IsEffectivelyEnabled);
             Assert.Contains("已保存", panel.FindControl<ResultImportEvidenceText>("ResultImportState")!.Text);
             Assert.Contains(f.Shell.WorkspacePath, panel.FindControl<ResultImportEvidenceText>("ResultImportOutcome")!.Text);
+            Assert.True(panel.FindControl<ResultImportEvidenceText>("ResultImportOutcome")!.IsEffectivelyVisible);
         }
         finally { window.Close(); }
         return 0;
@@ -91,6 +93,7 @@ public sealed class ResultImportPanelTests : IDisposable
             window.Show(); await f.Preview(first, second); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             Assert.Equal(ResultImportEvaluationStatus.Rejected, f.ViewModel.PreviewStatus);
             var diagnostics = panel.FindControl<ResultImportEvidenceText>("ResultImportDiagnostics"); Assert.NotNull(diagnostics);
+            Assert.True(diagnostics.IsEffectivelyVisible);
             Assert.Contains(first, diagnostics.Text); Assert.Contains(second, diagnostics.Text);
             Assert.Contains(WorkspaceResultImportFacadeFixture.Hash(first), diagnostics.Text);
             Assert.Contains(WorkspaceResultImportFacadeFixture.Hash(second), diagnostics.Text);
@@ -101,6 +104,7 @@ public sealed class ResultImportPanelTests : IDisposable
             var correction = f.Data.Export("correction.xlsx"); WorkspaceResultImportFacadeFixture.Edit(correction, s => s.Cell(6, 10).Value = 25);
             await f.Preview(correction); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var change = Assert.Single(f.ViewModel.Corrections); var correctionText = panel.FindControl<ResultImportEvidenceText>("ResultImportCorrections")!; var details = correctionText.Text!;
+            Assert.True(correctionText.IsEffectivelyVisible);
             Assert.Contains(change.Key.ProjectId.ToString(), details); Assert.Contains(change.Key.MatchId.ToString(), details);
             Assert.Contains(change.Before.Winner.IdentityKey, details); Assert.Contains(change.Before.Loser.IdentityKey, details);
             Assert.Contains(change.Before.RecordedAt.ToString("O"), details); Assert.Contains("20", details); Assert.Contains("25", details);

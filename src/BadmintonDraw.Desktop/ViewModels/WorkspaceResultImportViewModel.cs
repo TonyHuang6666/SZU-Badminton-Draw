@@ -11,7 +11,7 @@ public sealed partial class WorkspaceResultImportViewModel : ViewModelBase, IDis
     private WorkspaceResultImportPreview? preview;
     private long generation, sessionGeneration;
     private bool disposed, working, applying, allowCorrections, confirmed;
-    private string reason = "", state = "请选择记录表，再预览导入；选择文件不会保存赛果。", source = "", outcome = "";
+    private string reason = "", state = "请选择记录表，再检查记录表；选择文件不会保存赛果。", source = "", outcome = "";
     public WorkspaceResultImportViewModel(AppShellViewModel shell, WorkspaceSession session,
         Func<Task<IReadOnlyList<string>?>> pickFiles)
     {
@@ -36,7 +36,9 @@ public sealed partial class WorkspaceResultImportViewModel : ViewModelBase, IDis
     public bool IsWorking => working;
     public string SourceDetails { get => source; private set => SetProperty(ref source, value); }
     public string StateMessage { get => state; private set => SetProperty(ref state, value); }
-    public string OutcomeDetails { get => outcome; private set => SetProperty(ref outcome, value); }
+    public string OutcomeDetails { get => outcome; private set { if (SetProperty(ref outcome, value)) OnPropertyChanged(nameof(HasOutcome)); } }
+    public bool HasOutcome => !string.IsNullOrWhiteSpace(OutcomeDetails);
+    public bool HasCorrections => Corrections.Count > 0;
     public string ConfirmButtonText => PreviewStatus == ResultImportEvaluationStatus.NoChanges ? "确认检查（无需保存）" : "确认导入并保存";
     public AsyncCommand PickFilesCommand { get; }
     public DelegateCommand ClearFilesCommand { get; }
@@ -53,14 +55,14 @@ public sealed partial class WorkspaceResultImportViewModel : ViewModelBase, IDis
         session = next; sessionGeneration++;
         // Publication revokes preview authorization, but only the actual returned command can identify an own-save refresh.
         if (!applying) generation++;
-        ClearEvidence(); StateMessage = "工作区已更新或重新打开；保留文件与原因，请重新预览。";
+        ClearEvidence(); StateMessage = "工作区已更新或重新打开；保留文件与原因，请重新检查记录表。";
     }
     private bool Current(long token, WorkspaceSession captured) => !disposed && token == generation && ReferenceEquals(session, captured) && ReferenceEquals(shell.CurrentSession, captured);
     private void ConsentEdited() { generation++; ResetConfirmation(); InputsChangedDuringWork(); RefreshAvailability(); }
     private void InputsChangedDuringWork()
     {
-        if (applying) StateMessage = "输入已改变；已发起的导入不会因此回滚，请以当前工作区为准并重新预览。";
-        else if (IsWorking) StateMessage = "输入已改变；保留原有内容，请重新选择或预览。文件选择和预览不会提交修改。";
+        if (applying) StateMessage = "输入已改变；已发起的导入不会因此回滚，请以当前工作区为准并重新检查记录表。";
+        else if (IsWorking) StateMessage = "输入已改变；保留原有内容，请重新选择或检查记录表。文件选择和检查不会提交修改。";
     }
     private void ResetConfirmation() { confirmed = false; OnPropertyChanged(nameof(Confirmed)); }
     private void ClearEvidence()
@@ -76,10 +78,10 @@ public sealed partial class WorkspaceResultImportViewModel : ViewModelBase, IDis
     }
     private void EvidenceChanged()
     {
-        foreach (var name in new[] { nameof(Files), nameof(Diagnostics), nameof(Corrections), nameof(Counts), nameof(PreviewStatus), nameof(HasCurrentPreview), nameof(ConfirmButtonText) }) OnPropertyChanged(name);
+        foreach (var name in new[] { nameof(Files), nameof(Diagnostics), nameof(Corrections), nameof(HasCorrections), nameof(Counts), nameof(PreviewStatus), nameof(HasCurrentPreview), nameof(ConfirmButtonText) }) OnPropertyChanged(name);
         PresentationChanged(); RefreshAvailability();
     }
-    private static string DescribeSource(WorkspaceResultImportPreview value) => $"工作区：{value.WorkspacePath}\n预览修订：{value.SourceRevision}\n" +
+    private static string DescribeSource(WorkspaceResultImportPreview value) => $"工作区：{value.WorkspacePath}\n检查时修订：{value.SourceRevision}\n" +
         string.Join("\n\n", value.Files.Select(f => $"{f.SourceFileName}\n{f.FullPath}\nSHA-256：{f.ContentHash}"));
     private static WorkspaceError ToError(Exception error) => error is WorkspaceCommandException command ? command.Error : new("desktop.operation-failed", "操作失败：" + error.Message);
     private void ShowError(WorkspaceError error)

@@ -10,6 +10,54 @@ namespace BadmintonDraw.Desktop.Tests;
 
 public sealed class WorkspaceOperationalExportViewModelTests
 {
+    [Fact]
+    public async Task ConfirmationListsOnlyActualConflictsAndDoesNotAuthorizeNewFilesAppearingAfterPreview()
+    {
+        string[] expected = []; string? unexpected = null; IReadOnlyList<string>? prompted = null;
+        using var f = new OperationsUiFixture(confirmOverwrite: paths =>
+        {
+            prompted = paths;
+            File.WriteAllText(unexpected!, "new file from another process");
+            return Task.FromResult(true);
+        });
+        f.PrepareExport(); var vm = f.Page.Materials; await vm.ExportCommand.ExecuteAsync();
+        var outputs = vm.Outputs.Select(output => output.Path).ToArray();
+        expected = [outputs[0]]; unexpected = outputs[1];
+        foreach (var path in outputs.Skip(1)) File.Delete(path);
+        var original = File.ReadAllBytes(expected[0]); var before = f.Shell.CurrentSession!;
+        vm.ScopeConfirmed = true; await vm.ExportCommand.ExecuteAsync();
+        Assert.Equal(expected, prompted);
+        Assert.Equal("export.exists", vm.Error?.Code); Assert.Null(vm.Outcome); Assert.Empty(vm.Outputs);
+        Assert.Equal(original, File.ReadAllBytes(expected[0]));
+        Assert.Equal("new file from another process", File.ReadAllText(unexpected));
+        Assert.Same(before, f.Shell.CurrentSession);
+        Assert.Single(before.Workspace.AuditEvents, audit => audit.Action == "OperationalPackageExported");
+    }
+
+    [Fact]
+    public async Task ConfirmationFailureDoesNotClaimPartialPublicationOrWriteAnotherAudit()
+    {
+        using var f = new OperationsUiFixture(confirmOverwrite: _ => Task.FromException<bool>(new IOException("确认窗口失败")));
+        f.PrepareExport(); var vm = f.Page.Materials; await vm.ExportCommand.ExecuteAsync();
+        var before = f.Shell.CurrentSession; vm.ScopeConfirmed = true; await vm.ExportCommand.ExecuteAsync();
+        Assert.Contains("确认窗口失败", vm.StateMessage); Assert.Contains("未发起材料导出", vm.StateMessage);
+        Assert.DoesNotContain("部分发布", vm.StateMessage); Assert.Null(vm.ExportFailure);
+        Assert.Same(before, f.Shell.CurrentSession);
+    }
+
+    [Fact]
+    public void SameNamedProjectsRemainDistinguishableWhenChoosingExportScope()
+    {
+        using var f = new OperationsUiFixture(2, 2);
+        var choices = f.Page.Materials.ProjectChoices.Where(choice => choice.ProjectId is not null).ToArray();
+        Assert.Equal(2, choices.Select(choice => choice.Label).Distinct(StringComparer.Ordinal).Count());
+        foreach (var choice in choices)
+        {
+            f.Page.Materials.SelectedProject = choice;
+            Assert.Contains(choice.Label, f.Page.Materials.ScopeSummary);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -26,7 +74,7 @@ public sealed class WorkspaceOperationalExportViewModelTests
         Assert.Equal(before.Workspace.Revision + 1, f.Page.Session.Workspace.Revision);
         Assert.Single(f.Page.Session.Workspace.AuditEvents, a => a.Action == "OperationalPackageExported");
         Assert.Equal(TournamentStage.ScheduleReady, f.Page.Session.Workspace.Stage); Assert.Empty(f.Page.Session.Workspace.Results);
-        Assert.False(vm.ScopeConfirmed); Assert.False(vm.OverwriteExisting); Assert.Null(vm.ExportFailure); Assert.Null(vm.Error);
+        Assert.False(vm.ScopeConfirmed); Assert.Null(vm.ExportFailure); Assert.Null(vm.Error);
         foreach (var file in outcome.Outputs)
         {
             Assert.Equal(file.Sha256, WorkspaceResultImportFacadeFixture.Hash(file.Path));
@@ -42,8 +90,8 @@ public sealed class WorkspaceOperationalExportViewModelTests
         using var f = new OperationsUiFixture(2); var vm = f.Page.Materials;
         Assert.Equal(3, vm.ProjectChoices.Count); Assert.Null(vm.SelectedProject!.ProjectId);
         Assert.False(vm.IncludePendingCarryover); Assert.Null(vm.SelectedCarryoverDay);
-        f.PrepareExport(); vm.OverwriteExisting = true; vm.ScopeConfirmed = true;
-        vm.SelectedProject = vm.ProjectChoices[1]; Assert.False(vm.OverwriteExisting); Assert.False(vm.ScopeConfirmed);
+        f.PrepareExport(); vm.ScopeConfirmed = true;
+        vm.SelectedProject = vm.ProjectChoices[1]; Assert.False(vm.ScopeConfirmed);
         foreach (var day in vm.Days) day.IsSelected = false;
         vm.ScopeConfirmed = true; Assert.False(vm.ExportCommand.CanExecute(null));
         vm.Days[0].IsSelected = true; vm.IncludePendingCarryover = true; vm.ScopeConfirmed = true;
@@ -95,8 +143,9 @@ public sealed class WorkspaceOperationalExportViewModelTests
     {
         using var f = new OperationsUiFixture(); var vm = f.Page.Materials; vm.Days[0].IsSelected = false; f.PrepareExport();
         var before = f.Shell.CurrentSession; await vm.ExportCommand.ExecuteAsync();
-        Assert.Equal("export.no-matches", vm.Error?.Code); Assert.NotNull(vm.ExportFailure); Assert.Null(vm.Outcome); Assert.Empty(vm.Outputs);
-        Assert.False(Directory.Exists(vm.OutputDirectory)); Assert.Same(before, f.Shell.CurrentSession); Assert.Contains("未保存", vm.StateMessage);
+        Assert.Equal("export.no-matches", vm.Error?.Code); Assert.Null(vm.ExportFailure); Assert.Null(vm.Outcome); Assert.Empty(vm.Outputs);
+        Assert.False(Directory.Exists(vm.OutputDirectory)); Assert.Same(before, f.Shell.CurrentSession);
+        Assert.Contains("未发起材料导出", vm.StateMessage); Assert.DoesNotContain("部分发布", vm.StateMessage);
     }
 
     [Fact]
@@ -120,15 +169,26 @@ public sealed class WorkspaceOperationalExportViewModelTests
     [Fact]
     public async Task ExistingTargetsRequireNewExplicitOverwriteConsentAndOnlySuccessfulAttemptsRecordAudit()
     {
-        using var f = new OperationsUiFixture(); f.PrepareExport(); var vm = f.Page.Materials;
+        var prompts = new List<IReadOnlyList<string>>(); var accept = false;
+        using var f = new OperationsUiFixture(confirmOverwrite: paths => { prompts.Add(paths); return Task.FromResult(accept); });
+        f.PrepareExport(); var vm = f.Page.Materials;
         await vm.ExportCommand.ExecuteAsync(); Assert.NotNull(vm.Outcome); var afterFirst = f.Shell.CurrentSession!;
+        Assert.Empty(prompts);
+        var expectedPaths = vm.Outputs.Select(file => file.Path).Order(StringComparer.Ordinal).ToArray();
+        var hashes = expectedPaths.Select(WorkspaceResultImportFacadeFixture.Hash).ToArray();
         vm.ScopeConfirmed = true; await vm.ExportCommand.ExecuteAsync();
-        Assert.Equal("export.exists", vm.Error?.Code); Assert.Empty(vm.Outputs); Assert.Same(afterFirst, f.Shell.CurrentSession);
-        vm.OverwriteExisting = true; Assert.False(vm.ScopeConfirmed); vm.ScopeConfirmed = true;
+        Assert.Null(vm.Error); Assert.Empty(vm.Outputs); Assert.Same(afterFirst, f.Shell.CurrentSession);
+        Assert.Equal(expectedPaths, Assert.Single(prompts).Order(StringComparer.Ordinal));
+        Assert.Equal(hashes, expectedPaths.Select(WorkspaceResultImportFacadeFixture.Hash));
+        Assert.False(vm.ScopeConfirmed); Assert.Contains("取消", vm.StateMessage);
+        accept = true; vm.ScopeConfirmed = true;
         await vm.ExportCommand.ExecuteAsync(); var outcome = Assert.IsType<OperationalPackageOutcome>(vm.Outcome);
         Assert.Equal(9, outcome.Outputs.Count); Assert.Equal(afterFirst.Workspace.Revision + 1, outcome.Command.Workspace.Revision);
         Assert.Equal(2, outcome.Command.Workspace.AuditEvents.Count(a => a.Action == "OperationalPackageExported"));
-        Assert.False(vm.OverwriteExisting); Assert.False(vm.ScopeConfirmed);
+        Assert.Equal(2, prompts.Count); Assert.False(vm.ScopeConfirmed);
+        accept = false; vm.ScopeConfirmed = true; await vm.ExportCommand.ExecuteAsync();
+        Assert.Equal(3, prompts.Count); Assert.Null(vm.Outcome);
+        Assert.Equal(2, f.Shell.CurrentSession!.Workspace.AuditEvents.Count(a => a.Action == "OperationalPackageExported"));
     }
 
     [Fact]
@@ -136,7 +196,7 @@ public sealed class WorkspaceOperationalExportViewModelTests
     {
         using var f = new OperationsUiFixture(); var vm = f.Page.Materials;
         vm.SelectedProject = vm.ProjectChoices[1]; vm.IncludePendingCarryover = true; vm.SelectedCarryoverDay = vm.Days[1];
-        vm.OverwriteExisting = true; f.PrepareExport(); var projectId = vm.SelectedProject.ProjectId;
+        f.PrepareExport(); var projectId = vm.SelectedProject.ProjectId;
         var before = f.Shell.CurrentSession!.Workspace; var days = before.Schedule!.Resources.Days;
         // A genuine replan must also remove the old date's persisted load-target reference.
         var policy = before.Schedule.Policy with
@@ -145,7 +205,7 @@ public sealed class WorkspaceOperationalExportViewModelTests
         Assert.Same(vm, f.Page.Materials); Assert.Equal(projectId, vm.SelectedProject!.ProjectId);
         Assert.True(vm.Days.Single(d => d.Day == new DateOnly(2026, 9, 13)).IsSelected);
         Assert.False(vm.Days.Single(d => d.Day == new DateOnly(2026, 9, 15)).IsSelected);
-        Assert.Null(vm.SelectedCarryoverDay); Assert.True(vm.IncludePendingCarryover); Assert.False(vm.ScopeConfirmed); Assert.False(vm.OverwriteExisting);
+        Assert.Null(vm.SelectedCarryoverDay); Assert.True(vm.IncludePendingCarryover); Assert.False(vm.ScopeConfirmed);
         Assert.EndsWith("materials", vm.OutputDirectory);
     }
 }

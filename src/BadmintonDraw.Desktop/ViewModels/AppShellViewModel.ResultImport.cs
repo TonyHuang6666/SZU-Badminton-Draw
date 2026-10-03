@@ -52,7 +52,7 @@ public sealed partial class AppShellViewModel
     private void CheckResultImportSession(WorkspaceSession? expected)
     {
         if (disposed || expected is null || !ReferenceEquals(workflow.CurrentSession, expected) || !ReferenceEquals(CurrentSession, expected))
-            throw new WorkspaceCommandException(new("workspace.session-changed", "工作区已更新或切换，请重新预览导入。"));
+            throw new WorkspaceCommandException(new("workspace.session-changed", "工作区已更新或切换，请重新检查记录表。"));
         if (expected.RequiresReload)
             throw new WorkspaceCommandException(new("workspace.reload-required", "工作区已保存但无法重新读取，请重新载入后再导入。"));
     }

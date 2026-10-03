@@ -10,7 +10,7 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
     private readonly Func<Task<string?>> pickOutput;
     private WorkspaceSession session;
     private long generation, sessionGeneration;
-    private bool disposed, working, applying, includePending, overwrite, confirmed, refreshingChoices;
+    private bool disposed, working, applying, includePending, confirmed, refreshingChoices;
     private string output = "", state = "请核对项目、日期与输出目录，再明确导出；不会移动比赛。", details = "";
     private int pdfRows = 1, pdfColumns = 1;
     private OperationalProjectChoice? selectedProject;
@@ -28,7 +28,6 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
     public OperationalDayChoice? SelectedCarryoverDay { get => selectedCarryover; set { if (!refreshingChoices && SetProperty(ref selectedCarryover, value)) Edited(); } }
     public string OutputDirectory { get => output; set { if (SetProperty(ref output, value ?? "")) Edited(); } }
     public bool IncludePendingCarryover { get => includePending; set { if (SetProperty(ref includePending, value)) { if (!value) { selectedCarryover = null; OnPropertyChanged(nameof(SelectedCarryoverDay)); } Edited(); } } }
-    public bool OverwriteExisting { get => overwrite; set { if (SetProperty(ref overwrite, value)) Edited(resetOverwrite: false); } }
     public bool ScopeConfirmed { get => confirmed; set { if (SetProperty(ref confirmed, value)) { generation++; ChangedDuringWork(); RefreshAvailability(); } } }
     public int PdfRows { get => pdfRows; set { if (SetProperty(ref pdfRows, value)) Edited(); } }
     public int PdfColumns { get => pdfColumns; set { if (SetProperty(ref pdfColumns, value)) Edited(); } }
@@ -39,7 +38,7 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
         (session.RequiresReload ? "\n最后已知快照，必须重新载入后操作。" : "");
     public string ScopeSummary => $"范围：{SelectedProject?.Label ?? "未选择有效项目"}\n日期：{string.Join("、", Days.Where(d => d.IsSelected).Select(d => d.Label))}\n" +
         $"待填记录目标日：{(IncludePendingCarryover ? SelectedCarryoverDay?.Label ?? "尚未选择" : "不纳入")}；淘汰赛 PDF：{PdfRows} 行 × {PdfColumns} 列\n" +
-        "日期仅限制记录材料；带时间抽签图覆盖所选项目全图，质量报告检查整个工作区。";
+        "日期仅限制记录表；带时间的抽签图包含所选项目的全部场次，检查报告包含整场比赛。";
     public OperationalPackageOutcome? Outcome { get; private set; }
     public OperationalPackageExportException? ExportFailure { get; private set; }
     public WorkspaceError? Error { get; private set; }
@@ -51,19 +50,18 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
     private bool CanExport() => Usable && !working && !shell.IsBusy && ScopeConfirmed && !string.IsNullOrWhiteSpace(OutputDirectory) &&
         SelectedProject is not null && ProjectChoices.Contains(SelectedProject) && Days.Any(d => d.IsSelected) && PdfRows > 0 && PdfColumns > 0 &&
         (!IncludePendingCarryover || SelectedCarryoverDay is not null && Days.Contains(SelectedCarryoverDay) && SelectedCarryoverDay.IsSelected);
-    private void Edited(bool resetOverwrite = true)
+    private void Edited()
     {
-        generation++; ResetConsent(resetOverwrite); ChangedDuringWork(); OnPropertyChanged(nameof(ScopeSummary)); RefreshAvailability();
+        generation++; ResetConsent(); ChangedDuringWork(); OnPropertyChanged(nameof(ScopeSummary)); RefreshAvailability();
     }
     private void ChangedDuringWork()
     {
         if (applying) StateMessage = "输入已改变；已发起的导出不会因此回滚，请以正式工作区和实际文件为准，重新核对后再操作。";
         else if (working) StateMessage = "选择期间输入或来源已改变，保留当前草稿；请重新选择。";
     }
-    private void ResetConsent(bool resetOverwrite = true)
+    private void ResetConsent()
     {
         confirmed = false; OnPropertyChanged(nameof(ScopeConfirmed));
-        if (resetOverwrite) { overwrite = false; OnPropertyChanged(nameof(OverwriteExisting)); }
     }
     private void DayChanged(object? sender, PropertyChangedEventArgs args)
     {
@@ -82,7 +80,8 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
             foreach (var old in Days) old.PropertyChanged -= DayChanged;
             var projectId = selectedProject?.ProjectId; var hadProject = selectedProject is not null;
             ProjectChoices = Array.AsReadOnly(new[] { new OperationalProjectChoice(null, "全项目") }.Concat(session.Workspace.Projects.Select(p =>
-                new OperationalProjectChoice(p.Id, $"{p.DisplayName} [{p.Id:D}]"))).ToArray());
+                new OperationalProjectChoice(p.Id, session.Workspace.Projects.Count(other => other.DisplayName == p.DisplayName) > 1
+                    ? $"{p.DisplayName} [{p.Id:D}]" : p.DisplayName))).ToArray());
             selectedProject = initial ? ProjectChoices[0] : hadProject ? ProjectChoices.FirstOrDefault(p => p.ProjectId == projectId) : null;
             var targetDate = selectedCarryover?.Day;
             Days = Array.AsReadOnly((session.Workspace.Schedule?.Resources.Days ?? []).Select(d =>
@@ -113,11 +112,36 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
     {
         var captured = session; var token = generation; var refreshes = sessionGeneration;
         var request = new OperationalExportRequest(OutputDirectory, SelectedProject!.ProjectId, Days.Where(d => d.IsSelected).Select(d => d.Day).ToArray(),
-            IncludePendingCarryover ? SelectedCarryoverDay!.Day : null, OverwriteExisting, new(PdfRows, PdfColumns));
-        ResetConsent(); ClearEvidence(); applying = true; SetWorking(true);
-        StateMessage = "正在生成并发布材料；输出与工作区审计分别核对，修改输入不会撤销已发起操作。";
+            IncludePendingCarryover ? SelectedCarryoverDay!.Day : null, false, new(PdfRows, PdfColumns))
+            { ConfirmedOverwritePaths = Array.Empty<string>() };
+        ResetConsent(); ClearEvidence(); SetWorking(true);
+        StateMessage = "正在核对导出位置；尚未生成材料或保存审计。";
         try
         {
+            var preview = await shell.RunWorkspaceQueryAsync(captured,
+                (workflow, revision) => workflow.PreviewOperationalExportConflicts(request, revision), background: true, showStatus: false);
+            if (!Current(token, captured)) return;
+            if (!preview.Succeeded || preview.Value is null)
+            {
+                if (preview.Error is { } previewError) ShowError(previewError, null, exportAttempted: false);
+                return;
+            }
+            var conflicts = Array.AsReadOnly(preview.Value.ToArray());
+            if (conflicts.Count > 0)
+            {
+                StateMessage = $"已有 {conflicts.Count} 个文件，等待确认是否替换；尚未发起材料导出。";
+                var replace = await shell.ConfirmExportOverwriteAsync(conflicts);
+                if (!Current(token, captured)) return;
+                if (!replace)
+                {
+                    StateMessage = "已取消材料导出，原文件保持不变；可以选择其他文件夹后重新确认范围。";
+                    return;
+                }
+            }
+            request = request with { ConfirmedOverwritePaths = conflicts };
+            if (!Current(token, captured)) return;
+            applying = true;
+            StateMessage = "正在生成并发布材料；输出与工作区审计分别核对，修改输入不会撤销已发起操作。";
             var execution = await shell.ExportOperationalPackageAsync(captured, request);
             if (disposed || token != generation) return;
             var completion = ReferenceEquals(session, execution.CompletionSession) && ReferenceEquals(shell.CurrentSession, session);
@@ -136,13 +160,13 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
                 if (error.Committed ? ownCommit : Current(token, captured)) ShowError(error, execution.ExportFailure);
             }
         }
-        catch (Exception error) { if (Current(token, captured)) ShowError(ToError(error), null); }
+        catch (Exception error) { if (Current(token, captured)) ShowError(ToError(error), null, exportAttempted: applying); }
         finally { applying = false; SetWorking(false); }
     }
     private void ShowError(WorkspaceError error, OperationalPackageExportException? failure, bool exportAttempted = true)
     {
         Error = error; ExportFailure = failure; Outcome = null;
-        StateMessage = $"[{error.Code}] {error.Message}\n" + (!exportAttempted ? "目录选择失败；未发起材料导出或保存审计。" :
+        StateMessage = $"[{error.Code}] {error.Message}\n" + (!exportAttempted ? "未发起材料导出或保存审计；原文件保持不变。" :
             error.Committed ? "导出审计已保存；重读失败不代表回滚，请检查当前快照或重新载入。" : "未保存成功导出审计；文件可能已经部分发布，请核对以下实际证据。");
         OutcomeDetails = StateMessage + (failure is null ? "" : "\n" + Describe(failure.SourceRevision, failure.AuditId, failure.ExportedAt,
             failure.Scope, failure.Counts, failure.Outputs, failure.Skips) +

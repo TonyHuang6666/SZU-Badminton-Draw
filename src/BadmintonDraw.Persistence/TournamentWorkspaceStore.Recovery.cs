@@ -38,9 +38,9 @@ public partial class TournamentWorkspaceStore
         RequireDifferentPath(full, request.BackupPath);
         var hash = ContentHash(full);
         var current = Read(full);
-        RequireHash(full, hash, "RecoverySourceChanged", "目标工作区在读取修订号期间变化，请重新预览。");
+        RequireHash(full, hash, "RecoverySourceChanged", "目标工作区在读取修订号期间变化，请重新检查备份与恢复范围。");
         if (current.Revision != request.ExpectedRevision)
-            throw new WorkspaceStoreException("RevisionConflict", "工作区已变化，请重新预览并确认恢复。");
+            throw new WorkspaceStoreException("RevisionConflict", "工作区已变化，请重新检查备份与恢复范围并确认恢复。");
         var backup = ConfirmBackup(request.BackupPath, request.BackupHash, request.BackupWorkspaceId);
         if (current.Id != backup.Workspace.Id) throw new WorkspaceStoreException("WorkspaceIdentityMismatch", "备份属于其他赛事。");
         var next = AddRestoreAudit(backup.Workspace, "WorkspaceRestored", request.Reason,
@@ -57,7 +57,7 @@ public partial class TournamentWorkspaceStore
         RequireDifferentPath(full, request.BackupPath);
         var hash = UnreadableHash(full);
         if (!SameHash(hash, request.ExpectedCorruptContentHash))
-            throw new WorkspaceStoreException("RecoverySourceChanged", "损坏文件已变化，请重新预览并确认。");
+            throw new WorkspaceStoreException("RecoverySourceChanged", "损坏文件已变化，请重新检查备份与恢复范围并确认。");
         var backup = ConfirmBackup(request.BackupPath, request.BackupHash, request.BackupWorkspaceId);
         var next = AddRestoreAudit(backup.Workspace, "WorkspaceRecovered", request.Reason,
             new { CorruptContentHash = hash, BackupHash = backup.ContentHash, BackupWorkspaceId = backup.Workspace.Id });
@@ -73,7 +73,7 @@ public partial class TournamentWorkspaceStore
     private WorkspaceBackupSnapshot ConfirmBackup(string path, string expectedHash, Guid expectedId)
     {
         var backup = InspectBackup(path);
-        if (!SameHash(backup.ContentHash, expectedHash)) throw new WorkspaceStoreException("BackupChanged", "选定备份内容已变化，请重新预览。");
+        if (!SameHash(backup.ContentHash, expectedHash)) throw new WorkspaceStoreException("BackupChanged", "选定备份内容已变化，请重新检查备份与恢复范围。");
         if (backup.Workspace.Id != expectedId) throw new WorkspaceStoreException("WorkspaceIdentityMismatch", "备份赛事身份与确认内容不符。");
         return backup;
     }

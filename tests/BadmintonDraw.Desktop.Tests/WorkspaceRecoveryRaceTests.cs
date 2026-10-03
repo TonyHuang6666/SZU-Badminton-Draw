@@ -115,7 +115,11 @@ public sealed class WorkspaceRecoveryRaceTests
             thread = Environment.CurrentManagedThreadId; entered.TrySetResult();
             if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException();
         };
-        var pending = vm.PreviewCommand.ExecuteAsync(); await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        // Deliver the captured UI continuation after invalidation. The fixture's immediate
+        // session callback must not race with VM assignment on a second worker thread.
+        var deferred = new DeferredUiContext();
+        var pending = deferred.Start(() => vm.PreviewCommand.ExecuteAsync());
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Task<WorkspaceCommandResult>? switching = null;
         try
         {
@@ -132,8 +136,8 @@ public sealed class WorkspaceRecoveryRaceTests
             }
         }
         finally { release.Set(); }
-        await pending;
         if (switching is not null) await switching;
+        await deferred.Complete(pending);
         Assert.False(shell.IsBusy); Assert.False(vm.HasPreview); Assert.False(vm.Confirmed); Assert.Equal("preserved reason", vm.Reason);
     }
 

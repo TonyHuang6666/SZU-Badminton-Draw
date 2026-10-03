@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using BadmintonDraw.Core.Tournaments;
 using BadmintonDraw.Desktop.Scheduling;
 using BadmintonDraw.Desktop.ViewModels;
@@ -15,7 +16,7 @@ public partial class ScheduleBoardPage : UserControl
         AttachedToVisualTree += async (_, _) => { BindPage(); if (page is { } current) await current.InitializeAsync(); };
         DetachedFromVisualTree += (_, _) => UnbindPage();
         ScheduleBoard.MatchSelected += key => page?.SelectMatch(key);
-        ScheduleBoard.ManualMoveRequested += key => { page?.SelectMatch(key); MoveEditor.IsExpanded = true; TargetTime.Focus(); };
+        ScheduleBoard.ManualMoveRequested += key => { page?.SelectMatch(key); MoveEditor.IsChecked = true; TargetTime.Focus(); };
         ScheduleBoard.MoveRequested += MoveRequested;
     }
     private void BindPage()
@@ -29,11 +30,19 @@ public partial class ScheduleBoardPage : UserControl
         if (page is { } old) old.FocusRequested -= FocusMatch;
         ScheduleBoard.PreviewHoverAsync = null; page = null;
     }
-    private void FocusMatch(WorkspaceMatchKey key) => ScheduleBoard.FocusMatch(key);
+    private void FocusMatch(WorkspaceMatchKey key)
+    {
+        if (page is { } current) current.IsMoveEditorExpanded = false;
+        ScheduleBoard.FocusMatch(key);
+    }
+    private void CloseMoveEditor(object? sender, RoutedEventArgs e)
+    {
+        if (page is { } current) current.IsMoveEditorExpanded = false;
+    }
     private async void MoveRequested(WorkspaceBoardMoveIntent intent)
     {
         if (page is not { } current) return;
-        MoveEditor.IsExpanded = true;
+        current.IsMoveEditorExpanded = true;
         try { await current.RequestMoveAsync(intent); }
         catch (Exception exception) { current.ReportError(exception); }
     }

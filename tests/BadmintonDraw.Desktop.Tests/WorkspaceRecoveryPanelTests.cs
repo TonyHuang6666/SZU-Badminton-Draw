@@ -60,6 +60,7 @@ public sealed class WorkspaceRecoveryPanelTests : IDisposable
             Activate(window, window.FindControl<Button>("HeaderRecoveryButton")!);
             var panel = window.FindControl<WorkspaceRecoveryPanel>("RecoveryPanel")!;
             Assert.True(panel.IsVisible); Assert.Equal(target, panel.FindControl<TextBox>("RecoveryTargetPath")!.Text);
+            Assert.False(panel.FindControl<SelectableTextBlock>("RecoveryOutputDetails")!.IsEffectivelyVisible);
             await shell.Recovery.PickBackupCommand.ExecuteAsync();
             Assert.Equal(longBackup, panel.FindControl<TextBox>("RecoveryBackupPath")!.Text);
             await Assert.IsType<AsyncCommand>(panel.FindControl<Button>("PreviewRecoveryButton")!.Command).ExecuteAsync();
@@ -77,6 +78,7 @@ public sealed class WorkspaceRecoveryPanelTests : IDisposable
             Assert.Null(shell.LastError); Assert.Equal(target, shell.WorkspacePath);
             Assert.False(apply.IsEffectivelyEnabled); Assert.False(confirmation.IsChecked);
             Assert.Contains(target, panel.FindControl<SelectableTextBlock>("RecoveryOutputDetails")!.Text);
+            Assert.True(panel.FindControl<SelectableTextBlock>("RecoveryOutputDetails")!.IsEffectivelyVisible);
             Assert.NotEmpty(reads); Assert.DoesNotContain(true, reads);
         }
         finally { window.Close(); }

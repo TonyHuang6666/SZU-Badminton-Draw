@@ -17,6 +17,7 @@ public sealed class WorkspaceNavigator : ViewModelBase
         WorkspaceRoute.PublicDraw => stage >= TournamentStage.RostersReady,
         WorkspaceRoute.ScheduleSetup => purpose == TournamentPurpose.FullTournament && stage >= TournamentStage.DrawsConfirmed,
         WorkspaceRoute.ScheduleBoard or WorkspaceRoute.Operations => purpose == TournamentPurpose.FullTournament && stage >= TournamentStage.ScheduleReady,
+        WorkspaceRoute.Archive => stage >= TournamentStage.DrawsConfirmed,
         _ => false
     };
     public bool Navigate(WorkspaceRoute route)

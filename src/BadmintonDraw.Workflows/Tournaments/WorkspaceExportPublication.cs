@@ -9,6 +9,14 @@ internal class ExportPublicationProgress
 
 internal static class WorkspaceExportPublication
 {
+    internal static Func<string, bool> OverwritePolicy(bool overwrite, IReadOnlyList<string>? confirmedPaths)
+    {
+        if (confirmedPaths is null) return _ => overwrite;
+        var paths = confirmedPaths.Select(Path.GetFullPath).ToHashSet(
+            OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        return path => paths.Contains(Path.GetFullPath(path));
+    }
+
     internal static void ValidateDestination(string path, TournamentWorkspace workspace, string workspacePath, bool overwrite)
     {
         var name = Path.GetFileName(path);

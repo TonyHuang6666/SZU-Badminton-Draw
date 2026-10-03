@@ -11,11 +11,12 @@ internal sealed class ScheduleUiFixture : IDisposable
     public string DirectoryPath { get; } = Directory.CreateTempSubdirectory("schedule-ui-").FullName;
     public TournamentWorkspaceWorkflow Workflow { get; }
     public AppShellViewModel Shell { get; }
-    public ScheduleUiFixture(int count = 1, TournamentWorkspaceWorkflow? workflow = null)
+    public ScheduleUiFixture(int count = 1, TournamentWorkspaceWorkflow? workflow = null,
+        TournamentPurpose purpose = TournamentPurpose.FullTournament)
     {
         Workflow = workflow ?? new();
         var disciplines = new[] { EventDiscipline.MenSingles, EventDiscipline.WomenSingles, EventDiscipline.MenDoubles };
-        Workflow.CreateWorkspace(new("统一赛程测试", TournamentKind.Individual, TournamentPurpose.FullTournament,
+        Workflow.CreateWorkspace(new("统一赛程测试", TournamentKind.Individual, purpose,
             disciplines.Take(count).Select(d => new WorkspaceProjectRequest(d, CompetitionMode.SinglesKnockout)).ToArray(),
             Path.Combine(DirectoryPath, "比赛.szbd")));
         foreach (var project in Workflow.CurrentSession!.Workspace.Projects)

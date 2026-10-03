@@ -95,7 +95,7 @@ public sealed partial class ResultImportWorkflow
                     { Error("result.participants-changed", "已有赛果的胜方或负方不同，不能通过元数据更正改变对阵结果或下游已录赛果。", owner.Source); continue; }
                     if (ResultImportValueParser.Equivalent(current, result, project.Discipline == EventDiscipline.Team)) continue;
                     if (current.RecordedAt > options.ImportedAt)
-                    { Error("result.correction-time", "更正时间早于已有赛果记录时间，请检查系统时间并重新预览。", owner.Source); continue; }
+                    { Error("result.correction-time", "更正时间早于已有赛果记录时间，请检查系统时间并重新检查记录表。", owner.Source); continue; }
                     corrections.Add(new(current, result, owner.Source));
                 }
                 changes.Add(new(owner, result, current)); results[key] = result;
@@ -124,7 +124,7 @@ public sealed partial class ResultImportWorkflow
         private ResultImportEvaluation BuildCandidate(Dictionary<WorkspaceMatchKey, TournamentMatchResult> results)
         {
             var ids = workspace.AuditEvents.Select(a => a.Id).Concat(workspace.ImportLogs.Select(l => l.Id)).Concat(workspace.ResultHistory.Select(h => h.Id)).ToHashSet();
-            bool Reserve(Guid id) { if (id != Guid.Empty && ids.Add(id)) return true; Error("result.operation-collision", "操作标识与现有记录冲突，请重新预览。 "); return false; }
+            bool Reserve(Guid id) { if (id != Guid.Empty && ids.Add(id)) return true; Error("result.operation-collision", "操作标识与现有记录冲突，请重新检查记录表。 "); return false; }
             Reserve(options.OperationId);
             var logs = new List<WorkspaceImportLog>(); var logIds = new Dictionary<string, Guid>(StringComparer.Ordinal);
             foreach (var file in NewFiles.OrderBy(f => f.Source.ContentHash, StringComparer.Ordinal))

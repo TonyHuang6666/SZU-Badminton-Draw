@@ -15,4 +15,6 @@ public abstract class WorkspacePageViewModel(WorkspaceSession session) : ViewMod
     public WorkspaceSession Session { get => session; private set => SetProperty(ref session, value); }
     public virtual void RefreshSession(WorkspaceSession next) { Session = next; RefreshAvailability(); }
     public virtual void RefreshAvailability() { }
+    /// <summary>Block explicit page replacement while an editor still needs Save or Cancel.</summary>
+    public virtual bool TryLeave() => true;
 }

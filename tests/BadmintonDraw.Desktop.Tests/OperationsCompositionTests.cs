@@ -33,8 +33,15 @@ public sealed class OperationsCompositionTests : IDisposable
             Assert.True(shell.CanNavigate(WorkspaceRoute.Operations));
             Assert.True(shell.Navigate(WorkspaceRoute.Operations));
             window.UpdateLayout(); Assert.IsType<OperationsPageViewModel>(shell.CurrentPage);
-            Assert.Single(window.GetVisualDescendants().OfType<OperationsPage>());
+            var operations = Assert.Single(window.GetVisualDescendants().OfType<OperationsPage>());
+            Assert.Contains(operations.GetVisualDescendants().OfType<TextBox>(), box => box.Name == "OperationalOutputDirectory");
+            operations.FindControl<TabControl>("OperationsTabs")!.SelectedIndex = 1;
+            window.UpdateLayout();
             Assert.Single(window.GetVisualDescendants().OfType<ResultImportPanel>());
+            operations.FindControl<TabControl>("OperationsTabs")!.SelectedIndex = 2;
+            window.UpdateLayout();
+            operations.FindControl<Button>("OpenUpdatedSchedule")!.Command!.Execute(null);
+            Assert.IsType<ScheduleBoardPageViewModel>(shell.CurrentPage);
         }
         finally { window.Close(); }
         return 0;
@@ -52,6 +59,7 @@ public sealed class OperationsCompositionTests : IDisposable
             window.Show(); var shell = Assert.IsType<AppShellViewModel>(window.DataContext); shell.Navigate(WorkspaceRoute.Operations);
             window.UpdateLayout(); var page = Assert.IsType<OperationsPageViewModel>(shell.CurrentPage);
             var view = Assert.Single(window.GetVisualDescendants().OfType<OperationsPage>());
+            view.FindControl<TabControl>("OperationsTabs")!.SelectedIndex = 1; window.UpdateLayout();
             var import = view.FindControl<ResultImportPanel>("OperationsResultImport")!;
             await Assert.IsType<AsyncCommand>(import.FindControl<Button>("PickResultFiles")!.Command).ExecuteAsync();
             await Assert.IsType<AsyncCommand>(import.FindControl<Button>("PreviewResultImport")!.Command).ExecuteAsync();
@@ -59,12 +67,16 @@ public sealed class OperationsCompositionTests : IDisposable
             await Assert.IsType<AsyncCommand>(import.FindControl<Button>("ApplyResultImport")!.Command).ExecuteAsync();
             Dispatcher.UIThread.RunJobs(); window.UpdateLayout(); Assert.Same(page, shell.CurrentPage);
             Assert.Equal(TournamentStage.Completed, page.Session.Workspace.Stage); Assert.Contains("已保存", page.ResultImport.StateMessage);
-            view.FindControl<TabControl>("OperationsTabs")!.SelectedIndex = 1; window.UpdateLayout();
+            view.FindControl<TabControl>("OperationsTabs")!.SelectedIndex = 0; window.UpdateLayout();
             await Assert.IsType<AsyncCommand>(view.FindControl<Button>("PickOperationalOutput")!.Command).ExecuteAsync();
             Assert.Equal(output, view.FindControl<TextBox>("OperationalOutputDirectory")!.Text);
+            var advanced = view.FindControl<Expander>("OperationalAdvancedSettings")!;
+            advanced.IsExpanded = true; window.UpdateLayout();
             var project = view.FindControl<ComboBox>("OperationalProject")!; project.SelectedIndex = 1;
             view.FindControl<NumericUpDown>("OperationalPdfRows")!.Value = 2;
             Assert.Equal(2, page.Materials.PdfRows); Assert.False(page.Materials.ScopeConfirmed);
+            advanced.IsExpanded = false; window.UpdateLayout(); advanced.IsExpanded = true; window.UpdateLayout();
+            Assert.Equal(2, view.FindControl<NumericUpDown>("OperationalPdfRows")!.Value);
             view.FindControl<CheckBox>("ConfirmOperationalScope")!.IsChecked = true;
             var export = view.FindControl<Button>("ExportOperationalPackage")!; Assert.True(export.IsEffectivelyEnabled);
             await Assert.IsType<AsyncCommand>(export.Command).ExecuteAsync(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
@@ -171,6 +183,8 @@ public sealed class OperationsCompositionTests : IDisposable
             window.Show(); var shell = Assert.IsType<AppShellViewModel>(window.DataContext); shell.Navigate(WorkspaceRoute.Operations);
             window.UpdateLayout(); var view = Assert.Single(window.GetVisualDescendants().OfType<OperationsPage>());
             view.FindControl<TabControl>("OperationsTabs")!.SelectedIndex = 2; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            view.FindControl<Expander>("OperationsAuditDetails")!.IsExpanded = true;
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             var evidence = Assert.Single(view.FindControl<ItemsControl>("OperationsAudits")!.GetVisualDescendants().OfType<ResultImportEvidenceText>(),
                 e => e.Text?.Contains(audit.Id.ToString(), StringComparison.Ordinal) == true);
             Assert.EndsWith(detail, evidence.Text); Assert.Contains("FutureUnknownAction", evidence.Text);

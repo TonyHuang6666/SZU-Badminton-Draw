@@ -3,7 +3,16 @@ namespace BadmintonDraw.Workflows.Tournaments;
 public enum DrawExportState { Preview, Confirmed }
 public sealed record DrawExportLayout(int PdfRows = 1, int PdfColumns = 1);
 public sealed record DrawExportRequest(string OutputDirectory, WorkflowExportFormat Format,
-    DrawExportState State = DrawExportState.Confirmed, DrawExportLayout? Layout = null, bool OverwriteExisting = false);
+    DrawExportState State = DrawExportState.Confirmed, DrawExportLayout? Layout = null, bool OverwriteExisting = false)
+{
+    private IReadOnlyList<string>? confirmedOverwritePaths;
+    /// <summary>When supplied, only these full normalized paths may be overwritten; null preserves legacy bool behavior.</summary>
+    public IReadOnlyList<string>? ConfirmedOverwritePaths
+    {
+        get => confirmedOverwritePaths;
+        init => confirmedOverwritePaths = value is null ? null : Array.AsReadOnly(value.ToArray());
+    }
+}
 public sealed record DrawPackageOutput(Guid ProjectId, WorkflowExportFormat Format, string Path);
 public sealed record DrawPackageExportResult(WorkspaceCommandResult Command, IReadOnlyList<DrawPackageOutput> Outputs,
     long SourceRevision, Guid AuditId);

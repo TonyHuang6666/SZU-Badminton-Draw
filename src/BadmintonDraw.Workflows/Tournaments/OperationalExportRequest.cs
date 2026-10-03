@@ -6,6 +6,13 @@ public sealed record OperationalExportRequest(string OutputDirectory, Guid? Proj
 {
     private IReadOnlyList<DateOnly>? days = Days is null ? null : Array.AsReadOnly(Days.ToArray());
     public IReadOnlyList<DateOnly>? Days { get => days; init => days = value is null ? null : Array.AsReadOnly(value.ToArray()); }
+    private IReadOnlyList<string>? confirmedOverwritePaths;
+    /// <summary>When supplied, only these full normalized paths may be overwritten; null preserves legacy bool behavior.</summary>
+    public IReadOnlyList<string>? ConfirmedOverwritePaths
+    {
+        get => confirmedOverwritePaths;
+        init => confirmedOverwritePaths = value is null ? null : Array.AsReadOnly(value.ToArray());
+    }
 }
 
 public enum OperationalMaterialKind

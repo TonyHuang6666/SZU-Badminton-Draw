@@ -18,6 +18,238 @@ public sealed class PublicDrawPageViewModelTests : IDisposable
     public void Dispose() { foreach (var item in owned) item.Dispose(); Directory.Delete(directory, true); }
     private string PathFor(string name) => Path.Combine(directory, name);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UnifiedExportDefaultsToAllConfirmedButHonorsCurrentProjectChoice(bool currentOnly)
+    {
+        var (workflow, shell) = Ready(2);
+        DrawExportOptionsViewModel? shown = null;
+        Register(shell, output: () => Task.FromResult<string?>(PathFor("unified")), configure: options =>
+        {
+            shown = options;
+            Assert.Null(Assert.IsType<DrawExportScope>(options.SelectedScope).ProjectId);
+            if (currentOnly) options.SelectedScope = options.Scopes.Single(s => s.ProjectId is not null);
+            return Task.FromResult(true);
+        });
+        shell.Navigate(WorkspaceRoute.PublicDraw);
+        var page = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
+        foreach (var project in page.Projects.ToArray()) { await project.PreviewDrawCommand.ExecuteAsync(); await project.ConfirmDrawCommand.ExecuteAsync(); }
+        page.SelectedProject = page.Projects[1];
+        var draws = JsonSerializer.Serialize(workflow.CurrentSession!.Workspace.Projects.Select(p => p.Draw));
+        await page.OpenExportCommand.ExecuteAsync();
+        Assert.Null(shell.LastError); Assert.NotNull(shown);
+        var paths = Directory.GetFiles(PathFor("unified"), "*.xlsx");
+        Assert.Equal(currentOnly ? 1 : 2, paths.Length);
+        if (currentOnly) Assert.Contains(page.SelectedProject.ProjectId.ToString("N"), paths[0]);
+        Assert.Equal(draws, JsonSerializer.Serialize(workflow.CurrentSession!.Workspace.Projects.Select(p => p.Draw)));
+        Assert.Equal(TournamentPurpose.PublicDrawOnly, workflow.CurrentSession.Workspace.Purpose);
+        Assert.Null(workflow.CurrentSession.Workspace.Schedule);
+        Assert.Same(page, shell.CurrentPage);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task UnifiedExportKeepsPendingStateAndOnlyOffersValidBatchScope(bool mixed, bool chooseAll)
+    {
+        var (workflow, shell) = Ready(2);
+        Register(shell, output: () => Task.FromResult<string?>(PathFor("pending")), configure: options =>
+        {
+            Assert.NotNull(Assert.IsType<DrawExportScope>(options.SelectedScope).ProjectId);
+            var all = options.Scopes.Single(s => s.ProjectId is null);
+            Assert.Equal(!mixed, all.CanExport);
+            if (chooseAll) options.SelectedScope = all;
+            return Task.FromResult(true);
+        });
+        shell.Navigate(WorkspaceRoute.PublicDraw);
+        var page = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
+        foreach (var project in page.Projects.ToArray()) await project.PreviewDrawCommand.ExecuteAsync();
+        if (mixed) await page.Projects[0].ConfirmDrawCommand.ExecuteAsync();
+        page.SelectedProject = page.Projects[1];
+        await page.OpenExportCommand.ExecuteAsync();
+        Assert.Null(shell.LastError);
+        Assert.Equal(chooseAll ? 2 : 1, Directory.GetFiles(PathFor("pending"), "*待确认抽签结果.xlsx").Length);
+        Assert.Null(workflow.CurrentSession!.Workspace.Projects[1].Draw!.ConfirmedAt);
+        Assert.False(page.ContinueToScheduleCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task CancellingUnifiedExportKeepsFilesArchiveAndLastUsedSettings()
+    {
+        var (workflow, shell) = Ready(); var picked = false;
+        Register(shell, output: () => { picked = true; return Task.FromResult<string?>(PathFor("cancelled")); }, configure: options =>
+        {
+            Assert.Single(options.Scopes);
+            options.ExportFormatIndex = 4; options.PdfRowsText = "3";
+            return Task.FromResult(false);
+        });
+        shell.Navigate(WorkspaceRoute.PublicDraw);
+        var page = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
+        Assert.False(page.OpenExportCommand.CanExecute(null));
+        await page.SelectedProject!.PreviewDrawCommand.ExecuteAsync();
+        var saved = workflow.CurrentSession!; var bytes = File.ReadAllBytes(saved.WorkspacePath);
+        await page.OpenExportCommand.ExecuteAsync();
+        Assert.False(picked); Assert.Same(saved, workflow.CurrentSession);
+        Assert.Equal(bytes, File.ReadAllBytes(saved.WorkspacePath));
+        Assert.Equal(0, page.ExportFormatIndex); Assert.Equal("1", page.PdfRowsText);
+        Assert.False(Directory.Exists(PathFor("cancelled")));
+    }
+
+    [Theory]
+    [InlineData("project", false)]
+    [InlineData("reload", false)]
+    [InlineData("navigate", false)]
+    [InlineData("reload", true)]
+    public async Task UnifiedExportOptionsCannotSurviveChangedContext(string change, bool throws)
+    {
+        var (workflow, shell) = Ready(2); var pickerCount = 0;
+        var shown = new TaskCompletionSource<DrawExportOptionsViewModel>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var decision = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Register(shell, output: () => { pickerCount++; return Task.FromResult<string?>(PathFor("stale")); },
+            configure: options => { shown.SetResult(options); return decision.Task; });
+        shell.Navigate(WorkspaceRoute.PublicDraw);
+        var page = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
+        foreach (var project in page.Projects.ToArray()) { await project.PreviewDrawCommand.ExecuteAsync(); await project.ConfirmDrawCommand.ExecuteAsync(); }
+        var pending = page.OpenExportCommand.ExecuteAsync();
+        var options = await shown.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        try
+        {
+            Assert.False(page.OpenExportCommand.CanExecute(null));
+            Assert.False(page.ExportAllConfirmedCommand.CanExecute(null));
+            Assert.False(page.SelectedProject!.ExportConfirmedCommand.CanExecute(null));
+            var chosen = options.SelectedScope;
+            switch (change)
+            {
+                case "project": page.SelectedProject = page.Projects[1]; break;
+                case "reload": await shell.ReloadCommand.ExecuteAsync(); break;
+                case "navigate": Assert.True(shell.Navigate(WorkspaceRoute.Rosters)); break;
+            }
+            Assert.Same(chosen, options.SelectedScope);
+        }
+        finally
+        {
+            if (throws) decision.SetException(new IOException("late options failure")); else decision.SetResult(true);
+            await pending;
+        }
+        Assert.Equal(0, pickerCount); Assert.False(Directory.Exists(PathFor("stale")));
+        Assert.DoesNotContain(workflow.CurrentSession!.Workspace.AuditEvents, e => e.Action == "DrawPackageExported");
+        Assert.Null(shell.LastError);
+    }
+
+    [Fact]
+    public async Task DuplicateProjectNamesAreDistinguishableWithoutRenamingProjectsOrTemplateFiles()
+    {
+        var (workflow, shell) = Ready(2);
+        workflow.UpdateConfiguration(new("同名项目", workflow.CurrentSession!.Workspace.Projects
+            .Select(p => new WorkspaceProjectRequest(p.Discipline, p.CompetitionMode, "公开组", p.Id)).ToArray()),
+            workflow.CurrentSession.Workspace.Revision);
+        Register(shell);
+        string? suggestedName = null;
+        shell.RegisterPageFactory(WorkspaceRoute.Rosters, session => new RostersPageViewModel(shell, session,
+            () => Task.FromResult<string?>(null), name => { suggestedName = name; return Task.FromResult<string?>(null); }));
+        shell.Navigate(WorkspaceRoute.Rosters);
+        var rosters = Assert.IsType<RostersPageViewModel>(shell.CurrentPage);
+        Assert.Equal(new[] { "公开组 · 男子单打", "公开组 · 女子单打" }, rosters.Projects.Select(p => p.DisplayLabel));
+        Assert.All(rosters.Projects, p => Assert.Equal("公开组", p.Name));
+        await rosters.Projects[0].ExportTemplateCommand.ExecuteAsync();
+        Assert.Equal("公开组_名单模板", suggestedName);
+        shell.Navigate(WorkspaceRoute.PublicDraw);
+        var draws = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
+        Assert.Equal(new[] { "公开组 · 男子单打", "公开组 · 女子单打" }, draws.Projects.Select(p => p.DisplayLabel));
+        Assert.All(draws.Projects, p => Assert.Equal("公开组", p.Name));
+        Assert.All(workflow.CurrentSession.Workspace.Projects, p => Assert.Equal("公开组", p.DisplayName));
+
+        workflow.UpdateConfiguration(new("同名项目", workflow.CurrentSession.Workspace.Projects
+            .Select((p, i) => new WorkspaceProjectRequest(p.Discipline, p.CompetitionMode, i == 0 ? "公开组" : "校友组", p.Id)).ToArray()),
+            workflow.CurrentSession.Workspace.Revision);
+        Assert.Equal(new[] { "公开组", "校友组" }, draws.Projects.Select(p => p.DisplayLabel));
+    }
+
+    [Fact]
+    public void RosterNextActionReviewsCompletedDrawsAndReturnsToPreparationAfterReopening()
+    {
+        var (workflow, shell) = Ready(); Register(shell); shell.Navigate(WorkspaceRoute.Rosters);
+        var rosters = Assert.IsType<RostersPageViewModel>(shell.CurrentPage);
+        Assert.Equal("名单检查无误，开始公开抽签", rosters.NextLabel);
+        var id = workflow.CurrentSession!.Workspace.Projects[0].Id;
+        workflow.PreviewDraw(id, new(CompetitionMode.SinglesKnockout, EventKind.Singles, 1, "review"), workflow.CurrentSession.Workspace.Revision);
+        workflow.ConfirmDraw(id, workflow.CurrentSession.Workspace.Revision);
+        Assert.Equal("查看公开抽签", rosters.NextLabel);
+        Assert.True(rosters.NextCommand.CanExecute(null));
+        workflow.ReopenDraw(id, "检查名单", workflow.CurrentSession.Workspace.Revision);
+        Assert.Equal("名单检查无误，开始公开抽签", rosters.NextLabel);
+        Assert.True(rosters.NextCommand.CanExecute(null));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ContinueToSchedulingRequiresEveryConfirmationAndNeverGeneratesSchedule(bool alreadyFullTournament)
+    {
+        var (workflow, shell) = Ready(2);
+        if (alreadyFullTournament) workflow.UpgradeToFullTournament(workflow.CurrentSession!.Workspace.Revision);
+        Register(shell);
+        shell.RegisterPageFactory(WorkspaceRoute.ScheduleSetup, session => new ScheduleSetupPageViewModel(shell, session));
+        shell.Navigate(WorkspaceRoute.PublicDraw);
+        var page = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
+        Assert.False(page.ContinueToScheduleCommand.CanExecute(null));
+        await page.Projects[0].PreviewDrawCommand.ExecuteAsync();
+        await page.Projects[0].ConfirmDrawCommand.ExecuteAsync();
+        Assert.False(page.ContinueToScheduleCommand.CanExecute(null));
+        Assert.Same(page.Projects[1], Assert.Single(page.PendingProjects));
+        var beforeReview = workflow.CurrentSession;
+        page.PendingProjects[0].ReviewDrawCommand.Execute(null);
+        Assert.Same(page.Projects[1], page.SelectedProject);
+        Assert.Same(beforeReview, workflow.CurrentSession);
+        await page.Projects[1].PreviewDrawCommand.ExecuteAsync();
+        Assert.False(page.ContinueToScheduleCommand.CanExecute(null));
+        await page.Projects[1].ConfirmDrawCommand.ExecuteAsync();
+        Assert.Same(page, shell.CurrentPage);
+        Assert.True(page.ContinueToScheduleCommand.CanExecute(null));
+        Assert.Empty(page.PendingProjects);
+        var draws = JsonSerializer.Serialize(workflow.CurrentSession!.Workspace.Projects.Select(project => project.Draw));
+
+        await page.ContinueToScheduleCommand.ExecuteAsync();
+
+        Assert.IsType<ScheduleSetupPageViewModel>(shell.CurrentPage);
+        Assert.Equal(TournamentPurpose.FullTournament, workflow.CurrentSession!.Workspace.Purpose);
+        Assert.Equal(draws, JsonSerializer.Serialize(workflow.CurrentSession.Workspace.Projects.Select(project => project.Draw)));
+        Assert.Null(workflow.CurrentSession.Workspace.Schedule);
+    }
+
+    [Fact]
+    public async Task ReloadingReopenedDrawRestoresPendingGuidanceAndDisposedPageCannotSelectIt()
+    {
+        var (workflow, shell) = Ready(2); Register(shell); shell.Navigate(WorkspaceRoute.PublicDraw);
+        var page = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
+        foreach (var project in page.Projects.ToArray())
+        {
+            await project.PreviewDrawCommand.ExecuteAsync();
+            await project.ConfirmDrawCommand.ExecuteAsync();
+        }
+        Assert.Empty(page.PendingProjects);
+        Assert.False(page.Projects[1].ReviewDrawCommand.CanExecute(null));
+        var other = new TournamentWorkspaceWorkflow(); other.OpenWorkspace(workflow.CurrentSession!.WorkspacePath);
+        other.ReopenDraw(page.Projects[1].ProjectId, "重新核对", other.CurrentSession!.Workspace.Revision);
+
+        await shell.ReloadCommand.ExecuteAsync();
+
+        var pending = Assert.Single(page.PendingProjects);
+        Assert.Same(page.Projects[1], pending);
+        Assert.Contains("未抽签", pending.PendingDrawLabel);
+        Assert.False(page.ContinueToScheduleCommand.CanExecute(null));
+        var saved = workflow.CurrentSession;
+        pending.ReviewDrawCommand.Execute(null);
+        Assert.Same(pending, page.SelectedProject);
+        Assert.Same(saved, workflow.CurrentSession);
+        page.SelectedProject = page.Projects[0]; page.Dispose();
+        Assert.False(pending.ReviewDrawCommand.CanExecute(null));
+        pending.ReviewDrawCommand.Execute(null);
+        Assert.Same(page.Projects[0], page.SelectedProject);
+    }
+
     [Fact]
     public async Task ImportFromInitiallyEmptyPageEnablesSeedEditorAndSavesNewSeed()
     {
@@ -26,7 +258,7 @@ public sealed class PublicDrawPageViewModelTests : IDisposable
         var project = Assert.IsType<RostersPageViewModel>(shell.CurrentPage).Projects[0];
         Assert.False(project.BeginSeedEditCommand.CanExecute(null));
         await project.ImportCommand.ExecuteAsync();
-        Assert.True(project.BeginSeedEditCommand.CanExecute(null)); Assert.True(project.ResetSeedsCommand.CanExecute(null));
+        Assert.True(project.BeginSeedEditCommand.CanExecute(null)); Assert.False(project.ResetSeedsCommand.CanExecute(null));
         project.BeginSeedEditCommand.Execute(null); project.Rows[0].IsSeed = true; project.Rows[0].SeedRankText = "1";
         await project.SaveSeedsCommand.ExecuteAsync();
         Assert.True(workflow.CurrentSession!.Workspace.Projects[0].Roster!.Participants[0].IsSeed);
@@ -200,24 +432,116 @@ public sealed class PublicDrawPageViewModelTests : IDisposable
     [Fact]
     public async Task PreviewExportDoesNotConfirmAndOverwriteNeedsFreshExplicitConsent()
     {
-        var (workflow, shell) = Ready(); Register(shell, output: () => Task.FromResult<string?>(directory)); shell.Navigate(WorkspaceRoute.PublicDraw);
+        var prompts = new List<string[]>(); var accept = false;
+        var (workflow, shell) = Ready(confirm: paths => { prompts.Add(paths.ToArray()); return Task.FromResult(accept); });
+        Register(shell, output: () => Task.FromResult<string?>(directory)); shell.Navigate(WorkspaceRoute.PublicDraw);
         var page = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
         page.ExportFormatIndex = 0;
         var project = page.SelectedProject!;
         await project.PreviewDrawCommand.ExecuteAsync();
         await project.ExportPreviewCommand.ExecuteAsync();
         Assert.Contains(".xlsx", page.ExportDetails);
-        Assert.Single(Directory.GetFiles(directory, "*未确认抽签预览.xlsx"));
+        var target = Assert.Single(Directory.GetFiles(directory, "*待确认抽签结果.xlsx"));
+        Assert.Empty(prompts);
         Assert.Null(workflow.CurrentSession!.Workspace.Projects[0].Draw!.ConfirmedAt);
         var revision = workflow.CurrentSession.Workspace.Revision;
+        File.WriteAllText(target, "original output");
+        var archive = File.ReadAllBytes(workflow.CurrentSession.WorkspacePath);
         await project.ExportPreviewCommand.ExecuteAsync();
         Assert.Equal(revision, workflow.CurrentSession.Workspace.Revision);
-        Assert.NotNull(shell.LastError);
-        page.OverwriteExisting = true;
+        Assert.Equal(new[] { target }, Assert.Single(prompts));
+        Assert.Null(shell.LastError);
+        Assert.Contains("已取消", page.ExportDetails);
+        Assert.Equal("original output", File.ReadAllText(target));
+        Assert.Equal(archive, File.ReadAllBytes(workflow.CurrentSession.WorkspacePath));
+        accept = true;
         await project.ExportPreviewCommand.ExecuteAsync();
         Assert.Null(shell.LastError);
         Assert.Equal(revision + 1, workflow.CurrentSession.Workspace.Revision);
-        Assert.False(page.OverwriteExisting);
+        Assert.Equal(2, prompts.Count);
+        using (var workbook = new XLWorkbook(target)) Assert.NotEmpty(workbook.Worksheets);
+        accept = false;
+        await project.ExportPreviewCommand.ExecuteAsync();
+        Assert.Equal(3, prompts.Count);
+        Assert.Equal(revision + 1, workflow.CurrentSession.Workspace.Revision);
+        Assert.Null(workflow.CurrentSession.Workspace.Projects[0].Draw!.ConfirmedAt);
+    }
+
+    public static IEnumerable<object[]> DrawConfirmationChanges => new[] { "format", "layout", "project", "reload", "navigate" }
+        .SelectMany(change => new[] { new object[] { change, false }, new object[] { change, true } });
+
+    [Theory, MemberData(nameof(DrawConfirmationChanges))]
+    public async Task DrawExportConsentCannotSurviveChangedInputsOrPage(string change, bool throws)
+    {
+        var shown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var decision = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (workflow, shell) = Ready(2, confirm: _ => { shown.TrySetResult(); return decision.Task; });
+        Register(shell, output: () => Task.FromResult<string?>(directory)); shell.Navigate(WorkspaceRoute.PublicDraw);
+        var page = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
+        var project = page.SelectedProject!;
+        await project.PreviewDrawCommand.ExecuteAsync(); await project.ExportPreviewCommand.ExecuteAsync();
+        var target = Assert.Single(Directory.GetFiles(directory, "*待确认抽签结果.xlsx"));
+        var original = File.ReadAllBytes(target);
+        var revision = workflow.CurrentSession!.Workspace.Revision;
+        var pending = project.ExportPreviewCommand.ExecuteAsync();
+        try
+        {
+            await shown.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            switch (change)
+            {
+                case "format": page.ExportFormatIndex = 1; break;
+                case "layout": page.PdfRowsText = "2"; break;
+                case "project": page.SelectedProject = page.Projects[1]; break;
+                case "reload": await shell.ReloadCommand.ExecuteAsync(); break;
+                case "navigate": Assert.True(shell.Navigate(WorkspaceRoute.Rosters)); break;
+            }
+        }
+        finally
+        {
+            if (throws) decision.TrySetException(new IOException("late confirmation failure")); else decision.TrySetResult(true);
+            await pending;
+        }
+        Assert.Null(shell.LastError);
+        Assert.Equal(revision, workflow.CurrentSession!.Workspace.Revision);
+        Assert.Equal(original, File.ReadAllBytes(target));
+        Assert.Single(workflow.CurrentSession.Workspace.AuditEvents, e => e.Action == "DrawPackageExported");
+    }
+
+    [Fact]
+    public async Task ChangedDrawExportInputsWhileChoosingDirectoryDoNotPublish()
+    {
+        var picker = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (workflow, shell) = Ready(); Register(shell, output: () => picker.Task); shell.Navigate(WorkspaceRoute.PublicDraw);
+        var page = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
+        await page.SelectedProject!.PreviewDrawCommand.ExecuteAsync();
+        var before = workflow.CurrentSession;
+        var pending = page.SelectedProject.ExportPreviewCommand.ExecuteAsync();
+        page.ExportFormatIndex = 1;
+        picker.SetResult(PathFor("never-created")); await pending;
+        Assert.Same(before, workflow.CurrentSession);
+        Assert.False(Directory.Exists(PathFor("never-created")));
+    }
+
+    [Fact]
+    public async Task LateDrawConflictCheckCannotReplaceNewerSessionFeedbackOrPublish()
+    {
+        var (workflow, shell) = Ready();
+        Register(shell, output: () => Task.FromResult<string?>(PathFor("never-created")));
+        shell.Navigate(WorkspaceRoute.PublicDraw);
+        var page = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
+        await page.SelectedProject!.PreviewDrawCommand.ExecuteAsync();
+        var deferred = new DeferredUiContext();
+        var pending = deferred.Start(() => page.SelectedProject.ExportPreviewCommand.ExecuteAsync());
+        await deferred.FirstPost.WaitAsync(TimeSpan.FromSeconds(10));
+        workflow.OpenWorkspace(workflow.CurrentSession!.WorkspacePath);
+        shell.ReportError(new IOException("newer feedback"));
+        var newerError = shell.LastError; var newerStatus = shell.Status;
+        var newerSession = shell.CurrentSession;
+        await deferred.Complete(pending);
+        Assert.Same(newerError, shell.LastError);
+        Assert.Equal(newerStatus, shell.Status);
+        Assert.Same(newerSession, workflow.CurrentSession);
+        Assert.False(Directory.Exists(PathFor("never-created")));
     }
 
     [Fact]
@@ -263,6 +587,103 @@ public sealed class PublicDrawPageViewModelTests : IDisposable
         Assert.Equal("待核实", project.ReopenReason);
         Assert.False(project.AcknowledgeInvalidation);
         Assert.False(project.ReopenCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task TemplateExportReplacesTheExistingFileAcceptedByTheSavePicker()
+    {
+        var (workflow, shell) = Ready(); Register(shell); shell.Navigate(WorkspaceRoute.Rosters);
+        var target = WriteRoster("template.xlsx");
+        var before = workflow.CurrentSession!;
+        var project = Assert.IsType<RostersPageViewModel>(shell.CurrentPage).Projects[0];
+
+        await project.ExportTemplateCommand.ExecuteAsync();
+
+        Assert.Null(shell.LastError);
+        using var workbook = new XLWorkbook(target);
+        Assert.Equal("是否种子", workbook.Worksheet(1).Cell(1, 7).GetString());
+        Assert.Contains(target, project.ExportDetails);
+        Assert.Equal(before.Workspace.Revision + 1, workflow.CurrentSession!.Workspace.Revision);
+        Assert.Equal(JsonSerializer.Serialize(before.Workspace.Projects), JsonSerializer.Serialize(workflow.CurrentSession.Workspace.Projects));
+        Assert.Single(workflow.CurrentSession.Workspace.AuditEvents, e => e.Action == "RosterTemplateExported");
+    }
+
+    [Fact]
+    public async Task CancelingTemplateSavePickerLeavesTheExistingFileAndWorkspaceUntouched()
+    {
+        var (workflow, shell) = Ready();
+        var target = WriteRoster("template.xlsx");
+        var original = File.ReadAllBytes(target);
+        var before = workflow.CurrentSession!;
+        var archive = File.ReadAllBytes(before.WorkspacePath);
+        shell.RegisterPageFactory(WorkspaceRoute.Rosters, session => new RostersPageViewModel(shell, session,
+            () => Task.FromResult<string?>(null), _ => Task.FromResult<string?>(null)));
+        shell.Navigate(WorkspaceRoute.Rosters);
+
+        await Assert.IsType<RostersPageViewModel>(shell.CurrentPage).Projects[0].ExportTemplateCommand.ExecuteAsync();
+
+        Assert.Null(shell.LastError);
+        Assert.Equal(original, File.ReadAllBytes(target));
+        Assert.Equal(archive, File.ReadAllBytes(before.WorkspacePath));
+        Assert.Same(before, workflow.CurrentSession);
+    }
+
+    [Theory]
+    [InlineData("source")]
+    [InlineData("other-project-source")]
+    [InlineData("workspace")]
+    [InlineData("backup")]
+    public async Task AcceptedTemplateSavePathStillCannotOverwriteProtectedFiles(string kind)
+    {
+        var (workflow, shell) = Ready(2);
+        var otherSource = WriteRoster("other-project.xlsx");
+        workflow.ImportRoster(workflow.CurrentSession!.Workspace.Projects[1].Id, otherSource, workflow.CurrentSession.Workspace.Revision);
+        var before = workflow.CurrentSession!;
+        var backup = PathFor("backup.szbd");
+        File.Copy(before.WorkspacePath, backup);
+        var target = kind switch
+        {
+            "source" => PathFor("input.xlsx"),
+            "other-project-source" => otherSource,
+            "workspace" => before.WorkspacePath,
+            _ => backup
+        };
+        var original = File.ReadAllBytes(target);
+        var archive = File.ReadAllBytes(before.WorkspacePath);
+        shell.RegisterPageFactory(WorkspaceRoute.Rosters, session => new RostersPageViewModel(shell, session,
+            () => Task.FromResult<string?>(null), _ => Task.FromResult<string?>(target)));
+        shell.Navigate(WorkspaceRoute.Rosters);
+
+        await Assert.IsType<RostersPageViewModel>(shell.CurrentPage).Projects[0].ExportTemplateCommand.ExecuteAsync();
+
+        Assert.Equal("export.protected-path", shell.LastError!.Code);
+        Assert.Equal(original, File.ReadAllBytes(target));
+        Assert.Equal(archive, File.ReadAllBytes(before.WorkspacePath));
+        Assert.Same(before, workflow.CurrentSession);
+    }
+
+    [Fact]
+    public async Task AcceptedTemplateReplacementIsRejectedIfWorkspaceChangedWhilePickerWasOpen()
+    {
+        var (workflow, shell) = Ready();
+        var target = WriteRoster("template.xlsx");
+        var original = File.ReadAllBytes(target);
+        var picker = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        shell.RegisterPageFactory(WorkspaceRoute.Rosters, session => new RostersPageViewModel(shell, session,
+            () => Task.FromResult<string?>(null), _ => picker.Task));
+        shell.Navigate(WorkspaceRoute.Rosters);
+        var export = Assert.IsType<RostersPageViewModel>(shell.CurrentPage).Projects[0].ExportTemplateCommand.ExecuteAsync();
+        await shell.ReloadCommand.ExecuteAsync();
+        var current = workflow.CurrentSession!;
+        var archive = File.ReadAllBytes(current.WorkspacePath);
+
+        picker.SetResult(target);
+        await export;
+
+        Assert.Equal("workspace.session-changed", shell.LastError!.Code);
+        Assert.Equal(original, File.ReadAllBytes(target));
+        Assert.Equal(archive, File.ReadAllBytes(current.WorkspacePath));
+        Assert.Same(current, workflow.CurrentSession);
     }
 
     [Fact]
@@ -312,7 +733,7 @@ public sealed class PublicDrawPageViewModelTests : IDisposable
         Assert.False(shell.LastError.Committed);
         Assert.Contains("未完整完成", page.ExportDetails);
         Assert.Contains("审计未写入", page.ExportDetails);
-        var published = Assert.Single(Directory.GetFiles(directory, "*未确认抽签预览.xlsx"));
+        var published = Assert.Single(Directory.GetFiles(directory, "*待确认抽签结果.xlsx"));
         Assert.Contains(published, page.ExportDetails);
         Assert.Equal(revision, workflow.CurrentSession.Workspace.Revision);
         Assert.DoesNotContain(workflow.CurrentSession.Workspace.AuditEvents, e => e.Action == "DrawPackageExported");
@@ -323,11 +744,10 @@ public sealed class PublicDrawPageViewModelTests : IDisposable
     public async Task CommittedAuditRereadFailureShowsSavedAuditAndBlocksFurtherDrawActionsUntilReload()
     {
         var store = new FailingCommittedReadStore();
-        var (workflow, shell) = Ready(suppliedWorkflow: new(store));
+        var (workflow, shell) = Ready(suppliedWorkflow: new(store, new(new HookedOutputs(() => store.FailRead = true))));
         Register(shell, output: () => Task.FromResult<string?>(directory)); shell.Navigate(WorkspaceRoute.PublicDraw);
         var page = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
         await page.SelectedProject!.PreviewDrawCommand.ExecuteAsync();
-        store.FailRead = true;
         await page.SelectedProject.ExportPreviewCommand.ExecuteAsync();
         Assert.True(shell.LastError!.Committed);
         Assert.Contains("审计已写入", page.ExportDetails);
@@ -376,28 +796,31 @@ public sealed class PublicDrawPageViewModelTests : IDisposable
         Assert.NotNull(workflow.CurrentSession.Workspace.Projects[0].Draw!.ConfirmedAt);
     }
 
-    private (TournamentWorkspaceWorkflow Workflow, AppShellViewModel Shell) Create(int count = 1, TournamentWorkspaceWorkflow? suppliedWorkflow = null)
+    private (TournamentWorkspaceWorkflow Workflow, AppShellViewModel Shell) Create(int count = 1, TournamentWorkspaceWorkflow? suppliedWorkflow = null,
+        Func<IReadOnlyList<string>, Task<bool>>? confirm = null)
     {
         var workflow = suppliedWorkflow ?? new TournamentWorkspaceWorkflow();
         workflow.CreateWorkspace(new("公开抽签测试", TournamentKind.Individual, TournamentPurpose.PublicDrawOnly,
             new[] { EventDiscipline.MenSingles, EventDiscipline.WomenSingles }.Take(count).Select(d => new WorkspaceProjectRequest(d, CompetitionMode.SinglesKnockout)).ToArray(), PathFor(Guid.NewGuid() + ".szbd")));
         var shell = new AppShellViewModel(workflow, () => Task.FromResult<string?>(null), _ => Task.FromResult<string?>(null),
-            new RecentWorkspaceStore(PathFor("recent.json")), action => action());
+            new RecentWorkspaceStore(PathFor("recent.json")), action => action(), confirmExportOverwrite: confirm);
         owned.Add(shell); return (workflow, shell);
     }
-    private (TournamentWorkspaceWorkflow Workflow, AppShellViewModel Shell) Ready(int count = 1, TournamentWorkspaceWorkflow? suppliedWorkflow = null)
+    private (TournamentWorkspaceWorkflow Workflow, AppShellViewModel Shell) Ready(int count = 1, TournamentWorkspaceWorkflow? suppliedWorkflow = null,
+        Func<IReadOnlyList<string>, Task<bool>>? confirm = null)
     {
-        var pair = Create(count, suppliedWorkflow); var input = WriteRoster("input.xlsx");
+        var pair = Create(count, suppliedWorkflow, confirm); var input = WriteRoster("input.xlsx");
         foreach (var project in pair.Workflow.CurrentSession!.Workspace.Projects)
             pair.Workflow.ImportRoster(project.Id, input, pair.Workflow.CurrentSession!.Workspace.Revision);
         return pair;
     }
-    private void Register(AppShellViewModel shell, Func<Task<string?>>? import = null, Func<Task<string?>>? output = null)
+    private void Register(AppShellViewModel shell, Func<Task<string?>>? import = null, Func<Task<string?>>? output = null,
+        Func<DrawExportOptionsViewModel, Task<bool>>? configure = null)
     {
         shell.RegisterPageFactory(WorkspaceRoute.Rosters, session => new RostersPageViewModel(shell, session,
             import ?? (() => Task.FromResult<string?>(null)), _ => Task.FromResult<string?>(PathFor("template.xlsx"))));
         shell.RegisterPageFactory(WorkspaceRoute.PublicDraw, session => new PublicDrawPageViewModel(shell, session,
-            output ?? (() => Task.FromResult<string?>(null))));
+            output ?? (() => Task.FromResult<string?>(null)), configure));
     }
     private string WriteRoster(string filename, string prefix = "选手")
     {

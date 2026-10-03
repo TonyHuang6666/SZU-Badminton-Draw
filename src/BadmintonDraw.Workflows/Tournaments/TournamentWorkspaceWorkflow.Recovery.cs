@@ -19,11 +19,11 @@ public sealed partial class TournamentWorkspaceWorkflow
         WithCapturedSession(captured =>
         {
             Require(preview is not null && ReferenceEquals(preview.Owner, this) && ReferenceEquals(preview.Source, captured),
-                "recovery.preview-session-changed", "恢复预览所属会话已变化，请重新预览备份。");
-            Require(preview!.SourceRevision == expectedRevision, "recovery.preview-stale", "请按当前修订重新预览并确认恢复。");
+                "recovery.preview-session-changed", "备份检查结果所属会话已变化，请重新检查备份与恢复范围。");
+            Require(preview!.SourceRevision == expectedRevision, "recovery.preview-stale", "请按当前修订重新检查备份与恢复范围并确认恢复。");
             RequireRecoveryReason(reason);
             var source = ReadRecoverySource(captured, expectedRevision);
-            Require(RecoverySourceIdentity(source) == preview.SourceIdentity, "recovery.source-changed", "工作区内容已变化，请重新预览恢复。");
+            Require(RecoverySourceIdentity(source) == preview.SourceIdentity, "recovery.source-changed", "工作区内容已变化，请重新检查备份与恢复范围。");
             try
             {
                 var result = store.RestoreBackup(captured.WorkspacePath, new(preview.Backup.FullPath,
@@ -63,7 +63,7 @@ public sealed partial class TournamentWorkspaceWorkflow
             {
                 RequireRecoverySession(captured);
                 Require(preview is not null && ReferenceEquals(preview.Owner, this) && ReferenceEquals(preview.Source, captured),
-                    "recovery.preview-session-changed", "恢复预览所属会话已变化，请重新检查损坏文件与备份。");
+                    "recovery.preview-session-changed", "备份检查结果所属会话已变化，请重新检查损坏文件与备份。");
                 RequireRecoveryReason(reason);
                 var result = store.RecoverFromBackup(preview!.WorkspacePath, new(preview.Backup.FullPath,
                     preview.Backup.ContentHash, preview.Backup.Workspace.Id, preview.CorruptContentHash, reason.Trim()));

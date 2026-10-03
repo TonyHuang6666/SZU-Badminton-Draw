@@ -13,12 +13,21 @@ public partial class ScheduleBoardControl
     private async void CardPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (sender is not Border { Tag: WorkspaceBoardCard item } card) return;
-        MatchSelected?.Invoke(item.Key); card.Focus();
-        if (!CanEdit || item.IsLocked || Board is not { } source || !e.GetCurrentPoint(card).Properties.IsLeftButtonPressed) return;
+        card.Focus();
+        if (!CanEdit || item.IsLocked || Board is not { } source || !e.GetCurrentPoint(card).Properties.IsLeftButtonPressed)
+        {
+            MatchSelected?.Invoke(item.Key);
+            return;
+        }
         hoverCache.Clear(); ClearHover(); dragSource = card; card.Opacity = .45;
         var data = new DataTransfer(); data.Add(DataTransferItem.CreateText(WorkspaceBoardDrag.Encode(source, item.Key)));
         try { await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move); }
-        finally { ClearDragState(); }
+        finally
+        {
+            ClearDragState();
+            // Reveal inspection only after release/drop so an overlay cannot appear under an active drag.
+            if (Board?.Cards.Any(c => c.Key == item.Key) == true) MatchSelected?.Invoke(item.Key);
+        }
     }
     private bool TryKey(DragEventArgs e, out WorkspaceMatchKey key)
     {

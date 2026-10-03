@@ -1,87 +1,99 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" x:Class="BadmintonDraw.Desktop.Views.RostersPage" x:DataType="vm:RostersPageViewModel">
-  <ScrollViewer>
-    <StackPanel Margin="28" Spacing="18">
-      <TextBlock Text="各项目名单" FontSize="28" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" />
-      <TextBlock Text="{Binding Readiness}" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
-      <ItemsControl ItemsSource="{Binding Projects}">
-        <ItemsControl.ItemTemplate>
-          <DataTemplate x:DataType="vm:ProjectRosterViewModel">
-            <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,6">
-              <StackPanel Spacing="8">
-                <Grid ColumnDefinitions="160,*,Auto">
-                  <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                  <TextBlock Grid.Column="1" Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,0,12,0" />
-                  <Button Grid.Column="2" Content="导入 / 替换" Command="{Binding ImportCommand}" />
+  <Grid RowDefinitions="*,Auto">
+    <ScrollViewer>
+      <StackPanel Margin="32" Spacing="24">
+        <StackPanel Spacing="8">
+          <TextBlock Text="第 2 步 · 准备参赛名单" Classes="eyebrow" />
+          <TextBlock Text="让每一位参赛者准备就绪" Classes="page-title" />
+          <TextBlock Text="按项目导入名单，核对人员和种子设置。完成后，就可以开始公开抽签。" Classes="page-subtitle" />
+        </StackPanel>
+        <Border Classes="callout"><StackPanel Spacing="6"><TextBlock Text="{Binding Readiness}" FontWeight="SemiBold" /><TextBlock Text="{Binding NextHint}" TextWrapping="Wrap" /></StackPanel></Border>
+        <ItemsControl ItemsSource="{Binding Projects}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ProjectRosterViewModel">
+              <Border Classes="inset" Margin="0,0,0,10">
+                <Grid ColumnDefinitions="*,Auto">
+                  <StackPanel Spacing="5"><TextBlock Text="{Binding DisplayLabel}" FontWeight="SemiBold" FontSize="17" /><TextBlock Text="{Binding Summary}" Classes="muted" TextWrapping="Wrap" /><TextBlock Text="{Binding CheckSummary}" Classes="muted" FontSize="12" TextWrapping="Wrap" /></StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="8" Margin="20,0,0,0" VerticalAlignment="Center"><TextBlock Text="{Binding SeedSummary}" Classes="muted" FontSize="12" HorizontalAlignment="Right" /><Button Content="{Binding ImportLabel}" Command="{Binding ImportCommand}" Classes="secondary" /></StackPanel>
                 </Grid>
-                <SelectableTextBlock Text="{Binding SourceFileName}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AppMutedTextBrush}" />
-                <TextBlock Text="{Binding Warnings}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AppAccentBrush}" />
-              </StackPanel>
-            </Border>
-          </DataTemplate>
-        </ItemsControl.ItemTemplate>
-      </ItemsControl>
-      <Grid ColumnDefinitions="Auto,*,Auto">
-        <TextBlock Text="当前项目" VerticalAlignment="Center" Margin="0,0,12,0" />
-        <ComboBox Grid.Column="1" ItemsSource="{Binding Projects}" SelectedItem="{Binding SelectedProject}" HorizontalAlignment="Stretch">
-          <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:ProjectRosterViewModel"><TextBlock Text="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
-        </ComboBox>
-        <Button Grid.Column="2" Content="前往公开抽签" Command="{Binding NextCommand}" Margin="12,0,0,0" />
-      </Grid>
-      <ContentControl Content="{Binding SelectedProject}" HorizontalContentAlignment="Stretch">
-        <ContentControl.ContentTemplate>
-          <DataTemplate x:DataType="vm:ProjectRosterViewModel">
-            <StackPanel Spacing="16">
-              <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="20">
-                <StackPanel Spacing="12">
-                  <TextBlock Text="{Binding Name}" FontSize="22" FontWeight="SemiBold" />
-                  <WrapPanel>
-                    <Button Content="导入 / 替换名单" Command="{Binding ImportCommand}" Margin="0,0,10,8" />
-                    <Button Content="导出名单模板" Command="{Binding ExportTemplateCommand}" Margin="0,0,10,8" />
-                    <Button Content="审核 / 编辑种子" Command="{Binding BeginSeedEditCommand}" Margin="0,0,10,8" />
-                  </WrapPanel>
-                  <CheckBox Content="允许下一次模板导出覆盖同名文件（不覆盖名单来源或存档）" IsChecked="{Binding OverwriteTemplate}" />
-                  <TextBlock Text="来源文件" FontWeight="SemiBold" /><SelectableTextBlock Text="{Binding SourceFileName}" TextWrapping="Wrap" />
-                  <TextBlock Text="原始文件 SHA-256（不代表编辑后的名单）" Foreground="{DynamicResource AppMutedTextBrush}" />
-                  <SelectableTextBlock Text="{Binding SourceHash}" TextWrapping="Wrap" FontSize="12" />
-                  <SelectableTextBlock Text="{Binding Warnings}" TextWrapping="Wrap" Foreground="{DynamicResource AppAccentBrush}" />
-                  <SelectableTextBlock Text="{Binding ExportDetails}" TextWrapping="Wrap" />
-                </StackPanel>
               </Border>
-              <TextBlock Text="{Binding EditHint}" TextWrapping="Wrap" Foreground="{DynamicResource AppMutedTextBrush}" />
-              <WrapPanel IsVisible="{Binding IsSeedEditing}">
-                <Button Content="保存种子设置" Command="{Binding SaveSeedsCommand}" Margin="0,0,10,8" />
-                <Button Content="载入最新种子设置" Command="{Binding ResetSeedsCommand}" Margin="0,0,10,8" />
-                <Button Content="取消编辑" Command="{Binding CancelSeedEditCommand}" Margin="0,0,10,8" />
-              </WrapPanel>
-              <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                <StackPanel MinWidth="660" Spacing="6">
-                  <Grid ColumnDefinitions="40,2*,2*,65,80" Margin="10,0">
-                    <TextBlock Text="序" /><TextBlock Grid.Column="1" Text="参赛方 / 学号 / 单位" /><TextBlock Grid.Column="2" Text="搭档 / 备注" />
-                    <TextBlock Grid.Column="3" Text="种子" /><TextBlock Grid.Column="4" Text="种子序号" />
-                  </Grid>
-                  <ItemsControl ItemsSource="{Binding Rows}">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="vm:RosterSeedRowViewModel">
-                        <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,0,0,1" Padding="10">
-                          <Grid ColumnDefinitions="40,2*,2*,65,80" RowDefinitions="Auto,Auto">
-                            <TextBlock Text="{Binding Order}" VerticalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="4" Margin="0,0,12,0"><SelectableTextBlock Text="{Binding Name}" TextWrapping="Wrap" /><SelectableTextBlock Text="{Binding Identity}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AppMutedTextBrush}" /></StackPanel>
-                            <StackPanel Grid.Column="2" Spacing="4" Margin="0,0,12,0"><SelectableTextBlock Text="{Binding Partner}" TextWrapping="Wrap" /><TextBlock Text="{Binding Note}" TextWrapping="Wrap" FontSize="12" /></StackPanel>
-                            <CheckBox Grid.Column="3" IsChecked="{Binding IsSeed}" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="种子标记" />
-                            <TextBox Grid.Column="4" Text="{Binding SeedRankText}" IsEnabled="{Binding CanEdit}" PlaceholderText="可留空" AutomationProperties.Name="种子序号" />
-                            <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="4" Text="{Binding SeedIssue}" TextWrapping="Wrap" Foreground="{DynamicResource AppErrorTextBrush}" />
-                          </Grid>
-                        </Border>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </StackPanel>
-              </ScrollViewer>
-            </StackPanel>
-          </DataTemplate>
-        </ContentControl.ContentTemplate>
-      </ContentControl>
-    </StackPanel>
-  </ScrollViewer>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Border Classes="card">
+          <StackPanel Spacing="20">
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel Spacing="6"><TextBlock Text="检查名单与种子" Classes="section-title" /><TextBlock Text="选择一个项目，查看导入结果并核对参赛资料。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
+              <ComboBox Grid.Column="1" ItemsSource="{Binding Projects}" SelectedItem="{Binding SelectedProject}" MinWidth="160" Margin="20,0,0,0" VerticalAlignment="Center" AutomationProperties.Name="当前名单项目">
+                <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:ProjectRosterViewModel"><TextBlock Text="{Binding DisplayLabel}" /></DataTemplate></ComboBox.ItemTemplate>
+              </ComboBox>
+            </Grid>
+            <ContentControl Content="{Binding SelectedProject}" HorizontalContentAlignment="Stretch">
+              <ContentControl.ContentTemplate>
+                <DataTemplate x:DataType="vm:ProjectRosterViewModel">
+                  <StackPanel Spacing="20">
+                    <Border Classes="inset" IsVisible="{Binding !HasRoster}">
+                      <StackPanel Spacing="10"><TextBlock Text="还没有这个项目的名单" FontWeight="SemiBold" FontSize="17" /><TextBlock Text="先导出 Excel 模板，填好参赛资料后再导入。单打填写选手，双打填写搭档，团体赛填写队伍。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
+                    </Border>
+                    <WrapPanel>
+                      <Button Content="导出名单模板…" Command="{Binding ExportTemplateCommand}" Classes="secondary" Margin="0,0,10,8" />
+                      <Button Content="设置种子" Command="{Binding BeginSeedEditCommand}" Classes="secondary" IsVisible="{Binding HasRoster}" Margin="0,0,10,8" />
+                    </WrapPanel>
+                    <Border IsVisible="{Binding HasWarnings}" Background="{DynamicResource AppWarningCardBackgroundBrush}" BorderBrush="{DynamicResource AppWarningCardBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="18">
+                      <StackPanel Spacing="8"><TextBlock Text="请检查这些导入提醒" FontWeight="SemiBold" Foreground="{DynamicResource AppWarningTextBrush}" /><SelectableTextBlock Text="{Binding Warnings}" TextWrapping="Wrap" Foreground="{DynamicResource AppWarningTextBrush}" /></StackPanel>
+                    </Border>
+                    <SelectableTextBlock Text="{Binding ExportDetails}" TextWrapping="Wrap" />
+                    <StackPanel IsVisible="{Binding HasRoster}" Spacing="16">
+                      <TextBlock Text="{Binding EditHint}" Classes="muted" TextWrapping="Wrap" />
+                      <Border Classes="callout" IsVisible="{Binding IsSeedEditing}">
+                        <StackPanel Spacing="12">
+                          <TextBlock Text="正在编辑种子 · 保存后才会生效" FontWeight="SemiBold" />
+                          <TextBlock Text="勾选种子后可填写序号。取消种子时，请同时清空序号；保存会清除原有的待确认的抽签结果。" TextWrapping="Wrap" />
+                          <WrapPanel><Button Content="保存种子设置" Command="{Binding SaveSeedsCommand}" Classes="secondary" Margin="0,0,10,6" /><Button Content="重新载入名单后编辑" Command="{Binding ResetSeedsCommand}" IsVisible="{Binding HasEditorConflict}" Classes="quiet" Margin="0,0,10,6" /><Button Content="取消编辑" Command="{Binding CancelSeedEditCommand}" Classes="quiet" Margin="0,0,10,6" /></WrapPanel>
+                        </StackPanel>
+                      </Border>
+                      <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                        <StackPanel MinWidth="660" Spacing="4">
+                          <Border Background="{DynamicResource AppTableHeaderBackgroundBrush}" CornerRadius="8" Padding="12">
+                            <Grid ColumnDefinitions="40,2*,2*,65,90"><TextBlock Text="序" /><TextBlock Grid.Column="1" Text="参赛方 / 学号 / 单位" /><TextBlock Grid.Column="2" Text="搭档 / 备注" /><TextBlock Grid.Column="3" Text="种子" /><TextBlock Grid.Column="4" Text="种子序号" /></Grid>
+                          </Border>
+                          <ItemsControl ItemsSource="{Binding Rows}">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="vm:RosterSeedRowViewModel">
+                                <Border BorderBrush="{DynamicResource AppSoftBorderBrush}" BorderThickness="0,0,0,1" Padding="12">
+                                  <Grid ColumnDefinitions="40,2*,2*,65,90" RowDefinitions="Auto,Auto">
+                                    <TextBlock Text="{Binding Order}" Classes="muted" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1" Spacing="4" Margin="0,0,12,0"><SelectableTextBlock Text="{Binding Name}" TextWrapping="Wrap" /><SelectableTextBlock Text="{Binding Identity}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AppMutedTextBrush}" /></StackPanel>
+                                    <StackPanel Grid.Column="2" Spacing="4" Margin="0,0,12,0"><SelectableTextBlock Text="{Binding Partner}" TextWrapping="Wrap" /><TextBlock Text="{Binding Note}" TextWrapping="Wrap" Classes="muted" FontSize="12" /></StackPanel>
+                                    <CheckBox Grid.Column="3" IsChecked="{Binding IsSeed}" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="种子标记" />
+                                    <TextBox Grid.Column="4" Text="{Binding SeedRankText}" IsEnabled="{Binding CanEdit}" PlaceholderText="可留空" AutomationProperties.Name="种子序号" />
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="4" Text="{Binding SeedIssue}" TextWrapping="Wrap" Foreground="{DynamicResource AppErrorTextBrush}" />
+                                  </Grid>
+                                </Border>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
+                      </ScrollViewer>
+                    </StackPanel>
+                    <Expander Header="名单来源" HorizontalAlignment="Stretch">
+                      <StackPanel Spacing="12" Margin="0,12,0,0">
+                        <TextBlock Text="导入的文件" FontWeight="SemiBold" /><SelectableTextBlock Text="{Binding SourceFileName}" TextWrapping="Wrap" />
+                        <TextBlock Text="原始文件 SHA-256 · 用于核对来源，不代表编辑后的名单" Classes="muted" TextWrapping="Wrap" />
+                        <SelectableTextBlock Text="{Binding SourceHash}" TextWrapping="Wrap" FontSize="12" />
+                      </StackPanel>
+                    </Expander>
+                  </StackPanel>
+                </DataTemplate>
+              </ContentControl.ContentTemplate>
+            </ContentControl>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+    <Border Grid.Row="1" Classes="action-bar">
+      <Grid ColumnDefinitions="*,Auto"><TextBlock Text="{Binding NextHint}" Classes="muted" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,20,0" /><Button Grid.Column="1" Content="{Binding NextLabel}" Classes="primary" Command="{Binding NextCommand}" /></Grid>
+    </Border>
+  </Grid>
 </UserControl>

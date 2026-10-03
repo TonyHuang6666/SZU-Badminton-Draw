@@ -106,7 +106,7 @@ public sealed partial class OperationalPackageWorkflow
         Require(materials.Select(m => m.FileName).Distinct(StringComparer.OrdinalIgnoreCase).Count() == materials.Count,
             "export.duplicate-path", "材料文件名重复，无法安全导出。");
         foreach (var material in materials)
-            WorkspaceExportPublication.ValidateDestination(Path.Combine(outputDirectory, material.FileName), source, workspacePath, request.OverwriteExisting);
+            WorkspaceExportPublication.ValidateDestination(Path.Combine(outputDirectory, material.FileName), source, workspacePath, true);
         return new(outputDirectory, context, projects, rows, proofs, materials);
     }
 

@@ -38,11 +38,11 @@ public sealed partial class AppShellViewModel
         {
             CheckRecoverySession(expectedSession);
             return workflow.RecoverFromBackup(preview, reason);
-        }), "损坏工作区已恢复并保存；当前打开的是恢复后的目标文件。", remember: true, ensureWorkspacePage: true);
+        }), "损坏工作区已恢复并保存；当前打开的是恢复后的目标文件。", remember: true, ensureWorkspacePage: true, requirePageLeave: true);
 
     private void CheckRecoverySession(WorkspaceSession? expectedSession)
     {
         if (disposed || !ReferenceEquals(workflow.CurrentSession, expectedSession))
-            throw new WorkspaceCommandException(new("workspace.session-changed", "工作区已更新或切换，请重新预览并确认恢复。"));
+            throw new WorkspaceCommandException(new("workspace.session-changed", "工作区已更新或切换，请重新检查备份与恢复范围并确认恢复。"));
     }
 }

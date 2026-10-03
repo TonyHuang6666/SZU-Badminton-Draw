@@ -1,48 +1,65 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" xmlns:board="using:BadmintonDraw.Desktop.Scheduling"
              xmlns:controls="using:BadmintonDraw.Desktop.Controls" x:Class="BadmintonDraw.Desktop.Views.ScheduleBoardPage" x:DataType="vm:ScheduleBoardPageViewModel">
-  <Grid RowDefinitions="Auto,*,Auto" Margin="22">
-    <StackPanel Spacing="8" Margin="0,0,0,12">
-      <Grid ColumnDefinitions="*,Auto,Auto">
-        <TextBlock Text="全赛事赛程板" FontSize="26" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" />
-        <Button Grid.Column="1" Content="载入最新位置" Command="{Binding ResetEditorCommand}" Margin="0,0,8,0" />
-        <Button Grid.Column="2" Content="撤销上次移动" Command="{Binding UndoCommand}" />
+  <Grid RowDefinitions="Auto,*,Auto" Margin="18">
+    <StackPanel Spacing="4" Margin="0,0,0,10">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Classes="section-title" Text="一览全场比赛" VerticalAlignment="Center" ToolTip.Tip="按日期浏览比赛；选择一场比赛，即可查看并调整它的时间和场地。" />
+        <Button Grid.Column="1" Content="返回排程设置" Command="{Binding SetupCommand}" Classes="quiet" />
       </Grid>
-      <TextBlock Text="{Binding EditHint}" TextWrapping="Wrap" Foreground="{DynamicResource AppAccentBrush}" />
     </StackPanel>
-    <controls:ScheduleBoardControl x:Name="ScheduleBoard" Grid.Row="1" Board="{Binding Board}" SelectedDay="{Binding SelectedDay, Mode=TwoWay}" Zoom="{Binding Zoom, Mode=TwoWay}" CanEdit="{Binding CanEdit}" />
-    <Expander x:Name="MoveEditor" Grid.Row="2" Header="手动移动 / 移动预览与确认" IsExpanded="True" HorizontalAlignment="Stretch" Margin="0,12,0,0">
-      <ScrollViewer MaxHeight="240">
-        <StackPanel Spacing="10" Margin="0,8,8,0">
-          <Grid ColumnDefinitions="*,Auto">
-            <ComboBox ItemsSource="{Binding Matches}" SelectedItem="{Binding SelectedMatch}" HorizontalAlignment="Stretch" AutomationProperties.Name="选择待移动比赛">
-              <ComboBox.ItemTemplate><DataTemplate x:DataType="board:WorkspaceBoardCard"><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
-            </ComboBox>
-            <Button Grid.Column="1" Content="定位此场" Command="{Binding FocusSelectedCommand}" Margin="8,0,0,0" />
-          </Grid>
-          <Grid ColumnDefinitions="*,*,*,Auto,Auto">
-            <ComboBox ItemsSource="{Binding DayLabels}" SelectedItem="{Binding TargetDay}" IsEnabled="{Binding CanEdit}" HorizontalAlignment="Stretch" Margin="0,0,8,0" AutomationProperties.Name="移动目标比赛日" />
-            <TextBox x:Name="TargetTime" Grid.Column="1" Text="{Binding TargetTimeText}" IsEnabled="{Binding CanEdit}" Margin="0,0,8,0" AutomationProperties.Name="移动目标开始时间" />
-            <ComboBox Grid.Column="2" ItemsSource="{Binding TargetCourts}" SelectedItem="{Binding TargetCourt}" IsEnabled="{Binding CanEdit}" HorizontalAlignment="Stretch" Margin="0,0,8,0" AutomationProperties.Name="移动目标场地" />
-            <Button Grid.Column="3" Content="预览本场移动" Command="{Binding PreviewMoveCommand}" Margin="0,0,8,0" />
-            <Button Grid.Column="4" Content="预览连锁移动" Command="{Binding PreviewCascadeCommand}" />
-          </Grid>
-          <SelectableTextBlock Text="{Binding PreviewMessage}" TextWrapping="Wrap" />
+    <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="18" Padding="12">
+      <controls:ScheduleBoardControl x:Name="ScheduleBoard" Board="{Binding Board}" SelectedDay="{Binding SelectedDay, Mode=TwoWay}" Zoom="{Binding Zoom, Mode=TwoWay}" CanEdit="{Binding CanEdit}" />
+    </Border>
+    <ToggleButton x:Name="MoveEditor" Grid.Row="2" Classes="board-disclosure" Content="比赛调整面板 · 展开 / 收起" IsChecked="{Binding IsMoveEditorExpanded, Mode=TwoWay}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Height="44" Padding="16,10" CornerRadius="9" Margin="0,8,0,0" AutomationProperties.Name="显示或收起比赛调整面板" />
+    <Border x:Name="MoveEditorPanel" Grid.Row="1" IsVisible="{Binding IsMoveEditorExpanded}" Width="330" HorizontalAlignment="Right" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" CornerRadius="14" Padding="16" BoxShadow="-4 0 14 0 #20000000">
+      <Grid RowDefinitions="Auto,*" RowSpacing="10">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Text="调整这场比赛" Classes="section-title" VerticalAlignment="Center" />
+          <Button x:Name="CloseMoveEditorButton" Grid.Column="1" Content="收起 ×" Click="CloseMoveEditor" Classes="quiet" FontSize="12" MinHeight="30" Padding="8,4" AutomationProperties.Name="收起比赛调整面板" />
+        </Grid>
+      <ScrollViewer Grid.Row="1">
+        <StackPanel Spacing="12">
+          <TextBlock Text="{Binding EditHint}" TextWrapping="Wrap" Classes="muted" />
+          <TextBlock Text="收起面板后，即可继续浏览和拖动全部场地。" TextWrapping="Wrap" Classes="muted" />
+          <WrapPanel>
+            <Button Content="重新载入位置" Command="{Binding ResetEditorCommand}" Classes="quiet" Margin="0,0,8,0" />
+            <Button Content="撤销上次移动" Command="{Binding UndoCommand}" Classes="secondary" />
+          </WrapPanel>
+          <StackPanel Spacing="6">
+            <StackPanel Spacing="6">
+              <TextBlock Text="选择要调整的比赛" />
+              <ComboBox ItemsSource="{Binding Matches}" SelectedItem="{Binding SelectedMatch}" HorizontalAlignment="Stretch" AutomationProperties.Name="选择待移动比赛">
+                <ComboBox.ItemTemplate><DataTemplate x:DataType="board:WorkspaceBoardCard"><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+            <Button Content="在赛程板中定位" Command="{Binding FocusSelectedCommand}" Classes="quiet" />
+          </StackPanel>
+          <WrapPanel>
+            <StackPanel Width="176" Spacing="6" Margin="0,0,12,8"><TextBlock Text="调整到哪一天" /><ComboBox ItemsSource="{Binding DayLabels}" SelectedItem="{Binding TargetDay}" IsEnabled="{Binding CanEdit}" HorizontalAlignment="Stretch" AutomationProperties.Name="移动目标比赛日" /></StackPanel>
+            <StackPanel Width="136" Spacing="6" Margin="0,0,12,8"><TextBlock Text="开始时间" /><TextBox x:Name="TargetTime" Text="{Binding TargetTimeText}" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="移动目标开始时间" /></StackPanel>
+            <StackPanel Width="160" Spacing="6" Margin="0,0,12,8"><TextBlock Text="使用场地" /><ComboBox ItemsSource="{Binding TargetCourts}" SelectedItem="{Binding TargetCourt}" IsEnabled="{Binding CanEdit}" HorizontalAlignment="Stretch" AutomationProperties.Name="移动目标场地" /></StackPanel>
+            <Button Content="查看本场调整方案" Command="{Binding PreviewMoveCommand}" Classes="secondary" VerticalAlignment="Bottom" Margin="0,0,8,8" />
+            <Button Content="查看连锁调整方案" Command="{Binding PreviewCascadeCommand}" Classes="quiet" VerticalAlignment="Bottom" Margin="0,0,0,8" />
+          </WrapPanel>
+          <TextBlock Classes="muted" Text="连锁调整会尝试同时移动受影响的其他比赛。查看调整方案不会保存，确认前请核对所有变化。" TextWrapping="Wrap" />
+          <Border Classes="callout" IsVisible="{Binding HasPreviewMessage}"><SelectableTextBlock Text="{Binding PreviewMessage}" TextWrapping="Wrap" /></Border>
           <ItemsControl ItemsSource="{Binding Issues}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ScheduleBoardIssueViewModel">
-            <Border Background="{DynamicResource AppErrorCardBackgroundBrush}" Padding="10" Margin="0,0,0,6" CornerRadius="6">
-              <StackPanel Spacing="6"><TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="{DynamicResource AppErrorTextBrush}" />
-                <StackPanel Orientation="Horizontal" Spacing="6"><Button Content="定位本场" Command="{Binding FocusCommand}" /><Button Content="定位关联场次" Command="{Binding FocusRelatedCommand}" /></StackPanel>
+            <Border Background="{DynamicResource AppErrorCardBackgroundBrush}" BorderBrush="{DynamicResource AppErrorCardBorderBrush}" BorderThickness="1" Padding="14" Margin="0,0,0,8" CornerRadius="12">
+              <StackPanel Spacing="8"><TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="{DynamicResource AppErrorTextBrush}" />
+                <WrapPanel><Button Content="定位本场" Command="{Binding FocusCommand}" Classes="quiet" Margin="0,0,8,0" /><Button Content="定位关联比赛" Command="{Binding FocusRelatedCommand}" Classes="quiet" /></WrapPanel>
               </StackPanel>
             </Border>
           </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
           <ItemsControl ItemsSource="{Binding ChangeRows}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ScheduleEditChangeDisplay">
-            <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Padding="10" Margin="0,0,0,6" CornerRadius="6">
-              <StackPanel Spacing="4"><TextBlock Text="{Binding Title}" FontWeight="SemiBold" /><SelectableTextBlock Text="{Binding Before}" TextWrapping="Wrap" /><SelectableTextBlock Text="{Binding After}" TextWrapping="Wrap" /></StackPanel>
+            <Border Classes="inset" Margin="0,0,0,8">
+              <StackPanel Spacing="6"><TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" /><SelectableTextBlock Text="{Binding Before}" TextWrapping="Wrap" /><SelectableTextBlock Text="{Binding After}" TextWrapping="Wrap" Foreground="{DynamicResource AppAccentBrush}" /></StackPanel>
             </Border>
           </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-          <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="确认保存以上全部变更" Command="{Binding ConfirmMoveCommand}" Classes="primary" /><Button Content="取消预览" Command="{Binding CancelPreviewCommand}" /></StackPanel>
+          <WrapPanel><Button Content="确认并保存调整" Command="{Binding ConfirmMoveCommand}" Classes="primary" Margin="0,0,8,0" /><Button Content="取消调整" Command="{Binding CancelPreviewCommand}" Classes="quiet" /></WrapPanel>
         </StackPanel>
       </ScrollViewer>
-    </Expander>
+      </Grid>
+    </Border>
   </Grid>
 </UserControl>

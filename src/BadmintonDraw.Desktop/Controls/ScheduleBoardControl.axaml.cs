@@ -17,7 +17,7 @@ public sealed record BoardHoverFeedback(bool CanApply, string Message);
 /// <summary>Rendering and pointer translation only: no persistence, scheduler, workflow or undo state.</summary>
 public partial class ScheduleBoardControl : UserControl
 {
-    private const string DragInstructions = "拖到日期标签切换比赛日，再到具体时间 / 场地格松开。合法普通拖动再次校验后自动保存；手动和连锁移动需预览确认。";
+    private const string DragInstructions = "拖到日期标签切换比赛日，再到具体时间 / 场地格松开。合法普通拖动再次校验后自动保存；手动和连锁移动需查看调整方案并确认。";
     public static readonly StyledProperty<WorkspaceScheduleBoard?> BoardProperty = AvaloniaProperty.Register<ScheduleBoardControl, WorkspaceScheduleBoard?>(nameof(Board));
     public static readonly StyledProperty<string?> SelectedDayProperty = AvaloniaProperty.Register<ScheduleBoardControl, string?>(nameof(SelectedDay), defaultBindingMode: BindingMode.TwoWay);
     public static readonly StyledProperty<double> ZoomProperty = AvaloniaProperty.Register<ScheduleBoardControl, double>(nameof(Zoom), 1, defaultBindingMode: BindingMode.TwoWay);

@@ -8,11 +8,18 @@ public sealed class RostersPageViewModel : WorkspacePageViewModel
 {
     internal AppShellViewModel Shell { get; }
     internal Func<Task<string?>> ImportPicker { get; }
+    // Returns null on cancellation; existing paths require the save dialog's replacement confirmation.
     internal Func<string, Task<string?>> TemplatePicker { get; }
     private ProjectRosterViewModel? selectedProject;
     public ObservableCollection<ProjectRosterViewModel> Projects { get; } = [];
     public ProjectRosterViewModel? SelectedProject { get => selectedProject; set => SetProperty(ref selectedProject, value); }
-    public string Readiness => $"{Session.Workspace.Projects.Count(p => p.Roster is not null)} / {Session.Workspace.Projects.Count} 个项目名单已就绪；导入不会自动抽签。";
+    public bool AllRostersImported => Session.Workspace.Projects.Count > 0 && Session.Workspace.Projects.All(p => p.Roster is not null);
+    public string Readiness => $"{Session.Workspace.Projects.Count(p => p.Roster is not null)} / {Session.Workspace.Projects.Count} 个项目已导入名单";
+    private ProjectRosterViewModel? EditingProject => Projects.FirstOrDefault(p => p.IsSeedEditing);
+    public string NextHint => EditingProject is { } editing ? $"“{editing.DisplayLabel}”的种子设置尚在编辑。请先点击“保存种子设置”或“取消编辑”，再离开名单页。"
+        : AllRostersImported ? "请核对名单、检查提醒和种子设置；确认无误后前往公开抽签。" : "先为每个项目导入名单，完成后即可进行公开抽签。";
+    public string NextLabel => EditingProject is not null ? "先处理种子编辑" : AllRostersImported && Session.Workspace.Projects.All(p => p.Draw?.ConfirmedAt is not null)
+        ? "查看公开抽签" : AllRostersImported ? "名单检查无误，开始公开抽签" : "下一步：公开抽签";
     public DelegateCommand NextCommand { get; }
 
     public RostersPageViewModel(AppShellViewModel shell, WorkspaceSession session,
@@ -24,7 +31,22 @@ public sealed class RostersPageViewModel : WorkspacePageViewModel
     }
     public override void RefreshSession(WorkspaceSession next)
     {
-        base.RefreshSession(next); RefreshProjects(); OnPropertyChanged(nameof(Readiness));
+        base.RefreshSession(next); RefreshProjects();
+        foreach (var property in new[] { nameof(Readiness), nameof(AllRostersImported), nameof(NextHint), nameof(NextLabel) }) OnPropertyChanged(property);
+    }
+    public override bool TryLeave()
+    {
+        if (EditingProject is not { } editing) return true;
+        SelectedProject = editing;
+        // Keep a failed save's detailed recovery evidence; the page hint still explains the navigation block.
+        if (Shell.LastError is null || Shell.LastError.Code == AppShellViewModel.PendingEditsErrorCode)
+            Shell.ReportError(new WorkspaceCommandException(new(AppShellViewModel.PendingEditsErrorCode, NextHint)));
+        return false;
+    }
+    internal void SeedEditingChanged()
+    {
+        OnPropertyChanged(nameof(NextHint)); OnPropertyChanged(nameof(NextLabel));
+        Shell.ClearPageLeaveWarning(NextHint);
     }
     private void RefreshProjects()
     {

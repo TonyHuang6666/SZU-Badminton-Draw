@@ -10,7 +10,7 @@ public sealed partial class WorkspaceResultImportViewModel
     private bool acceptedEvaluation;
     public string SelectedFilesText => string.Join("\n", SelectedPaths);
     public string CountsText => Counts is not { } c ? "尚无当前检查计数。" :
-        (acceptedEvaluation ? "本次实际接受：" : "预览拟变更（尚未保存）：") +
+        (acceptedEvaluation ? "本次实际接受：" : "检查后拟变更（尚未保存）：") +
         $"新增文件 {c.NewFileCount}；重复文件 {c.DuplicateFileCount}；新增赛果 {c.AddedResultCount}；更正 {c.CorrectionCount}；待填记录行 {c.PendingRowCount}。";
     public string FileDetails => string.Join("\n\n", Files.Select(f =>
         $"{FileStatus(f.Status)} [{f.Status}]；记录行数：{f.RowCount}\n{Attribution(f.Source)}"));
@@ -23,7 +23,7 @@ public sealed partial class WorkspaceResultImportViewModel
         var node = project?.MatchGraph?.Matches.SingleOrDefault(n => n.Id == c.Key.MatchId);
         return $"{project?.DisplayName} / {node?.DisplayName}\n项目 ID：{c.Key.ProjectId}\n场次 ID：{c.Key.MatchId}\n" +
             "更正前：\n" + ResultFacts(c.Before) + "\n原记录时间：" + c.Before.RecordedAt.ToString("O", CultureInfo.InvariantCulture) +
-            "\n更正后（预览；最终记录时间以实际保存为准）：\n" + ResultFacts(c.After) + "\n更正来源：\n" + Attribution(c.Source);
+            "\n更正后（拟更正；最终记录时间以实际保存为准）：\n" + ResultFacts(c.After) + "\n更正来源：\n" + Attribution(c.Source);
     }));
     private static string ResultFacts(TournamentMatchResult result) =>
         $"胜方：{Entrant(result.Winner)}\n负方：{Entrant(result.Loser)}\n类型：{(result.Kind == TournamentResultKind.Played ? "正常" : "弃权")} [{result.Kind}]；" +
