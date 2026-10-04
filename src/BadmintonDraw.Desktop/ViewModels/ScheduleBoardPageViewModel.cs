@@ -78,6 +78,7 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     public DelegateCommand ShowDetailsCommand { get; }
     public DelegateCommand EditSelectedCommand { get; }
     public DelegateCommand ShowPlayerEntriesCommand { get; }
+    public bool ShowPlayerEntries => shell.HasMultipleImportedProjects;
     public DelegateCommand ToggleThemeCommand => shell.ToggleThemeCommand;
     public event Action<WorkspaceMatchKey>? FocusRequested;
     public ScheduleBoardPageViewModel(AppShellViewModel shell, WorkspaceSession session) : base(session)
@@ -213,6 +214,7 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     }
     public override void RefreshAvailability()
     {
+        OnPropertyChanged(nameof(ShowPlayerEntries));
         OnPropertyChanged(nameof(CanEdit)); OnPropertyChanged(nameof(HasEditorConflict)); OnPropertyChanged(nameof(NeedsPositionRefresh)); OnPropertyChanged(nameof(EditHint));
         foreach (var command in new[] { ResetEditorCommand, PreviewMoveCommand, PreviewCascadeCommand, ConfirmMoveCommand, UndoCommand }) command?.NotifyCanExecuteChanged();
         CancelPreviewCommand?.NotifyCanExecuteChanged(); FocusSelectedCommand?.NotifyCanExecuteChanged(); SetupCommand?.NotifyCanExecuteChanged();

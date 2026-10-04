@@ -18,6 +18,80 @@ public sealed class PlayerEntriesWindowTests : IDisposable
 {
     private readonly HeadlessUnitTestSession ui = HeadlessUnitTestSession.StartNew(typeof(App));
 
+    [Theory]
+    [InlineData(WorkspaceRoute.Rosters)]
+    [InlineData(WorkspaceRoute.ScheduleSetup)]
+    [InlineData(WorkspaceRoute.ScheduleBoard)]
+    public Task SingleProjectHidesEntriesOnEveryMainPage(WorkspaceRoute route) => ui.Dispatch(() =>
+    {
+        using var fixture = new ScheduleUiFixture(); Generate(fixture);
+        var window = new AppShellWindow(fixture.Workflow, new RecentWorkspaceStore(Path.Combine(fixture.DirectoryPath, "single-entries.json")));
+        try
+        {
+            window.Show(); var shell = Assert.IsType<AppShellViewModel>(window.DataContext);
+            Assert.True(shell.Navigate(route)); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), b => b.IsVisible && Equals(b.Content, "选手兼项"));
+            var command = shell.CurrentPage switch
+            {
+                RostersPageViewModel roster => roster.PlayerEntriesCommand,
+                ScheduleSetupPageViewModel setup => setup.PlayerEntriesCommand,
+                ScheduleBoardPageViewModel board => board.ShowPlayerEntriesCommand,
+                _ => throw new InvalidOperationException("Unexpected page")
+            };
+            Assert.False(command.CanExecute(null)); command.Execute(null); Dispatcher.UIThread.RunJobs();
+            Assert.Empty(window.OwnedWindows.OfType<PlayerEntriesWindow>());
+        }
+        finally { window.Close(); }
+        return 0;
+    }, CancellationToken.None);
+
+    [Theory]
+    [InlineData(1, 0)]
+    [InlineData(1, 1)]
+    [InlineData(3, 0)]
+    [InlineData(3, 1)]
+    public Task RosterEntriesStayHiddenWithFewerThanTwoImportedProjects(int projectCount, int importCount) => ui.Dispatch(() =>
+    {
+        using var fixture = new ScheduleUiFixture(projectCount, purpose: TournamentPurpose.PublicDrawOnly, confirmDraws: false, importCount: importCount);
+        var window = new AppShellWindow(fixture.Workflow, new RecentWorkspaceStore(Path.Combine(fixture.DirectoryPath, "hidden-entries.json")));
+        try
+        {
+            window.Show(); var shell = Assert.IsType<AppShellViewModel>(window.DataContext);
+            shell.Navigate(WorkspaceRoute.Rosters); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), b => b.IsVisible && Equals(b.Content, "选手兼项"));
+            var roster = Assert.IsType<RostersPageViewModel>(shell.CurrentPage);
+            Assert.False(roster.PlayerEntriesCommand.CanExecute(null)); roster.PlayerEntriesCommand.Execute(null);
+            Assert.Empty(window.OwnedWindows.OfType<PlayerEntriesWindow>());
+        }
+        finally { window.Close(); }
+        return 0;
+    }, CancellationToken.None);
+
+    [Theory]
+    [InlineData(TournamentPurpose.FullTournament)]
+    [InlineData(TournamentPurpose.PublicDrawOnly)]
+    public Task ImportingSecondProjectRevealsEntriesWithoutReopeningPage(TournamentPurpose purpose) => ui.Dispatch(() =>
+    {
+        using var fixture = new ScheduleUiFixture(2, purpose: purpose, confirmDraws: false, importCount: 1);
+        var window = new AppShellWindow(fixture.Workflow, new RecentWorkspaceStore(Path.Combine(fixture.DirectoryPath, "second-entries.json")));
+        try
+        {
+            window.Show(); var shell = Assert.IsType<AppShellViewModel>(window.DataContext);
+            shell.Navigate(WorkspaceRoute.Rosters); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            var roster = Assert.IsType<RostersPageViewModel>(shell.CurrentPage);
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), b => b.IsVisible && Equals(b.Content, "选手兼项"));
+            var workspace = fixture.Workflow.CurrentSession!.Workspace;
+            fixture.Workflow.ImportRoster(workspace.Projects[1].Id, Path.Combine(fixture.DirectoryPath, workspace.Projects[0].Id + ".xlsx"), workspace.Revision);
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.Same(roster, shell.CurrentPage);
+            var button = Assert.Single(window.GetVisualDescendants().OfType<Button>(), b => b.IsVisible && Equals(b.Content, "选手兼项"));
+            Assert.True(button.IsEffectivelyEnabled); button.Command!.Execute(null);
+            Assert.Single(window.OwnedWindows.OfType<PlayerEntriesWindow>());
+        }
+        finally { window.Close(); }
+        return 0;
+    }, CancellationToken.None);
+
     [Fact]
     public Task MainPageOffersPeerButtonsAndEntriesCanOpenBeforeTheScheduleBoard() => ui.Dispatch(() =>
     {
@@ -254,7 +328,7 @@ public sealed class PlayerEntriesWindowTests : IDisposable
             window.Show(); var shell = Assert.IsType<AppShellViewModel>(window.DataContext);
             shell.Navigate(WorkspaceRoute.Rosters); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var button = window.GetVisualDescendants().OfType<Button>().SingleOrDefault(b => Equals(b.Content, "选手兼项"));
-            Assert.NotNull(button); Assert.False(button.IsEffectivelyEnabled);
+            Assert.NotNull(button); Assert.True(button.IsVisible); Assert.False(button.IsEffectivelyEnabled);
             button.Command!.Execute(null); Assert.Empty(window.OwnedWindows);
             var project = fixture.Workflow.CurrentSession!.Workspace.Projects.Last();
             var file = Path.Combine(fixture.DirectoryPath, "last-roster.xlsx");

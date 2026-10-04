@@ -130,6 +130,7 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
     public AsyncCommand ResetCommand { get; }
     public DelegateCommand BoardCommand { get; }
     public DelegateCommand PlayerEntriesCommand { get; }
+    public bool ShowPlayerEntries => shell.HasMultipleImportedProjects;
     public ScheduleSetupPageViewModel(AppShellViewModel shell, WorkspaceSession session,
         Func<VenueCourtSelectionViewModel, Task<bool>>? chooseCourts = null,
         Func<UnavailableCourtSelectionViewModel, Task<bool>>? chooseUnavailable = null,
@@ -278,6 +279,7 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
     }
     public override void RefreshAvailability()
     {
+        OnPropertyChanged(nameof(ShowPlayerEntries));
         OnPropertyChanged(nameof(CanEdit)); OnPropertyChanged(nameof(HasEditorConflict)); OnPropertyChanged(nameof(EditHint));
         OnPropertyChanged(nameof(CapacityEstimate)); OnPropertyChanged(nameof(CapacitySummary)); OnPropertyChanged(nameof(FinalDayHint));
         GenerateCommand?.NotifyCanExecuteChanged(); AddDayCommand?.NotifyCanExecuteChanged(); ResetCommand?.NotifyCanExecuteChanged(); BoardCommand?.NotifyCanExecuteChanged();

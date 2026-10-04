@@ -208,7 +208,7 @@
       </StackPanel>
     </ScrollViewer>
     <Border Grid.Row="1" Classes="action-bar"><Grid ColumnDefinitions="*,Auto">
-      <WrapPanel><Button Content="放弃未保存的修改" Command="{Binding ResetCommand}" Classes="quiet" Margin="0,0,8,0" /><Button Content="查看赛程板" Command="{Binding BoardCommand}" Classes="secondary" Margin="0,0,8,0" /><Button Content="选手兼项" Command="{Binding PlayerEntriesCommand}" Classes="secondary" /></WrapPanel>
+      <WrapPanel><Button Content="放弃未保存的修改" Command="{Binding ResetCommand}" Classes="quiet" Margin="0,0,8,0" /><Button Content="查看赛程板" Command="{Binding BoardCommand}" Classes="secondary" Margin="0,0,8,0" /><Button Content="选手兼项" IsVisible="{Binding ShowPlayerEntries}" Command="{Binding PlayerEntriesCommand}" Classes="secondary" /></WrapPanel>
       <Button Grid.Column="1" Content="检查并生成赛程" Command="{Binding GenerateCommand}" Classes="primary" />
     </Grid></Border>
   </Grid>

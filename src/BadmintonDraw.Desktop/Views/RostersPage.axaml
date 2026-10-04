@@ -96,7 +96,7 @@
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
         <TextBlock Text="{Binding NextHint}" Classes="muted" TextWrapping="Wrap" VerticalAlignment="Center" />
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-          <Button Content="选手兼项" Classes="secondary" Command="{Binding PlayerEntriesCommand}" ToolTip.Tip="{Binding PlayerEntriesHint}" AutomationProperties.Name="查看选手兼项报名" />
+          <Button Content="选手兼项" Classes="secondary" IsVisible="{Binding ShowPlayerEntries}" Command="{Binding PlayerEntriesCommand}" ToolTip.Tip="{Binding PlayerEntriesHint}" AutomationProperties.Name="查看选手兼项报名" />
           <Button Content="{Binding NextLabel}" Classes="primary" Command="{Binding NextCommand}" />
         </StackPanel>
       </Grid>

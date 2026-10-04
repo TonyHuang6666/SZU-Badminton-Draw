@@ -13,7 +13,7 @@
           <TextBlock Text="赛程板会单独打开，可以放大或移到另一块屏幕。这里仍可继续准备比赛材料，两个窗口使用同一份赛事数据。" TextWrapping="Wrap" Classes="muted" />
           <WrapPanel>
             <Button Content="打开独立赛程板 ↗" Command="{Binding OpenWindowCommand}" Classes="primary" Margin="0,0,12,8" />
-            <Button Content="选手兼项" Command="{Binding ShowPlayerEntriesCommand}" Classes="secondary" Margin="0,0,12,8" />
+            <Button Content="选手兼项" IsVisible="{Binding ShowPlayerEntries}" Command="{Binding ShowPlayerEntriesCommand}" Classes="secondary" Margin="0,0,12,8" />
             <Button Content="修改排程设置" Command="{Binding SetupCommand}" Classes="secondary" Margin="0,0,12,8" />
           </WrapPanel>
         </StackPanel>

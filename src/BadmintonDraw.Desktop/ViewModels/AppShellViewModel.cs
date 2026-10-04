@@ -142,8 +142,9 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         if (!disposed && ReferenceEquals(board, scheduleBoardPage) && CanNavigate(WorkspaceRoute.ScheduleBoard))
             BoardWindowRequested?.Invoke(board);
     }
-    internal bool CanOpenPlayerEntries => !disposed && !IsBusy && CurrentSession is { RequiresReload: false } session &&
-        session.Workspace.Projects.Count > 0 && session.Workspace.Projects.All(project => project.Roster is not null);
+    internal bool HasMultipleImportedProjects => CurrentSession?.Workspace.Projects.Count(project => project.Roster is not null) >= 2;
+    internal bool CanOpenPlayerEntries => !disposed && !IsBusy && HasMultipleImportedProjects &&
+        CurrentSession is { RequiresReload: false } session && session.Workspace.Projects.All(project => project.Roster is not null);
     internal void OpenPlayerEntries()
     {
         if (!CanOpenPlayerEntries) return;

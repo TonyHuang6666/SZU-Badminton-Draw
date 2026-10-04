@@ -22,6 +22,7 @@ public sealed class RostersPageViewModel : WorkspacePageViewModel
         ? "查看公开抽签" : AllRostersImported ? "名单检查无误，开始公开抽签" : "下一步：公开抽签";
     public DelegateCommand NextCommand { get; }
     public DelegateCommand PlayerEntriesCommand { get; }
+    public bool ShowPlayerEntries => Shell.HasMultipleImportedProjects;
     public string PlayerEntriesHint => AllRostersImported ? "核对选手报名的项目与双打搭档，无需先抽签。" : "请先导入全部项目名单。";
 
     public RostersPageViewModel(AppShellViewModel shell, WorkspaceSession session,
@@ -67,6 +68,7 @@ public sealed class RostersPageViewModel : WorkspacePageViewModel
     }
     public override void RefreshAvailability()
     {
+        OnPropertyChanged(nameof(ShowPlayerEntries));
         foreach (var project in Projects) project.RefreshAvailability();
         NextCommand?.NotifyCanExecuteChanged();
         PlayerEntriesCommand?.NotifyCanExecuteChanged();
