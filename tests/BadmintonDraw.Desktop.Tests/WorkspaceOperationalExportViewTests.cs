@@ -21,7 +21,9 @@ public sealed class WorkspaceOperationalExportViewTests : IDisposable
     public Task SuccessfulExportShowsActualMaterialFolderAndDescriptiveFilesWithTechnicalEvidenceFolded() => ui.Dispatch(async () =>
     {
         using var data = new WorkspaceResultImportFacadeFixture(1, 2);
-        var window = new AppShellWindow(data.Workflow, new RecentWorkspaceStore(data.PathFor("recent-materials.json")));
+        var output = data.PathFor("materials");
+        var window = new AppShellWindow(data.Workflow, new RecentWorkspaceStore(data.PathFor("recent-materials.json")),
+            operationalOutputPicker: () => Task.FromResult<string?>(output));
         try
         {
             window.Show();
@@ -29,14 +31,14 @@ public sealed class WorkspaceOperationalExportViewTests : IDisposable
             Assert.True(shell.Navigate(WorkspaceRoute.Operations)); window.UpdateLayout();
             var page = Assert.IsType<OperationsPageViewModel>(shell.CurrentPage);
             var view = Assert.Single(window.GetVisualDescendants().OfType<OperationsPage>());
-            page.Materials.OutputDirectory = data.PathFor("materials"); page.Materials.ScopeConfirmed = true;
+            page.Materials.ScopeConfirmed = true;
             await page.Materials.ExportCommand.ExecuteAsync();
             Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             Assert.True(page.Materials.Outcome is not null, page.Materials.StateMessage);
             var outcome = Assert.IsType<OperationalPackageOutcome>(page.Materials.Outcome);
             var visible = view.FindControl<ResultImportEvidenceText>("OperationalExportOutcome")!;
             Assert.True(visible.IsEffectivelyVisible);
-            Assert.Contains(Path.Combine(page.Materials.OutputDirectory, "9月13日-9月14日多项目合并材料包"), visible.Text);
+            Assert.Contains(Path.Combine(output, "9月13日-9月14日多项目合并材料包"), visible.Text);
             Assert.Contains("9月13日合并赛程安排表.xlsx", visible.Text);
             Assert.Contains("9月13日合并赛程安排表.pdf", visible.Text);
             Assert.Contains("男子单打带时间对阵图.xlsx", visible.Text);

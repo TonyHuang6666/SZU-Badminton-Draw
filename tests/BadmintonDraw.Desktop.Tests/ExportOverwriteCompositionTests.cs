@@ -34,7 +34,8 @@ public sealed class ExportOverwriteCompositionTests : IDisposable
         var before = data.Workflow.CurrentSession!;
         var originalFiles = targets.Select(File.ReadAllBytes).ToArray();
         var archive = File.ReadAllBytes(before.WorkspacePath);
-        var window = new AppShellWindow(data.Workflow, new RecentWorkspaceStore(data.PathFor("recent-window.json")));
+        var window = new AppShellWindow(data.Workflow, new RecentWorkspaceStore(data.PathFor("recent-window.json")),
+            operationalOutputPicker: () => Task.FromResult<string?>(output));
         Task? pending = null;
         try
         {
@@ -44,7 +45,6 @@ public sealed class ExportOverwriteCompositionTests : IDisposable
             {
                 Assert.True(shell.Navigate(WorkspaceRoute.Operations));
                 var page = Assert.IsType<OperationsPageViewModel>(shell.CurrentPage);
-                page.Materials.OutputDirectory = output;
                 page.Materials.ScopeConfirmed = true;
                 pending = page.Materials.ExportCommand.ExecuteAsync();
             }

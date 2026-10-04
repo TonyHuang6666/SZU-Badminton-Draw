@@ -15,7 +15,7 @@ public sealed class OperationsPageViewModelTests
         var posts = new ConcurrentQueue<Action>();
         using var f = new OperationsUiFixture(2, 4, post: posted ? a => posts.Enqueue(a) : a => a());
         var page = f.Page; var import = page.ResultImport; var material = page.Materials;
-        page.SelectedTabIndex = 2; material.OutputDirectory = f.Data.PathFor("retained-output");
+        page.SelectedTabIndex = 2; material.PdfRows = 2;
         import.CorrectionReason = "保留人工说明";
         var path = f.Record(); await f.Import(path); while (posts.TryDequeue(out var next)) next();
         Assert.Same(page, f.Page); Assert.Same(import, page.ResultImport); Assert.Same(material, page.Materials);
@@ -23,7 +23,7 @@ public sealed class OperationsPageViewModelTests
         Assert.Equal(6, page.CompletedMatchCount); Assert.Equal(6, page.TotalMatchCount);
         Assert.Equal(6, page.History.Results.Count); Assert.Single(page.History.Receipts);
         Assert.Contains("已保存", import.StateMessage); Assert.Equal("保留人工说明", import.CorrectionReason);
-        Assert.Equal(2, page.SelectedTabIndex); Assert.EndsWith("retained-output", material.OutputDirectory);
+        Assert.Equal(2, page.SelectedTabIndex); Assert.Equal(2, material.PdfRows);
         var history = page.History; page.RefreshSession(page.Session); Assert.Same(history, page.History);
         var before = f.Shell.CurrentSession!; var hash = WorkspaceResultImportFacadeFixture.Hash(before.WorkspacePath);
         var files = Directory.GetFiles(f.Data.DirectoryPath).Order().ToArray();
@@ -43,7 +43,7 @@ public sealed class OperationsPageViewModelTests
         f.Workflow.CreateBackup(f.Workflow.CurrentSession!.Workspace.Revision);
         Assert.Same(page, f.Page); Assert.False(page.ResultImport.HasCurrentPreview); Assert.False(page.ResultImport.Confirmed);
         Assert.False(page.Materials.ScopeConfirmed);
-        Assert.Equal(new[] { file }, page.ResultImport.SelectedPaths); Assert.EndsWith("materials", page.Materials.OutputDirectory);
+        Assert.Equal(new[] { file }, page.ResultImport.SelectedPaths); Assert.All(page.Materials.Days, day => Assert.True(day.IsSelected));
         Assert.Contains(page.History.Audits, a => a.Contains("BackupCreated", StringComparison.Ordinal));
     }
 }

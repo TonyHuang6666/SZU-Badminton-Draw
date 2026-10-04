@@ -338,6 +338,95 @@ public sealed class PublicDrawPageViewModelTests : IDisposable
     }
 
     [Fact]
+    public void DiscardDrawSettingsTracksEffectiveChangesAndRestoresInitialSeedWithoutSaving()
+    {
+        var (workflow, shell) = Ready(); Register(shell); shell.Navigate(WorkspaceRoute.PublicDraw);
+        var project = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage).SelectedProject!;
+        var initialSeed = project.RandomSeed;
+        var saved = workflow.CurrentSession!;
+        var archive = File.ReadAllBytes(saved.WorkspacePath);
+        Assert.False(project.ResetSettingsCommand.CanExecute(null));
+        project.GroupCountText = "invalid";
+        Assert.True(project.ResetSettingsCommand.CanExecute(null));
+        project.GroupCountText = "1";
+        Assert.False(project.ResetSettingsCommand.CanExecute(null));
+        project.KnockoutGoalIndex = 1;
+        Assert.False(project.ResetSettingsCommand.CanExecute(null)); // Single-group goal is always champion.
+        project.PlacementPlayoffIndex = 1;
+        Assert.True(project.ResetSettingsCommand.CanExecute(null));
+        project.PlacementPlayoffIndex = 0;
+        Assert.False(project.ResetSettingsCommand.CanExecute(null));
+        project.GenerateSeedCommand.Execute(null);
+        Assert.NotEqual(initialSeed, project.RandomSeed);
+        Assert.True(project.ResetSettingsCommand.CanExecute(null));
+        project.ResetSettingsCommand.Execute(null);
+        Assert.Equal(initialSeed, project.RandomSeed);
+        Assert.Equal("1", project.GroupCountText);
+        Assert.False(project.ResetSettingsCommand.CanExecute(null));
+        Assert.Same(saved, workflow.CurrentSession);
+        Assert.Equal(archive, File.ReadAllBytes(saved.WorkspacePath));
+        Assert.Null(saved.Workspace.Projects[0].Draw);
+    }
+
+    [Fact]
+    public async Task DiscardDrawSettingsUsesSavedPreviewAndSurvivesProjectSwitchAndUnrelatedRefresh()
+    {
+        var (workflow, shell) = Ready(2); Register(shell); shell.Navigate(WorkspaceRoute.PublicDraw);
+        var page = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
+        var project = page.SelectedProject!;
+        project.GroupCountText = "4"; project.KnockoutGoalIndex = 1; project.PlacementPlayoffIndex = 1; project.RandomSeed = "saved-settings";
+        await project.PreviewDrawCommand.ExecuteAsync();
+        Assert.False(project.ResetSettingsCommand.CanExecute(null));
+        var savedDraw = JsonSerializer.Serialize(workflow.CurrentSession!.Workspace.Projects[0].Draw);
+        project.KnockoutGoalIndex = 0;
+        Assert.True(project.ResetSettingsCommand.CanExecute(null));
+        project.KnockoutGoalIndex = 1;
+        Assert.False(project.ResetSettingsCommand.CanExecute(null));
+        project.RandomSeed = "draft";
+        page.SelectedProject = page.Projects[1];
+        Assert.False(page.SelectedProject.ResetSettingsCommand.CanExecute(null));
+        await page.UpgradeCommand.ExecuteAsync();
+        page.SelectedProject = project;
+        Assert.Equal("draft", project.RandomSeed);
+        Assert.True(project.ResetSettingsCommand.CanExecute(null));
+        var saved = workflow.CurrentSession!; var archive = File.ReadAllBytes(saved.WorkspacePath);
+        project.ResetSettingsCommand.Execute(null);
+        Assert.Equal("saved-settings", project.RandomSeed);
+        Assert.Equal("4", project.GroupCountText);
+        Assert.Equal(1, project.KnockoutGoalIndex); Assert.Equal(1, project.PlacementPlayoffIndex);
+        Assert.False(project.ResetSettingsCommand.CanExecute(null));
+        Assert.True(project.ConfirmDrawCommand.CanExecute(null));
+        Assert.Same(saved, workflow.CurrentSession);
+        Assert.Equal(archive, File.ReadAllBytes(saved.WorkspacePath));
+        Assert.Equal(savedDraw, JsonSerializer.Serialize(saved.Workspace.Projects[0].Draw));
+        await project.ConfirmDrawCommand.ExecuteAsync();
+        Assert.False(project.ResetSettingsCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task ConflictingDrawChangeKeepsRecoveryAfterLocalInputsReturnToOriginal()
+    {
+        var (workflow, shell) = Ready(); Register(shell); shell.Navigate(WorkspaceRoute.PublicDraw);
+        var project = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage).SelectedProject!;
+        var initialSeed = project.RandomSeed;
+        project.RandomSeed = "local-draft";
+        var other = new TournamentWorkspaceWorkflow(); other.OpenWorkspace(workflow.CurrentSession!.WorkspacePath);
+        other.PreviewDraw(project.ProjectId, new(CompetitionMode.SinglesKnockout, EventKind.Singles, 1, "external-settings"), other.CurrentSession!.Workspace.Revision);
+        await shell.ReloadCommand.ExecuteAsync();
+        project.RandomSeed = initialSeed;
+        Assert.True(project.HasEditorConflict);
+        Assert.True(project.ResetSettingsCommand.CanExecute(null));
+        var saved = workflow.CurrentSession!; var archive = File.ReadAllBytes(saved.WorkspacePath);
+        project.ResetSettingsCommand.Execute(null);
+        Assert.Equal("external-settings", project.RandomSeed);
+        Assert.False(project.HasEditorConflict);
+        Assert.False(project.ResetSettingsCommand.CanExecute(null));
+        Assert.True(project.ConfirmDrawCommand.CanExecute(null));
+        Assert.Same(saved, workflow.CurrentSession);
+        Assert.Equal(archive, File.ReadAllBytes(saved.WorkspacePath));
+    }
+
+    [Fact]
     public async Task EditedSettingsCannotConfirmAnOlderPreviewAndSupportedSettingsReachWorkflow()
     {
         var (workflow, shell) = Ready(); Register(shell); shell.Navigate(WorkspaceRoute.PublicDraw);
@@ -790,6 +879,9 @@ public sealed class PublicDrawPageViewModelTests : IDisposable
         Register(shell); shell.Navigate(WorkspaceRoute.PublicDraw);
         var project = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage).SelectedProject!;
         Assert.False(project.ShowKnockoutGoal); Assert.False(project.ShowPlacementPlayoff);
+        Assert.False(project.ResetSettingsCommand.CanExecute(null));
+        project.KnockoutGoalIndex = 0; project.PlacementPlayoffIndex = 2;
+        Assert.False(project.ResetSettingsCommand.CanExecute(null));
         Assert.True(project.ConfirmDrawCommand.CanExecute(null));
         await project.ConfirmDrawCommand.ExecuteAsync();
         Assert.Equal(audit, workflow.CurrentSession.Workspace.Projects[0].Draw!.Result.Audit);

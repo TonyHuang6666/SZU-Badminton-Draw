@@ -45,11 +45,11 @@
                       <StackPanel Spacing="12" Margin="0,12,0,0">
                         <TextBlock Text="随机种子用于复核抽签过程。相同名单、设置和随机种子可以复现相同结果。" Classes="muted" TextWrapping="Wrap" />
                         <TextBlock Text="抽签随机种子" FontWeight="SemiBold" /><TextBox x:Name="DrawRandomSeed" Text="{Binding RandomSeed}" IsEnabled="{Binding CanEditSettings}" AutomationProperties.Name="抽签随机种子" />
-                        <WrapPanel><Button Content="换一个随机种子" Classes="secondary" Command="{Binding GenerateSeedCommand}" Margin="0,0,10,8" /><Button Content="重新执行抽签" Classes="secondary" Command="{Binding PreviewDrawCommand}" IsVisible="{Binding IsPreviewPending}" Margin="0,0,10,8" /><Button Content="载入最新抽签设置" Classes="quiet" Command="{Binding ResetSettingsCommand}" Margin="0,0,10,8" /></WrapPanel>
+                        <WrapPanel><Button Content="换一个随机种子" Classes="secondary" Command="{Binding GenerateSeedCommand}" Margin="0,0,10,8" /><Button Content="重新执行抽签" Classes="secondary" Command="{Binding PreviewDrawCommand}" IsVisible="{Binding IsPreviewPending}" Margin="0,0,10,8" /><Button Content="放弃未保存的修改" Classes="quiet" Command="{Binding ResetSettingsCommand}" IsVisible="{Binding ShowDiscardSettings}" Margin="0,0,10,8" /></WrapPanel>
                         <TextBlock Text="重新抽签会替换本项目待确认的抽签结果。更换随机种子后，仍需主动执行抽签。" Classes="muted" TextWrapping="Wrap" />
                       </StackPanel>
                     </Expander>
-                    <Border Classes="callout"><StackPanel Spacing="10"><TextBlock Text="{Binding EditHint}" TextWrapping="Wrap" /><Button Content="载入最新设置，继续检查" Classes="secondary" Command="{Binding ResetSettingsCommand}" IsVisible="{Binding HasEditorConflict}" /></StackPanel></Border>
+                    <Border Classes="callout"><StackPanel Spacing="10"><TextBlock Text="{Binding EditHint}" TextWrapping="Wrap" /><Button Content="放弃旧输入，使用最新设置" Classes="secondary" Command="{Binding ResetSettingsCommand}" IsVisible="{Binding HasEditorConflict}" /></StackPanel></Border>
                   </StackPanel>
                 </Border>
                 <Border Classes="card" IsVisible="{Binding HasPreview}">

@@ -129,6 +129,85 @@ public sealed class DrawGuidanceCompositionTests : IDisposable
     }, CancellationToken.None);
 
     [Fact]
+    public Task DrawDiscardActionHidesWhenCleanAndRestoresInitialInputWithoutSaving() => ui.Dispatch(() =>
+    {
+        using var fixture = new ScheduleUiFixture();
+        var id = fixture.Workflow.CurrentSession!.Workspace.Projects[0].Id;
+        fixture.Workflow.ReopenDraw(id, "重新核对", fixture.Workflow.CurrentSession.Workspace.Revision);
+        var window = new AppShellWindow(fixture.Workflow,
+            new RecentWorkspaceStore(Path.Combine(fixture.DirectoryPath, "draw-discard-recent.json")));
+        try
+        {
+            window.Show();
+            var shell = Assert.IsType<AppShellViewModel>(window.DataContext);
+            Assert.True(shell.Navigate(WorkspaceRoute.PublicDraw));
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            var page = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage);
+            var project = page.SelectedProject!;
+            var view = Assert.Single(window.GetVisualDescendants().OfType<PublicDrawPage>());
+            Assert.Single(view.GetVisualDescendants().OfType<Expander>(), e => e.Name == "DrawRandomSettings").IsExpanded = true;
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            var discard = Assert.Single(view.GetVisualDescendants().OfType<Button>(), b => Equals(b.Content, "放弃未保存的修改"));
+            Assert.False(discard.IsEffectivelyVisible);
+            var initialSeed = project.RandomSeed;
+            project.RandomSeed = "draft";
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.True(discard.IsEffectivelyVisible);
+            project.RandomSeed = initialSeed;
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.False(discard.IsEffectivelyVisible);
+            project.GroupCountText = "invalid";
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.True(discard.IsEffectivelyVisible);
+            var saved = fixture.Workflow.CurrentSession!;
+            var archive = File.ReadAllBytes(saved.WorkspacePath);
+            Assert.IsAssignableFrom<IInvokeProvider>(ControlAutomationPeer.CreatePeerForElement(discard)).Invoke();
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.False(discard.IsEffectivelyVisible);
+            Assert.Equal(initialSeed, project.RandomSeed); Assert.Equal("1", project.GroupCountText);
+            Assert.Same(saved, fixture.Workflow.CurrentSession);
+            Assert.Equal(archive, File.ReadAllBytes(saved.WorkspacePath));
+        }
+        finally { window.Close(); }
+        return 0;
+    }, CancellationToken.None);
+
+    [Fact]
+    public Task DrawConflictRecoveryStaysVisibleAfterReturningToOriginalInput() => ui.Dispatch(async () =>
+    {
+        using var fixture = new ScheduleUiFixture();
+        var id = fixture.Workflow.CurrentSession!.Workspace.Projects[0].Id;
+        fixture.Workflow.ReopenDraw(id, "重新核对", fixture.Workflow.CurrentSession.Workspace.Revision);
+        var window = new AppShellWindow(fixture.Workflow,
+            new RecentWorkspaceStore(Path.Combine(fixture.DirectoryPath, "draw-conflict-recent.json")));
+        try
+        {
+            window.Show();
+            var shell = Assert.IsType<AppShellViewModel>(window.DataContext);
+            Assert.True(shell.Navigate(WorkspaceRoute.PublicDraw));
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            var project = Assert.IsType<PublicDrawPageViewModel>(shell.CurrentPage).SelectedProject!;
+            var initialSeed = project.RandomSeed;
+            project.RandomSeed = "draft";
+            var other = new TournamentWorkspaceWorkflow(); other.OpenWorkspace(fixture.Workflow.CurrentSession.WorkspacePath);
+            other.PreviewDraw(id, new(BadmintonDraw.Core.CompetitionMode.SinglesKnockout, BadmintonDraw.Core.EventKind.Singles, 1, "updated"), other.CurrentSession!.Workspace.Revision);
+            await shell.ReloadCommand.ExecuteAsync();
+            project.RandomSeed = initialSeed;
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            var recovery = Assert.Single(window.GetVisualDescendants().OfType<Button>(), b => ReferenceEquals(b.Command, project.ResetSettingsCommand) && b.IsEffectivelyVisible);
+            Assert.True(recovery.IsEffectivelyEnabled);
+            Assert.IsAssignableFrom<IInvokeProvider>(ControlAutomationPeer.CreatePeerForElement(recovery)).Invoke();
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.Equal("updated", project.RandomSeed);
+            Assert.False(project.HasEditorConflict);
+            Assert.False(recovery.IsEffectivelyVisible);
+            Assert.True(project.ConfirmDrawCommand.CanExecute(null));
+        }
+        finally { window.Close(); }
+        return 0;
+    }, CancellationToken.None);
+
+    [Fact]
     public Task PrimaryActionTracksSavedPreviewAndConfirmationWithoutLeavingTheDrawPage() => ui.Dispatch(async () =>
     {
         using var fixture = new ScheduleUiFixture();

@@ -348,13 +348,13 @@ public sealed class ScheduleSetupPageViewModelTests
     [Fact]
     public async Task DisablingFinalDayRequirementKeepsDurationsAndResources()
     {
-        using var fixture = new ScheduleUiFixture(); var page = Page(fixture);
+        using var fixture = new ScheduleUiFixture(3); var page = Page(fixture);
         page.RequireChampionshipFinalsOnLastDay = true; page.ProjectTimings[0].MinutesText = "45";
         await page.GenerateCommand.ExecuteAsync();
         Assert.True(page.BuildSetup().Policy.RequireChampionshipFinalsOnLastDay);
         page.RequireChampionshipFinalsOnLastDay = false;
         var setup = page.BuildSetup(); Assert.Empty(setup.Policy.FinalDayRules); Assert.Empty(setup.Policy.DayLoadTargets); Assert.Empty(setup.Policy.StageWaveTargets);
         Assert.False(setup.Policy.RequireChampionshipFinalsOnLastDay);
-        Assert.Equal(45, setup.Policy.ProjectTimings.Values.Single().MatchMinutes); Assert.NotEmpty(setup.Resources.Days);
+        Assert.Equal(45, setup.Policy.ProjectTimings[page.ProjectTimings[0].ProjectId].MatchMinutes); Assert.NotEmpty(setup.Resources.Days);
     }
 }

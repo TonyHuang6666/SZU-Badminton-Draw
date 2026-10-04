@@ -11,14 +11,13 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
     private WorkspaceSession session;
     private long generation, sessionGeneration;
     private bool disposed, working, applying, includePending, confirmed, refreshingChoices;
-    private string output = "", state = "请核对项目、日期与输出目录，再明确导出；不会移动比赛。", details = "";
+    private string state = "请核对项目、日期与打印设置；点击生成材料后选择保存文件夹。", details = "";
     private int pdfRows = 1, pdfColumns = 1;
     private OperationalProjectChoice? selectedProject;
     private OperationalDayChoice? selectedCarryover;
     public WorkspaceOperationalExportViewModel(AppShellViewModel shell, WorkspaceSession session, Func<Task<string?>> pickOutputDirectory)
     {
         this.shell = shell; this.session = session; pickOutput = pickOutputDirectory;
-        PickOutputCommand = new(PickAsync, () => Usable && !working && !shell.IsBusy);
         ExportCommand = new(ExportAsync, CanExport); RebuildChoices(initial: true);
     }
     public IReadOnlyList<OperationalProjectChoice> ProjectChoices { get; private set; } = Array.Empty<OperationalProjectChoice>();
@@ -26,7 +25,6 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
     public IReadOnlyList<OperationalDayChoice> PendingDays => Array.AsReadOnly(Days.Where(d => d.IsSelected).ToArray());
     public OperationalProjectChoice? SelectedProject { get => selectedProject; set { if (!refreshingChoices && SetProperty(ref selectedProject, value)) Edited(); } }
     public OperationalDayChoice? SelectedCarryoverDay { get => selectedCarryover; set { if (!refreshingChoices && SetProperty(ref selectedCarryover, value)) Edited(); } }
-    public string OutputDirectory { get => output; set { if (SetProperty(ref output, value ?? "")) Edited(); } }
     public bool IncludePendingCarryover { get => includePending; set { if (SetProperty(ref includePending, value)) { if (!value) { selectedCarryover = null; OnPropertyChanged(nameof(SelectedCarryoverDay)); } Edited(); } } }
     public bool ScopeConfirmed { get => confirmed; set { if (SetProperty(ref confirmed, value)) { generation++; ChangedDuringWork(); RefreshAvailability(); } } }
     public int PdfRows { get => pdfRows; set { if (SetProperty(ref pdfRows, value)) Edited(); } }
@@ -46,11 +44,10 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
     public OperationalPackageExportException? ExportFailure { get; private set; }
     public WorkspaceError? Error { get; private set; }
     public IReadOnlyList<OperationalPackageOutput> Outputs => Outcome?.Outputs ?? ExportFailure?.Outputs ?? Array.Empty<OperationalPackageOutput>();
-    public AsyncCommand PickOutputCommand { get; }
     public AsyncCommand ExportCommand { get; }
     private bool Usable => !disposed && ReferenceEquals(shell.CurrentSession, session) && !session.RequiresReload &&
         session.Workspace.Purpose == TournamentPurpose.FullTournament && session.Workspace.Stage >= TournamentStage.ScheduleReady && session.Workspace.Schedule is not null;
-    private bool CanExport() => Usable && !working && !shell.IsBusy && ScopeConfirmed && !string.IsNullOrWhiteSpace(OutputDirectory) &&
+    private bool CanExport() => Usable && !working && !shell.IsBusy && ScopeConfirmed &&
         SelectedProject is not null && ProjectChoices.Contains(SelectedProject) && Days.Any(d => d.IsSelected) && PdfRows > 0 && PdfColumns > 0 &&
         (!IncludePendingCarryover || SelectedCarryoverDay is not null && Days.Contains(SelectedCarryoverDay) && SelectedCarryoverDay.IsSelected);
     private void Edited()
@@ -104,23 +101,27 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
         OnPropertyChanged(nameof(SourceDetails)); RefreshAvailability();
     }
     private bool Current(long token, WorkspaceSession captured) => !disposed && token == generation && ReferenceEquals(session, captured) && ReferenceEquals(shell.CurrentSession, captured);
-    private async Task PickAsync()
-    {
-        var token = generation; var captured = session; SetWorking(true);
-        try { var picked = await pickOutput(); if (Current(token, captured) && picked is not null) OutputDirectory = picked; }
-        catch (Exception error) { if (Current(token, captured)) ShowError(ToError(error), null, exportAttempted: false); }
-        finally { SetWorking(false); }
-    }
     private async Task ExportAsync()
     {
+        if (!CanExport()) return;
         var captured = session; var token = generation; var refreshes = sessionGeneration;
-        var request = new OperationalExportRequest(OutputDirectory, SelectedProject!.ProjectId, Days.Where(d => d.IsSelected).Select(d => d.Day).ToArray(),
+        // Scope belongs to this click; an awaited folder picker must never substitute later edits.
+        var request = new OperationalExportRequest("", SelectedProject!.ProjectId, Days.Where(d => d.IsSelected).Select(d => d.Day).ToArray(),
             IncludePendingCarryover ? SelectedCarryoverDay!.Day : null, false, new(PdfRows, PdfColumns))
             { ConfirmedOverwritePaths = Array.Empty<string>() };
         ResetConsent(); ClearEvidence(); SetWorking(true);
-        StateMessage = "正在核对导出位置；尚未生成材料或保存审计。";
+        StateMessage = "请选择材料保存文件夹；尚未生成材料或保存审计。";
         try
         {
+            var output = await pickOutput();
+            if (!Current(token, captured)) return;
+            if (string.IsNullOrWhiteSpace(output))
+            {
+                StateMessage = "已取消材料导出，没有生成文件或保存审计；请重新核对范围后再导出。";
+                return;
+            }
+            request = request with { OutputDirectory = output };
+            StateMessage = "正在核对导出位置；尚未生成材料或保存审计。";
             var preview = await shell.RunWorkspaceQueryAsync(captured,
                 (workflow, revision) => workflow.PreviewOperationalExportConflicts(request, revision), background: true, showStatus: false);
             if (!Current(token, captured)) return;
@@ -193,7 +194,7 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
     private void ClearEvidence() { Outcome = null; ExportFailure = null; Error = null; OutcomeDetails = ""; EvidenceChanged(); }
     private void EvidenceChanged() { foreach (var name in new[] { nameof(Outcome), nameof(ExportFailure), nameof(Error), nameof(Outputs), nameof(OutcomeSummary) }) OnPropertyChanged(name); }
     private void SetWorking(bool value) { working = value; if (!disposed) { OnPropertyChanged(nameof(IsWorking)); RefreshAvailability(); } }
-    public void RefreshAvailability() { PickOutputCommand.NotifyCanExecuteChanged(); ExportCommand.NotifyCanExecuteChanged(); }
+    public void RefreshAvailability() { ExportCommand.NotifyCanExecuteChanged(); }
     public void Dispose()
     {
         if (disposed) return;

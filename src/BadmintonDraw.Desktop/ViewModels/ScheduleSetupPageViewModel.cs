@@ -183,7 +183,7 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         // silently affect the simple editor. The saved schedule changes only after success.
         var policy = new TournamentSchedulingPolicy(ScheduleAutoSchedulingStrategy.Compact, [], false, [], [])
         {
-            RequireChampionshipFinalsOnLastDay = RequireChampionshipFinalsOnLastDay,
+            RequireChampionshipFinalsOnLastDay = IsMultiProject && RequireChampionshipFinalsOnLastDay,
             ProjectTimings = ProjectTimings.ToDictionary(p => p.ProjectId, p => p.BuildTiming())
         };
         return new(resources, policy);
@@ -265,7 +265,7 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
             Unavailable = d.Unavailable.Select(w => new { w.StartText, w.EndText, w.CourtsText }),
             Referees = d.RefereeWindows.Select(w => new { w.StartText, w.EndText, w.CountText })
         }),
-        Timings = ProjectTimings.Select(p => new { p.ProjectId, p.MinutesText, p.UseTimingSplit, p.BoundaryText, p.BeforeMinutesText })
+        Timings = ProjectTimings.Select(p => new { p.ProjectId, p.MinutesText, p.UseTimingSplit, p.BoundaryText, p.AfterMinutesText })
     });
     private void Edited() { selectionGeneration++; edited = EditorSnapshot() != editorBaseline; RefreshAvailability(); }
     public override void RefreshSession(WorkspaceSession next)

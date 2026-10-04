@@ -26,7 +26,7 @@ public sealed class ScheduleBoardControlTests : IDisposable
     [Theory]
     [InlineData(1)]
     [InlineData(3)]
-    public Task SetupUsesOneFinalDayCheckboxAndKeepsResourceLimitsWhenFolded(int projects) => session.Dispatch(() =>
+    public Task SetupOffersFinalDayOnlyForMultipleProjectsAndKeepsResourceLimitsWhenFolded(int projects) => session.Dispatch(() =>
     {
         using var fixture = new ScheduleUiFixture(projects);
         var model = new ScheduleSetupPageViewModel(fixture.Shell, fixture.Workflow.CurrentSession!);
@@ -34,6 +34,7 @@ public sealed class ScheduleBoardControlTests : IDisposable
         var page = new ScheduleSetupPage { DataContext = model };
         var checkbox = page.FindControl<CheckBox>("FinalsOnLastDay");
         Assert.NotNull(checkbox);
+        Assert.Equal(projects > 1, checkbox.IsVisible);
         Assert.False(checkbox.IsChecked);
         checkbox.IsChecked = true;
         Assert.Equal(projects > 1, page.FindControl<Border>("MultiProjectNotice")!.IsVisible);
@@ -48,7 +49,7 @@ public sealed class ScheduleBoardControlTests : IDisposable
         Assert.Empty(request.Policy.StageWaveTargets);
         Assert.Empty(request.Policy.FinalDayRules);
         using var policy = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(request.Policy));
-        Assert.True(policy.RootElement.GetProperty("RequireChampionshipFinalsOnLastDay").GetBoolean());
+        Assert.Equal(projects > 1, policy.RootElement.GetProperty("RequireChampionshipFinalsOnLastDay").GetBoolean());
     }, CancellationToken.None);
 
     [Fact]

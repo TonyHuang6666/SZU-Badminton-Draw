@@ -103,11 +103,11 @@
           <Border Classes="card">
             <StackPanel Spacing="12"><TextBlock Classes="section-title" Text="比赛安排" />
               <TextBlock Text="程序会优先使用较早的可用时段，让比赛尽快完成，同时保证选手休息。" TextWrapping="Wrap" Classes="muted" />
-              <CheckBox x:Name="FinalsOnLastDay" IsChecked="{Binding RequireChampionshipFinalsOnLastDay}"
+              <CheckBox x:Name="FinalsOnLastDay" IsChecked="{Binding RequireChampionshipFinalsOnLastDay}" IsVisible="{Binding IsMultiProject}"
                         AutomationProperties.Name="将各项目决赛安排在最后一个比赛日">
                 <TextBlock Text="将各项目决赛安排在最后一个比赛日" TextWrapping="Wrap" />
               </CheckBox>
-              <TextBlock Text="{Binding FinalDayHint}" TextWrapping="Wrap" Classes="muted" />
+              <TextBlock Text="{Binding FinalDayHint}" TextWrapping="Wrap" Classes="muted" IsVisible="{Binding IsMultiProject}" />
             </StackPanel>
           </Border>
           <StackPanel Spacing="14">
@@ -141,7 +141,7 @@
             <ItemsControl ItemsSource="{Binding ProjectTimings}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ScheduleProjectTimingViewModel">
               <Border Classes="card" Margin="0,0,0,12"><Grid ColumnDefinitions="*,180">
                 <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,16,0" />
-                <StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="预计时长 · 分钟" /><TextBox Text="{Binding MinutesText}" AutomationProperties.Name="项目预计单场时长" /></StackPanel>
+                <StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="基础单场时长 · 分钟" /><TextBox Text="{Binding MinutesText}" AutomationProperties.Name="项目基础单场时长" /></StackPanel>
               </Grid></Border>
             </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
           </StackPanel>
@@ -191,13 +191,14 @@
                 </StackPanel></Border>
               </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
               <TextBlock Classes="section-title" Text="分段比赛时长" />
+              <TextBlock Classes="muted" Text="分界前使用上方的基础时长。例如基础 20 分钟、前 16 名起 30 分钟：32 进 16 用 20 分钟，16 进 8 及以后用 30 分钟；排位赛使用后段时长。" TextWrapping="Wrap" />
               <ItemsControl ItemsSource="{Binding ProjectTimings}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ScheduleProjectTimingViewModel">
                 <Border Classes="card" Margin="0,0,0,12"><StackPanel Spacing="14">
                   <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" />
-                  <CheckBox Content="淘汰赛前期使用不同的比赛时长" IsChecked="{Binding UseTimingSplit}" IsVisible="{Binding SupportsTimingSplit}" />
+                  <CheckBox Content="进入前 N 名起使用不同的比赛时长" IsChecked="{Binding UseTimingSplit}" IsVisible="{Binding SupportsTimingSplit}" />
                   <WrapPanel IsVisible="{Binding UseTimingSplit}">
-                    <StackPanel Width="220" Spacing="6" Margin="0,0,12,8"><TextBlock Text="进入前 N 名后使用预计时长" /><TextBox Text="{Binding BoundaryText}" AutomationProperties.Name="淘汰赛时长分界人数" /></StackPanel>
-                    <StackPanel Width="220" Spacing="6" Margin="0,0,12,8"><TextBlock Text="此前每场时长 · 分钟" /><TextBox Text="{Binding BeforeMinutesText}" AutomationProperties.Name="分界前单场时长" /></StackPanel>
+                    <StackPanel Width="220" Spacing="6" Margin="0,0,12,8"><TextBlock Text="从前 N 名开始（含该轮）" /><TextBox Text="{Binding BoundaryText}" AutomationProperties.Name="淘汰赛时长分界人数" /></StackPanel>
+                    <StackPanel Width="220" Spacing="6" Margin="0,0,12,8"><TextBlock Text="此后每场时长 · 分钟" /><TextBox Text="{Binding AfterMinutesText}" AutomationProperties.Name="分界起单场时长" /></StackPanel>
                   </WrapPanel>
                 </StackPanel></Border>
               </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>

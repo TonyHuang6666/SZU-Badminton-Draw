@@ -11,6 +11,52 @@ namespace BadmintonDraw.Desktop.Tests;
 public sealed class WorkspaceOperationalExportViewModelTests
 {
     [Fact]
+    public async Task ExportPromptsForDestinationWithoutPreselectedFolderAndUsesFreshChoiceEachTime()
+    {
+        using var f = new OperationsUiFixture(); var vm = f.Page.Materials;
+        vm.ScopeConfirmed = true;
+        Assert.True(vm.ExportCommand.CanExecute(null));
+        f.NextOutput = f.Data.PathFor("first-choice");
+        await vm.ExportCommand.ExecuteAsync().WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.NotNull(vm.Outcome);
+        Assert.All(vm.Outputs, item => Assert.StartsWith(f.NextOutput + Path.DirectorySeparatorChar, item.Path));
+        f.NextOutput = f.Data.PathFor("second-choice"); vm.ScopeConfirmed = true;
+        await vm.ExportCommand.ExecuteAsync();
+        Assert.NotNull(vm.Outcome);
+        Assert.All(vm.Outputs, item => Assert.StartsWith(f.NextOutput + Path.DirectorySeparatorChar, item.Path));
+        Assert.Equal(2, f.Shell.CurrentSession!.Workspace.AuditEvents.Count(a => a.Action == "OperationalPackageExported"));
+    }
+
+    [Fact]
+    public async Task CancellingDestinationOnExportDoesNotCreateFilesOrChangeWorkspace()
+    {
+        using var f = new OperationsUiFixture(); var vm = f.Page.Materials;
+        f.PrepareExport(); f.NextOutput = null;
+        var before = f.Shell.CurrentSession!; var hash = WorkspaceResultImportFacadeFixture.Hash(before.WorkspacePath);
+        await vm.ExportCommand.ExecuteAsync();
+        Assert.Same(before, f.Shell.CurrentSession); Assert.Null(vm.Outcome); Assert.Empty(vm.Outputs);
+        Assert.False(Directory.Exists(f.Data.PathFor("materials")));
+        Assert.Equal(hash, WorkspaceResultImportFacadeFixture.Hash(before.WorkspacePath));
+        Assert.DoesNotContain(before.Workspace.AuditEvents, a => a.Action == "OperationalPackageExported");
+    }
+
+    [Fact]
+    public async Task DestinationChoiceInProgressRejectsDuplicateExportAndScopeEditsPreventPublication()
+    {
+        var selected = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var f = new OperationsUiFixture(outputPicker: () => selected.Task); var vm = f.Page.Materials;
+        f.PrepareExport(); var before = f.Shell.CurrentSession!;
+        var pending = vm.ExportCommand.ExecuteAsync();
+        Assert.False(pending.IsCompleted); Assert.True(vm.IsWorking); Assert.False(vm.ExportCommand.CanExecute(null));
+        await vm.ExportCommand.ExecuteAsync();
+        vm.Days[0].IsSelected = false;
+        selected.SetResult(f.Data.PathFor("picked")); await pending;
+        Assert.Same(before, f.Shell.CurrentSession); Assert.Null(vm.Outcome); Assert.False(vm.IsWorking);
+        Assert.False(Directory.Exists(f.Data.PathFor("picked")));
+        Assert.DoesNotContain(before.Workspace.AuditEvents, a => a.Action == "OperationalPackageExported");
+    }
+
+    [Fact]
     public async Task ConfirmationListsOnlyActualConflictsAndDoesNotAuthorizeNewFilesAppearingAfterPreview()
     {
         string[] expected = []; string? unexpected = null; IReadOnlyList<string>? prompted = null;
@@ -66,7 +112,7 @@ public sealed class WorkspaceOperationalExportViewModelTests
         var posts = new ConcurrentQueue<Action>();
         using var f = new OperationsUiFixture(post: posted ? a => posts.Enqueue(a) : a => a());
         var vm = f.Page.Materials; var before = f.Shell.CurrentSession!;
-        vm.OutputDirectory = f.Data.PathFor("materials"); Assert.False(vm.ExportCommand.CanExecute(null));
+        f.NextOutput = f.Data.PathFor("materials"); Assert.False(vm.ExportCommand.CanExecute(null));
         vm.ScopeConfirmed = true; Assert.True(vm.ExportCommand.CanExecute(null)); await vm.ExportCommand.ExecuteAsync();
         while (posts.TryDequeue(out var next)) next();
         var outcome = Assert.IsType<OperationalPackageOutcome>(vm.Outcome);
@@ -104,12 +150,14 @@ public sealed class WorkspaceOperationalExportViewModelTests
     }
 
     [Fact]
-    public async Task CancelledOutputPickerRetainsDraftWithoutExportingOrSaving()
+    public async Task CancelledExportRetainsScopeDraftWithoutExportingOrSaving()
     {
         using var f = new OperationsUiFixture(); f.PrepareExport(); var before = f.Shell.CurrentSession;
-        await f.Page.Materials.PickOutputCommand.ExecuteAsync();
-        Assert.EndsWith("materials", f.Page.Materials.OutputDirectory); Assert.Same(before, f.Shell.CurrentSession);
-        Assert.False(Directory.Exists(f.Page.Materials.OutputDirectory)); Assert.Null(f.Page.Materials.Outcome);
+        var project = f.Page.Materials.SelectedProject; var days = f.Page.Materials.Days.Where(d => d.IsSelected).ToArray();
+        f.NextOutput = null; await f.Page.Materials.ExportCommand.ExecuteAsync();
+        Assert.Same(project, f.Page.Materials.SelectedProject); Assert.Equal(days, f.Page.Materials.Days.Where(d => d.IsSelected));
+        Assert.Same(before, f.Shell.CurrentSession);
+        Assert.False(Directory.Exists(f.Data.PathFor("materials"))); Assert.Null(f.Page.Materials.Outcome);
     }
 
     [Fact]
@@ -117,10 +165,10 @@ public sealed class WorkspaceOperationalExportViewModelTests
     {
         using var f = new OperationsUiFixture(outputPicker: () => Task.FromException<string?>(new IOException("无法读取目录选择结果")));
         f.PrepareExport(); var vm = f.Page.Materials; var before = f.Shell.CurrentSession!;
-        await vm.PickOutputCommand.ExecuteAsync();
+        await vm.ExportCommand.ExecuteAsync();
         Assert.Equal("desktop.operation-failed", vm.Error?.Code); Assert.Contains("无法读取目录选择结果", vm.StateMessage);
         Assert.Contains("未发起材料导出", vm.StateMessage); Assert.DoesNotContain("部分发布", vm.StateMessage);
-        Assert.Same(before, f.Shell.CurrentSession); Assert.False(Directory.Exists(vm.OutputDirectory)); Assert.Empty(vm.Outputs);
+        Assert.Same(before, f.Shell.CurrentSession); Assert.False(Directory.Exists(f.NextOutput)); Assert.Empty(vm.Outputs);
     }
 
     [Fact]
@@ -144,7 +192,7 @@ public sealed class WorkspaceOperationalExportViewModelTests
         using var f = new OperationsUiFixture(); var vm = f.Page.Materials; vm.Days[0].IsSelected = false; f.PrepareExport();
         var before = f.Shell.CurrentSession; await vm.ExportCommand.ExecuteAsync();
         Assert.Equal("export.no-matches", vm.Error?.Code); Assert.Null(vm.ExportFailure); Assert.Null(vm.Outcome); Assert.Empty(vm.Outputs);
-        Assert.False(Directory.Exists(vm.OutputDirectory)); Assert.Same(before, f.Shell.CurrentSession);
+        Assert.False(Directory.Exists(f.NextOutput)); Assert.Same(before, f.Shell.CurrentSession);
         Assert.Contains("未发起材料导出", vm.StateMessage); Assert.DoesNotContain("部分发布", vm.StateMessage);
     }
 
@@ -162,7 +210,7 @@ public sealed class WorkspaceOperationalExportViewModelTests
         f.Workflow.OpenWorkspace(original.WorkspacePath); var vm = f.Page.Materials; vm.SelectedProject = vm.ProjectChoices[1]; f.PrepareExport();
         var hash = WorkspaceResultImportFacadeFixture.Hash(original.WorkspacePath); await vm.ExportCommand.ExecuteAsync();
         Assert.Equal("export.hard-violations", vm.Error?.Code); Assert.Contains(vm.Error!.SchedulingFailure!.Violations, v => v.Code == SchedulingConstraintCode.CourtOverlap);
-        Assert.Contains(second.Id.ToString(), vm.OutcomeDetails); Assert.Empty(vm.Outputs); Assert.False(Directory.Exists(vm.OutputDirectory));
+        Assert.Contains(second.Id.ToString(), vm.OutcomeDetails); Assert.Empty(vm.Outputs); Assert.False(Directory.Exists(f.NextOutput));
         Assert.Equal(hash, WorkspaceResultImportFacadeFixture.Hash(original.WorkspacePath));
     }
 
@@ -206,6 +254,5 @@ public sealed class WorkspaceOperationalExportViewModelTests
         Assert.True(vm.Days.Single(d => d.Day == new DateOnly(2026, 9, 13)).IsSelected);
         Assert.False(vm.Days.Single(d => d.Day == new DateOnly(2026, 9, 15)).IsSelected);
         Assert.Null(vm.SelectedCarryoverDay); Assert.True(vm.IncludePendingCarryover); Assert.False(vm.ScopeConfirmed);
-        Assert.EndsWith("materials", vm.OutputDirectory);
     }
 }

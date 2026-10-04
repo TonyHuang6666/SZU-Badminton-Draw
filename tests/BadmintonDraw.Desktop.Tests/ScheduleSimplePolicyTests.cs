@@ -64,7 +64,7 @@ public sealed class ScheduleSimplePolicyTests
     [Fact]
     public async Task FailureExplainsCapturedFinalDayRequirementAndKeepsTheSavedSchedule()
     {
-        using var fixture = new ScheduleUiFixture();
+        using var fixture = new ScheduleUiFixture(3);
         using var page = Page(fixture);
         AddTwoDays(page);
         await page.GenerateCommand.ExecuteAsync();

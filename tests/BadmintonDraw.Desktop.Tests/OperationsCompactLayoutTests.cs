@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Headless;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -14,6 +15,40 @@ namespace BadmintonDraw.Desktop.Tests;
 public sealed class OperationsCompactLayoutTests : IDisposable
 {
     private readonly HeadlessUnitTestSession ui = HeadlessUnitTestSession.StartNew(typeof(App));
+
+    [Theory]
+    [InlineData(1080, 760)]
+    [InlineData(760, 560)]
+    [InlineData(600, 500)]
+    public Task HeaderKeepsAllThreeTabsNearTheTopAndProgressBesideTheTitle(int width, int height) => ui.Dispatch(() =>
+    {
+        using var fixture = new OperationsUiFixture();
+        var view = new OperationsPage { DataContext = fixture.Page };
+        var window = new Window { Width = width, Height = height, Content = view };
+        try
+        {
+            window.Show(); Layout(window);
+            var tabs = view.FindControl<TabControl>("OperationsTabs")!;
+            for (var index = 0; index < 3; index++)
+            {
+                tabs.SelectedIndex = index; Layout(window);
+                // A tall fixed heading must not consume the working area when switching tabs.
+                Assert.InRange(tabs.TranslatePoint(default, view)!.Value.Y, 0, 90);
+                var title = view.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == "比赛现场");
+                var progress = view.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Inlines?.OfType<Run>().FirstOrDefault()?.Text == "已记录 ");
+                var titlePoint = title.TranslatePoint(default, view)!.Value;
+                var progressPoint = progress.TranslatePoint(default, view)!.Value;
+                Assert.True(progressPoint.X >= titlePoint.X + title.Bounds.Width);
+                Assert.InRange(Math.Abs(progressPoint.Y + progress.Bounds.Height / 2 - titlePoint.Y - title.Bounds.Height / 2), 0, 3);
+                var backup = view.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "备份与恢复"));
+                var point = backup.TranslatePoint(default, window)!.Value;
+                Assert.InRange(point.X, 0, window.ClientSize.Width - backup.Bounds.Width);
+                Assert.True(backup.IsEffectivelyVisible);
+            }
+        }
+        finally { window.Close(); }
+        return 0;
+    }, CancellationToken.None);
 
     [Theory]
     [InlineData(1080, 760)]
@@ -58,7 +93,7 @@ public sealed class OperationsCompactLayoutTests : IDisposable
             view.FindControl<Expander>("OperationalAdvancedSettings")!.IsExpanded = true; Layout(window);
             AssertMovesWithEvidence(confirmation, action, scroll, window);
 
-            fixture.Page.Materials.OutputDirectory = fixture.Data.PathFor("compact-materials");
+            fixture.NextOutput = fixture.Data.PathFor("compact-materials");
             Assert.False(action.IsEffectivelyEnabled); Assert.False(action.Command!.CanExecute(null));
             confirmation.IsChecked = true;
             Assert.True(action.IsEffectivelyEnabled); Assert.True(action.Command.CanExecute(null));

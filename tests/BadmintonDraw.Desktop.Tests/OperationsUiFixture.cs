@@ -39,6 +39,6 @@ internal sealed class OperationsUiFixture : IDisposable
         await Page.ResultImport.ConfirmImportCommand.ExecuteAsync();
     }
     internal void PrepareExport(string name = "materials")
-    { Page.Materials.OutputDirectory = Data.PathFor(name); Page.Materials.ScopeConfirmed = true; }
+    { NextOutput = Data.PathFor(name); Page.Materials.ScopeConfirmed = true; }
     public void Dispose() { Shell.Dispose(); Data.Dispose(); }
 }

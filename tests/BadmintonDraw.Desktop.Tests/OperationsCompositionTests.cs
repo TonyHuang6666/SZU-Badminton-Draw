@@ -34,7 +34,7 @@ public sealed class OperationsCompositionTests : IDisposable
             Assert.True(shell.Navigate(WorkspaceRoute.Operations));
             window.UpdateLayout(); Assert.IsType<OperationsPageViewModel>(shell.CurrentPage);
             var operations = Assert.Single(window.GetVisualDescendants().OfType<OperationsPage>());
-            Assert.Contains(operations.GetVisualDescendants().OfType<TextBox>(), box => box.Name == "OperationalOutputDirectory");
+            Assert.NotNull(operations.FindControl<Button>("ExportOperationalPackage"));
             operations.FindControl<TabControl>("OperationsTabs")!.SelectedIndex = 1;
             window.UpdateLayout();
             Assert.Single(window.GetVisualDescendants().OfType<ResultImportPanel>());
@@ -68,8 +68,6 @@ public sealed class OperationsCompositionTests : IDisposable
             Dispatcher.UIThread.RunJobs(); window.UpdateLayout(); Assert.Same(page, shell.CurrentPage);
             Assert.Equal(TournamentStage.Completed, page.Session.Workspace.Stage); Assert.Contains("已保存", page.ResultImport.StateMessage);
             view.FindControl<TabControl>("OperationsTabs")!.SelectedIndex = 0; window.UpdateLayout();
-            await Assert.IsType<AsyncCommand>(view.FindControl<Button>("PickOperationalOutput")!.Command).ExecuteAsync();
-            Assert.Equal(output, view.FindControl<TextBox>("OperationalOutputDirectory")!.Text);
             var advanced = view.FindControl<Expander>("OperationalAdvancedSettings")!;
             advanced.IsExpanded = true; window.UpdateLayout();
             var project = view.FindControl<ComboBox>("OperationalProject")!; project.SelectedIndex = 1;
@@ -160,7 +158,7 @@ public sealed class OperationsCompositionTests : IDisposable
             var pending = page.ResultImport.PickFilesCommand.ExecuteAsync(); Assert.False(pending.IsCompleted);
             Assert.True(shell.Navigate(WorkspaceRoute.Overview)); var nextPage = shell.CurrentPage;
             shell.ReportError(new IOException("新的页面反馈")); var status = shell.Status; var oldFeedback = page.ResultImport.StateMessage;
-            Assert.False(page.ResultImport.PickFilesCommand.CanExecute(null)); Assert.False(page.Materials.PickOutputCommand.CanExecute(null));
+            Assert.False(page.ResultImport.PickFilesCommand.CanExecute(null)); Assert.False(page.Materials.ExportCommand.CanExecute(null));
             picked.SetException(new IOException("迟到的文件选择异常")); await pending;
             Assert.Same(nextPage, shell.CurrentPage); Assert.Equal(status, shell.Status); Assert.Equal(oldFeedback, page.ResultImport.StateMessage);
             Assert.Empty(page.ResultImport.SelectedPaths); Assert.False(page.ResultImport.IsWorking);

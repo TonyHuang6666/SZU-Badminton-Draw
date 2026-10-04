@@ -22,6 +22,25 @@ public sealed class ScheduleCompactLayoutTests : IDisposable
     private readonly HeadlessUnitTestSession ui = HeadlessUnitTestSession.StartNew(typeof(App));
 
     [Theory]
+    [InlineData(1, false)]
+    [InlineData(3, true)]
+    public Task FinalDayChoiceAndExplanationAreVisibleOnlyForMultipleProjects(int count, bool visible) => ui.Dispatch(() =>
+    {
+        using var fixture = new ScheduleUiFixture(count);
+        using var model = new ScheduleSetupPageViewModel(fixture.Shell, fixture.Workflow.CurrentSession!);
+        var page = new ScheduleSetupPage { DataContext = model };
+        var window = new Window { Content = page };
+        try
+        {
+            window.Show(); window.UpdateLayout();
+            Assert.Equal(visible, page.FindControl<CheckBox>("FinalsOnLastDay")!.IsVisible);
+            var hint = Assert.Single(page.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == model.FinalDayHint);
+            Assert.Equal(visible, hint.IsVisible);
+        }
+        finally { window.Close(); }
+    }, CancellationToken.None);
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public Task IndependentBoardKeepsGeometryStableWhenSelectionRevealsDetails(bool dark) => ui.Dispatch(async () =>

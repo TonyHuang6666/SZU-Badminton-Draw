@@ -9,24 +9,31 @@ namespace BadmintonDraw.Desktop.Tests;
 
 public sealed class WorkspaceOperationalExportRaceTests
 {
-    public static IEnumerable<object[]> PickerCases => new[] { "output", "project", "day", "carry", "pdf", "consent", "reopen", "audit", "foreign", "dispose" }
+    public static IEnumerable<object[]> PickerCases => new[] { "project", "day", "carry", "pdf", "consent", "reopen", "audit", "foreign", "dispose", "navigate" }
         .SelectMany(change => new[] { new object[] { change, false }, new object[] { change, true } });
     [Theory, MemberData(nameof(PickerCases))]
     public async Task LatePickerSuccessAndExceptionCannotOverrideNewScopeOrFeedback(string change, bool throws)
     {
         var returned = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var f = new OperationsUiFixture(outputPicker: () => returned.Task); var vm = f.Page.Materials; vm.OutputDirectory = "original";
-        var pending = vm.PickOutputCommand.ExecuteAsync(); Assert.False(pending.IsCompleted);
-        Change(f, vm, change); var expected = Feedback(f, vm);
-        if (throws) returned.SetException(new IOException("late picker failure")); else returned.SetResult("late-output");
+        using var f = new OperationsUiFixture(outputPicker: () => returned.Task); var vm = f.Page.Materials; f.PrepareExport();
+        var original = f.Shell.CurrentSession!;
+        var pending = vm.ExportCommand.ExecuteAsync(); Assert.False(pending.IsCompleted);
+        if (change == "navigate") Assert.True(f.Shell.Navigate(WorkspaceRoute.Start));
+        else Change(f, vm, change);
+        var expected = Feedback(f, vm);
+        var output = f.Data.PathFor("late-output");
+        if (throws) returned.SetException(new IOException("late picker failure")); else returned.SetResult(output);
         await pending; Assert.Equal(expected, Feedback(f, vm)); Assert.Null(vm.Outcome); Assert.False(vm.IsWorking);
+        Assert.False(Directory.Exists(output));
+        Assert.DoesNotContain(new TournamentWorkspaceStore().Read(original.WorkspacePath).AuditEvents,
+            audit => audit.Action == "OperationalPackageExported");
     }
 
-    public static IEnumerable<object[]> ConfirmationCases => new[] { "output", "project", "day", "carry", "pdf", "consent", "reopen", "audit", "foreign", "dispose", "navigate" }
+    public static IEnumerable<object[]> ConfirmationCases => new[] { "project", "day", "carry", "pdf", "consent", "reopen", "audit", "foreign", "dispose", "navigate" }
         .SelectMany(change => new[] { new object[] { change, false }, new object[] { change, true } });
 
     [Theory]
-    [InlineData("output")]
+    [InlineData("pdf")]
     [InlineData("day")]
     [InlineData("reopen")]
     [InlineData("foreign")]
@@ -37,7 +44,7 @@ public sealed class WorkspaceOperationalExportRaceTests
         var prompts = 0;
         using var f = new OperationsUiFixture(confirmOverwrite: _ => { prompts++; return Task.FromResult(true); });
         f.PrepareExport(); var vm = f.Page.Materials; var original = f.Shell.CurrentSession!;
-        var output = vm.OutputDirectory;
+        var output = f.NextOutput!;
         var deferred = new DeferredUiContext(); var pending = deferred.Start(() => vm.ExportCommand.ExecuteAsync());
         await deferred.FirstPost.WaitAsync(TimeSpan.FromSeconds(20));
         if (change == "navigate") Assert.True(f.Shell.Navigate(WorkspaceRoute.Start));
@@ -73,7 +80,7 @@ public sealed class WorkspaceOperationalExportRaceTests
         var durable = new TournamentWorkspaceStore().Read(original.WorkspacePath);
         Assert.Single(durable.AuditEvents, audit => audit.Action == "OperationalPackageExported");
     }
-    public static IEnumerable<object[]> ExportCases => new[] { "output", "day", "reopen", "audit", "foreign", "dispose" }
+    public static IEnumerable<object[]> ExportCases => new[] { "pdf", "day", "reopen", "audit", "foreign", "dispose" }
         .SelectMany(change => new[] { new object[] { change, "success" }, new object[] { change, "precommit" }, new object[] { change, "committed" } });
     [Theory, MemberData(nameof(ExportCases))]
     public async Task DelayedRealExportPreservesDurabilityButCannotLeakIntoReplacementPageOrScope(string change, string failure)
@@ -97,16 +104,16 @@ public sealed class WorkspaceOperationalExportRaceTests
     public async Task CapturedDatesAndDestinationDoNotChangeWhileRealMutationWaits()
     {
         using var f = new OperationsUiFixture(); var vm = f.Page.Materials; vm.Days[1].IsSelected = false; f.PrepareExport();
-        var originalOutput = vm.OutputDirectory; var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var originalOutput = f.NextOutput!; var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
         f.Data.Store.BeforeMutation = () => { entered.TrySetResult(); if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException(); };
         var pending = vm.ExportCommand.ExecuteAsync(); await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        try { vm.Days[0].IsSelected = false; vm.Days[1].IsSelected = true; vm.OutputDirectory = f.Data.PathFor("new-output"); }
+        try { vm.Days[0].IsSelected = false; vm.Days[1].IsSelected = true; f.NextOutput = f.Data.PathFor("new-output"); }
         finally { release.Set(); }
         await pending;
         var capturedPackage = Assert.Single(Directory.GetDirectories(originalOutput));
         Assert.Equal(Path.Combine(originalOutput, "9月13日多项目合并材料包"), capturedPackage);
-        Assert.Equal(9, Directory.GetFiles(capturedPackage).Length); Assert.False(Directory.Exists(vm.OutputDirectory));
+        Assert.Equal(9, Directory.GetFiles(capturedPackage).Length); Assert.False(Directory.Exists(f.NextOutput));
         Assert.Single(f.Shell.CurrentSession!.Workspace.AuditEvents, a => a.Action == "OperationalPackageExported");
         Assert.Null(vm.Outcome); Assert.False(vm.ScopeConfirmed); Assert.DoesNotContain("正在", vm.StateMessage);
     }
@@ -114,7 +121,6 @@ public sealed class WorkspaceOperationalExportRaceTests
     {
         switch (change)
         {
-            case "output": vm.OutputDirectory = f.Data.PathFor("new-output"); break;
             case "project": vm.SelectedProject = vm.ProjectChoices[1]; break;
             case "day": vm.Days[0].IsSelected = !vm.Days[0].IsSelected; break;
             case "carry": vm.IncludePendingCarryover = true; break;
@@ -131,5 +137,5 @@ public sealed class WorkspaceOperationalExportRaceTests
         f.Shell.ReportError(new IOException("newer visible feedback"));
     }
     private static string Feedback(OperationsUiFixture f, WorkspaceOperationalExportViewModel vm) =>
-        string.Join("|", f.Shell.Status, f.Shell.LastError?.Code, vm.StateMessage, vm.SourceDetails, vm.OutcomeDetails, vm.OutputDirectory, vm.ScopeSummary);
+        string.Join("|", f.Shell.Status, f.Shell.LastError?.Code, vm.StateMessage, vm.SourceDetails, vm.OutcomeDetails, vm.ScopeSummary);
 }
