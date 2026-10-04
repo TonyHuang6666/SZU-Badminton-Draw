@@ -163,7 +163,14 @@ public sealed class ScheduleBoardPageViewModelTests
         page.SelectedMatch = root; page.TargetDay = other.Placement.DayLabel; page.TargetTimeText = other.Placement.StartTime.ToString("HH:mm:ss"); page.TargetCourt = other.Placement.Court;
         await page.PreviewMoveCommand.ExecuteAsync();
         WorkspaceMatchKey? focused = null; page.FocusRequested += key => focused = key;
-        var issue = page.Issues.First(i => i.FocusRelatedCommand.CanExecute(null)); issue.FocusRelatedCommand.Execute(null);
+        // Whole-schedule validation includes both directions of the conflict.
+        var violation = Assert.Single(page.PreviewViolations.Select((value, index) => (Value: value, Index: index)),
+            entry => entry.Value.MatchId == root.Key.MatchId && entry.Value.RelatedMatchId == other.Key.MatchId);
+        var issue = page.Issues[violation.Index];
+        Assert.True(issue.FocusCommand.CanExecute(null)); issue.FocusCommand.Execute(null);
+        Assert.Equal(root.Key, focused);
+        focused = null;
+        Assert.True(issue.FocusRelatedCommand.CanExecute(null)); issue.FocusRelatedCommand.Execute(null);
         Assert.Equal(other.Key, focused);
     }
     [Fact]

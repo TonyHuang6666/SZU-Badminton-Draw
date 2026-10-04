@@ -59,7 +59,8 @@ public sealed class AppShellViewModelTests : IDisposable
         await shell.CreateWorkspaceAsync(Request());
         var session = shell.CurrentSession;
         var legacy = PathFor("legacy.szbd");
-        using (var connection = new SqliteConnection("Data Source=" + legacy))
+        // Release the native file handle on dispose so Windows can remove the fixture directory.
+        using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = legacy, Pooling = false }.ToString()))
         {
             connection.Open();
             using var command = connection.CreateCommand();

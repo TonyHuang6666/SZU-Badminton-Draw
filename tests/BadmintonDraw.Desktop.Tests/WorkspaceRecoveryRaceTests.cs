@@ -175,7 +175,8 @@ public sealed class WorkspaceRecoveryRaceTests
     public async Task UnsupportedVersionIsNotAutomaticallyClassifiedAsCorrupt(int version)
     {
         using var fixture = new RecoveryUiFixture(); var path = fixture.PathFor("unsupported.szbd");
-        using (var connection = new SqliteConnection("Data Source=" + path))
+        // Release the native file handle on dispose so Windows can remove the fixture directory.
+        using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString()))
         {
             connection.Open(); using var command = connection.CreateCommand(); command.CommandText = $"PRAGMA user_version={version}"; command.ExecuteNonQuery();
         }

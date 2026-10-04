@@ -93,7 +93,7 @@ public sealed class PlayerEntriesWindowTests : IDisposable
     }, CancellationToken.None);
 
     [Fact]
-    public Task MainPageOffersPeerButtonsAndEntriesCanOpenBeforeTheScheduleBoard() => ui.Dispatch(() =>
+    public Task MainPageOffersPeerButtonsAndEntriesCanOpenBeforeTheScheduleBoard() => ui.Dispatch(async () =>
     {
         using var fixture = new ScheduleUiFixture(3, deterministicPlayerIds: true);
         Generate(fixture);
@@ -125,6 +125,7 @@ public sealed class PlayerEntriesWindowTests : IDisposable
             match.FocusCommand.Execute(null); Dispatcher.UIThread.RunJobs();
             var board = Assert.Single(window.OwnedWindows.OfType<ScheduleBoardWindow>());
             var boardModel = Assert.IsType<ScheduleBoardPageViewModel>(board.DataContext);
+            await ScheduleBoardWindowTestSync.WaitForInitializationAsync(shell, boardModel);
             Assert.Equal(match.Appearance.Key, boardModel.SelectedMatch!.Key);
             Assert.Equal(match.Appearance.Placement.DayLabel, boardModel.SelectedDay);
             Assert.IsType<ScheduleSetupPageViewModel>(shell.CurrentPage); // Viewing does not discard setup drafts.
@@ -133,6 +134,8 @@ public sealed class PlayerEntriesWindowTests : IDisposable
             Assert.True(entries.IsVisible);
             match.FocusCommand.Execute(null); Dispatcher.UIThread.RunJobs();
             var reopenedBoard = Assert.Single(window.OwnedWindows.OfType<ScheduleBoardWindow>());
+            await ScheduleBoardWindowTestSync.WaitForInitializationAsync(shell,
+                Assert.IsType<ScheduleBoardPageViewModel>(reopenedBoard.DataContext));
             Assert.Same(before, fixture.Workflow.CurrentSession);
             var selectedIdentity = model.SelectedPlayer!.IdentityKey;
             entries.Close(); Dispatcher.UIThread.RunJobs(); Assert.True(reopenedBoard.IsVisible);
@@ -158,7 +161,7 @@ public sealed class PlayerEntriesWindowTests : IDisposable
             shell.Navigate(WorkspaceRoute.ScheduleBoard); Dispatcher.UIThread.RunJobs();
             var boardWindow = Assert.Single(window.OwnedWindows);
             var board = Assert.IsType<ScheduleBoardPageViewModel>(boardWindow.DataContext);
-            await board.InitializeAsync(); board.ShowPlayerEntriesCommand.Execute(null);
+            await ScheduleBoardWindowTestSync.WaitForInitializationAsync(shell, board); board.ShowPlayerEntriesCommand.Execute(null);
             var entriesWindow = Assert.Single(window.OwnedWindows.OfType<PlayerEntriesWindow>());
             var entries = Assert.IsType<PlayerEntriesViewModel>(entriesWindow.DataContext);
             entries.SelectedSortIndex = 2; entries.SelectedPlayer = entries.Players.Last();
@@ -232,7 +235,7 @@ public sealed class PlayerEntriesWindowTests : IDisposable
     }, CancellationToken.None);
 
     [Fact]
-    public Task SummaryPageAlsoOffersEntriesNextToTheScheduleBoard() => ui.Dispatch(() =>
+    public Task SummaryPageAlsoOffersEntriesNextToTheScheduleBoard() => ui.Dispatch(async () =>
     {
         using var fixture = new ScheduleUiFixture(3, deterministicPlayerIds: true); Generate(fixture);
         var window = new AppShellWindow(fixture.Workflow, new RecentWorkspaceStore(Path.Combine(fixture.DirectoryPath, "entries-summary.json")));
@@ -241,9 +244,13 @@ public sealed class PlayerEntriesWindowTests : IDisposable
             window.Show(); var shell = Assert.IsType<AppShellViewModel>(window.DataContext);
             shell.Navigate(WorkspaceRoute.ScheduleBoard); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var boardWindow = Assert.Single(window.OwnedWindows);
+            var board = Assert.IsType<ScheduleBoardPageViewModel>(boardWindow.DataContext);
+            await ScheduleBoardWindowTestSync.WaitForInitializationAsync(shell, board);
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var openBoard = window.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "打开独立赛程板 ↗"));
             var entriesButton = window.GetVisualDescendants().OfType<Button>().SingleOrDefault(b => Equals(b.Content, "选手兼项"));
             Assert.NotNull(entriesButton); Assert.Same(openBoard.Parent, entriesButton.Parent);
+            Assert.True(entriesButton.IsEffectivelyEnabled);
             Assert.DoesNotContain(boardWindow.GetVisualDescendants().OfType<Button>(), b => Equals(b.Content, "选手兼项"));
             entriesButton.Command!.Execute(null); Dispatcher.UIThread.RunJobs();
             Assert.Single(window.OwnedWindows.OfType<PlayerEntriesWindow>());

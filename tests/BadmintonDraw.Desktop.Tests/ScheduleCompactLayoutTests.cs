@@ -57,7 +57,7 @@ public sealed class ScheduleCompactLayoutTests : IDisposable
             shell.Navigate(WorkspaceRoute.ScheduleBoard);
             Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var model = Assert.IsType<ScheduleBoardPageViewModel>(shell.CurrentPage);
-            await model.InitializeAsync(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            await ScheduleBoardWindowTestSync.WaitForInitializationAsync(shell, model); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var boardWindow = Assert.Single(window.OwnedWindows);
             boardWindow.WindowState = WindowState.Normal; boardWindow.Width = 960; boardWindow.Height = 680;
             boardWindow.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
@@ -99,7 +99,7 @@ public sealed class ScheduleCompactLayoutTests : IDisposable
             window.Show(); var shell = Assert.IsType<AppShellViewModel>(window.DataContext);
             shell.Navigate(WorkspaceRoute.ScheduleBoard); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var model = Assert.IsType<ScheduleBoardPageViewModel>(shell.CurrentPage);
-            await model.InitializeAsync(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            await ScheduleBoardWindowTestSync.WaitForInitializationAsync(shell, model); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var boardWindow = Assert.Single(window.OwnedWindows);
             var view = Assert.Single(boardWindow.GetVisualDescendants().OfType<ScheduleBoardPage>());
             var other = model.Matches.First(match => match.Key != model.SelectedMatch!.Key);

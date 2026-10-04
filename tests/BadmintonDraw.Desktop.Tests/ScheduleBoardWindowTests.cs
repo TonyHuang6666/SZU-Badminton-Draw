@@ -37,7 +37,7 @@ public sealed class ScheduleBoardWindowTests : IDisposable
             Assert.Empty(window.GetVisualDescendants().OfType<ScheduleBoardControl>());
             Assert.Single(boardWindow.GetVisualDescendants().OfType<ScheduleBoardControl>());
             var model = Assert.IsType<ScheduleBoardPageViewModel>(boardWindow.DataContext);
-            await model.InitializeAsync();
+            await ScheduleBoardWindowTestSync.WaitForInitializationAsync(shell, model);
             Assert.True(window.IsEnabled); // Nonmodal: settings/materials remain reachable.
             Assert.True(shell.Navigate(WorkspaceRoute.Overview));
             Assert.True(model.CanEdit);
@@ -60,7 +60,7 @@ public sealed class ScheduleBoardWindowTests : IDisposable
             shell.Navigate(WorkspaceRoute.ScheduleBoard); Dispatcher.UIThread.RunJobs();
             var boardWindow = Assert.Single(window.OwnedWindows);
             var model = Assert.IsType<ScheduleBoardPageViewModel>(boardWindow.DataContext);
-            await model.InitializeAsync();
+            await ScheduleBoardWindowTestSync.WaitForInitializationAsync(shell, model);
             model.SelectedDay = "2026-10-05"; model.Zoom = .85;
             var before = fixture.Workflow.CurrentSession;
             boardWindow.Close();
@@ -85,7 +85,7 @@ public sealed class ScheduleBoardWindowTests : IDisposable
             shell.Navigate(WorkspaceRoute.ScheduleBoard); Dispatcher.UIThread.RunJobs();
             var boardWindow = Assert.Single(window.OwnedWindows);
             var model = Assert.IsType<ScheduleBoardPageViewModel>(boardWindow.DataContext);
-            await model.InitializeAsync(); shell.Navigate(WorkspaceRoute.Overview);
+            await ScheduleBoardWindowTestSync.WaitForInitializationAsync(shell, model); shell.Navigate(WorkspaceRoute.Overview);
             var overview = shell.CurrentPage; var original = model.SelectedMatch!.Placement;
             await model.RequestMoveAsync(new(model.SelectedMatch.Key, "2026-10-05", new(15, 0), "B2"));
             Dispatcher.UIThread.RunJobs(); boardWindow.UpdateLayout();
@@ -113,7 +113,7 @@ public sealed class ScheduleBoardWindowTests : IDisposable
             shell.Navigate(WorkspaceRoute.ScheduleBoard); Dispatcher.UIThread.RunJobs();
             var oldWindow = Assert.Single(window.OwnedWindows);
             var old = Assert.IsType<ScheduleBoardPageViewModel>(oldWindow.DataContext);
-            await old.InitializeAsync(); old.TargetTimeText = "16:00";
+            await ScheduleBoardWindowTestSync.WaitForInitializationAsync(shell, old); old.TargetTimeText = "16:00";
             await old.PreviewMoveCommand.ExecuteAsync();
             Assert.True(old.ConfirmMoveCommand.CanExecute(null));
             shell.Navigate(WorkspaceRoute.Overview);
@@ -141,7 +141,7 @@ public sealed class ScheduleBoardWindowTests : IDisposable
             shell.Navigate(WorkspaceRoute.ScheduleBoard); Dispatcher.UIThread.RunJobs();
             var boardWindow = Assert.Single(window.OwnedWindows);
             var model = Assert.IsType<ScheduleBoardPageViewModel>(boardWindow.DataContext);
-            await model.InitializeAsync(); Dispatcher.UIThread.RunJobs();
+            await ScheduleBoardWindowTestSync.WaitForInitializationAsync(shell, model); Dispatcher.UIThread.RunJobs();
             var view = Assert.Single(boardWindow.GetVisualDescendants().OfType<BadmintonDraw.Desktop.Views.ScheduleBoardPage>());
             var before = fixture.Workflow.CurrentSession;
             model.SelectMatch(model.Matches[0].Key); boardWindow.UpdateLayout();
@@ -169,7 +169,7 @@ public sealed class ScheduleBoardWindowTests : IDisposable
             shell.Navigate(WorkspaceRoute.ScheduleBoard); Dispatcher.UIThread.RunJobs();
             var boardWindow = Assert.Single(window.OwnedWindows);
             var model = Assert.IsType<ScheduleBoardPageViewModel>(boardWindow.DataContext);
-            await model.InitializeAsync(); model.TargetTimeText = "16:00";
+            await ScheduleBoardWindowTestSync.WaitForInitializationAsync(shell, model); model.TargetTimeText = "16:00";
             await model.PreviewMoveCommand.ExecuteAsync(); Assert.True(model.ConfirmMoveCommand.CanExecute(null));
             shell.Navigate(WorkspaceRoute.ScheduleSetup);
             fixture.Workflow.GenerateSchedule(new([new(new(2026, 10, 6), new(14, 0), new(18, 0), ["C1"])], 1, 20, 8),
