@@ -34,11 +34,14 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
     public bool IsWorking => working;
     public string StateMessage { get => state; private set => SetProperty(ref state, value); }
     public string OutcomeDetails { get => details; private set => SetProperty(ref details, value); }
+    public string OutcomeSummary => Outputs.Count == 0 ? "" :
+        $"材料包目录：{Path.GetDirectoryName(Outputs[0].Path)}\n已验证发布 {Outputs.Count} 个文件：\n" +
+        string.Join("\n", Outputs.Select(output => Path.GetFileName(output.Path)));
     public string SourceDetails => $"工作区：{session.Workspace.Id:D}\n{session.WorkspacePath}\n源修订：{session.Workspace.Revision}" +
         (session.RequiresReload ? "\n最后已知快照，必须重新载入后操作。" : "");
     public string ScopeSummary => $"范围：{SelectedProject?.Label ?? "未选择有效项目"}\n日期：{string.Join("、", Days.Where(d => d.IsSelected).Select(d => d.Label))}\n" +
         $"待填记录目标日：{(IncludePendingCarryover ? SelectedCarryoverDay?.Label ?? "尚未选择" : "不纳入")}；淘汰赛 PDF：{PdfRows} 行 × {PdfColumns} 列\n" +
-        "日期仅限制记录表；带时间的抽签图包含所选项目的全部场次，检查报告包含整场比赛。";
+        "每日材料包括赛程 Excel／PDF、记录表与计分表；带时间的对阵图包含所选项目的全部场次，检查报告包含整场比赛。";
     public OperationalPackageOutcome? Outcome { get; private set; }
     public OperationalPackageExportException? ExportFailure { get; private set; }
     public WorkspaceError? Error { get; private set; }
@@ -188,7 +191,7 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
         "\n跳过项：\n" + string.Join("\n", skips.Select(s => $"[{s.Code}] {s.Message}；项目：{s.ProjectId}；日期：{s.RecordDay:yyyy-MM-dd}"));
     private static WorkspaceError ToError(Exception error) => error is WorkspaceCommandException command ? command.Error : new("desktop.operation-failed", error.Message);
     private void ClearEvidence() { Outcome = null; ExportFailure = null; Error = null; OutcomeDetails = ""; EvidenceChanged(); }
-    private void EvidenceChanged() { foreach (var name in new[] { nameof(Outcome), nameof(ExportFailure), nameof(Error), nameof(Outputs) }) OnPropertyChanged(name); }
+    private void EvidenceChanged() { foreach (var name in new[] { nameof(Outcome), nameof(ExportFailure), nameof(Error), nameof(Outputs), nameof(OutcomeSummary) }) OnPropertyChanged(name); }
     private void SetWorking(bool value) { working = value; if (!disposed) { OnPropertyChanged(nameof(IsWorking)); RefreshAvailability(); } }
     public void RefreshAvailability() { PickOutputCommand.NotifyCanExecuteChanged(); ExportCommand.NotifyCanExecuteChanged(); }
     public void Dispose()

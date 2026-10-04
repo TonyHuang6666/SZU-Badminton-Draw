@@ -22,11 +22,15 @@ public sealed class WorkspaceOperationalPackageTests
         var before = f.Workspace;
         var result = f.Workflow.ExportOperationalPackage(new(f.Output, oneProject ? selected.Id : null,
             [WorkspaceOperationalPackageFixture.FirstDay]), f.Workspace.Revision);
-        Assert.Equal(oneProject ? 9 : 15, result.Outputs.Count);
+        Assert.Equal(oneProject ? 9 : 13, result.Outputs.Count);
         Assert.Equal(oneProject ? 3 : 9, result.Counts.DistinctMatchCount);
         Assert.Equal(oneProject ? 3 : 9, result.Counts.RecordRowCount);
         Assert.Equal(oneProject ? 2 : 6, result.Outputs.Count(o => o.Kind is OperationalMaterialKind.TimedDrawExcel or OperationalMaterialKind.TimedDrawA4Pdf));
-        var rows = ReadRecord(Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.MergedRecordExcel));
+        Assert.DoesNotContain(result.Outputs, o => o.Kind == OperationalMaterialKind.ProjectRecordExcel);
+        var record = Assert.Single(result.Outputs, o => Path.GetFileName(o.Path).EndsWith("赛程记录表.xlsx", StringComparison.Ordinal));
+        Assert.Equal(OperationalMaterialKind.MergedRecordExcel, record.Kind);
+        Assert.Equal("9月20日合并赛程记录表.xlsx", Path.GetFileName(record.Path));
+        var rows = ReadRecord(record);
         Assert.Equal(oneProject ? 3 : 9, rows.Count);
         Assert.Equal(oneProject ? 1 : 3, rows.Select(r => r.ProjectId.Text).Distinct().Count());
         foreach (var row in rows)
@@ -44,6 +48,53 @@ public sealed class WorkspaceOperationalPackageTests
         Assert.Equal(new[] { 20, 25, 30 }, f.Workspace.Projects.Select(p =>
             (int)(placements[p.MatchGraph!.Matches[0].Id].EndTime - placements[p.MatchGraph.Matches[0].Id].StartTime).TotalMinutes));
         f.Retain(oneProject ? "selected-md" : "three-projects", before, result);
+    }
+
+    [Fact]
+    public void Merged_record_orders_simultaneous_projects_by_configured_court_order()
+    {
+        using var f = new WorkspaceOperationalPackageFixture(projects: 3, transform: source =>
+        {
+            var resources = source.Resources! with
+            { Days = source.Resources.Days.Select(day => day with { Courts = ["B3", "B1", "B2"] }).ToArray() };
+            var placements = source.Schedule!.Placements.ToDictionary();
+            var courts = new[] { "B2", "B3", "B1" };
+            foreach (var project in source.Projects)
+            {
+                var match = project.MatchGraph!.Matches.Single();
+                placements[match.Id] = placements[match.Id] with
+                { Court = courts[project.SortOrder], StartTime = new(9, 0), EndTime = new TimeOnly(9, 0).AddMinutes(match.ExpectedDurationMinutes) };
+            }
+            return source with { Resources = resources, Schedule = source.Schedule with { Resources = resources, Placements = placements } };
+        });
+        var result = f.Workflow.ExportOperationalPackage(new(f.Output, Days: [WorkspaceOperationalPackageFixture.FirstDay]), f.Workspace.Revision);
+        var rows = ReadRecord(Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.MergedRecordExcel));
+        Assert.Equal(new[] { f.Workspace.Projects[1].Id.ToString(), f.Workspace.Projects[2].Id.ToString(), f.Workspace.Projects[0].Id.ToString() },
+            rows.Select(row => row.ProjectId.Text));
+        using var workbook = new XLWorkbook(Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.MergedRecordExcel).Path);
+        Assert.Equal(new[] { "B3", "B1", "B2" }, Enumerable.Range(6, 3).Select(row => workbook.Worksheet("对阵记录表").Cell(row, 11).GetString()));
+    }
+
+    [Fact]
+    public void New_merged_package_preserves_old_project_record_files_without_listing_them_as_outputs()
+    {
+        using var f = new WorkspaceOperationalPackageFixture();
+        var package = Directory.CreateDirectory(Path.Combine(f.Output, "9月20日-9月22日多项目合并材料包")).FullName;
+        var oldRecord = Path.Combine(package, "9月20日同名项目赛程记录表.xlsx");
+        File.Copy(f.Record("old-record", [new(f.FirstKey, WorkspaceOperationalPackageFixture.FirstDay)], fill: true), oldRecord);
+        var oldHash = WorkspaceOperationalPackageFixture.Hash(oldRecord);
+
+        var result = f.Workflow.ExportOperationalPackage(new(f.Output), f.Workspace.Revision);
+
+        Assert.Equal(oldHash, WorkspaceOperationalPackageFixture.Hash(oldRecord));
+        var preserved = new WorkspaceMatchRecordReader().ReadWorkspaceRecord(File.ReadAllBytes(oldRecord));
+        Assert.Equal("21-10", Assert.Single(preserved.Rows).Score.Text);
+        Assert.DoesNotContain(result.Outputs, output => output.Path == oldRecord);
+        Assert.Single(result.Outputs, output => output.Kind == OperationalMaterialKind.MergedRecordExcel);
+        Assert.DoesNotContain(result.Outputs, output => output.Kind == OperationalMaterialKind.ProjectRecordExcel);
+        using var manifest = ReadManifest(result);
+        Assert.DoesNotContain(manifest.RootElement.GetProperty("Files").EnumerateArray(),
+            output => output.GetProperty("FileName").GetString() == Path.GetFileName(oldRecord));
     }
 
     [Theory]
@@ -82,7 +133,7 @@ public sealed class WorkspaceOperationalPackageTests
         Assert.Equal("待安排", daily.Worksheet("赛程明细").Cell(5, 4).GetString());
         Assert.Equal("待安排", daily.Worksheet("赛程明细").Cell(5, 5).GetString());
         Assert.Contains("2026-09-20", daily.Worksheet("赛程明细").Cell(5, 12).GetString());
-        Assert.Contains("无本日已安排", daily.Worksheet("时间场地网格").Cell(5, 1).GetString());
+        Assert.Contains("无本日已安排", daily.Worksheet("时间场地网格").Cell(3, 1).GetString());
         Assert.Equal(WorkspaceOperationalPackageFixture.Business(before), WorkspaceOperationalPackageFixture.Business(result.Command.Workspace));
         using var manifest = ReadManifest(result);
         var proofs = manifest.RootElement.GetProperty("CarryoverEvidence").EnumerateArray().ToArray();
@@ -117,7 +168,7 @@ public sealed class WorkspaceOperationalPackageTests
     }
 
     [Fact]
-    public void Empty_scoped_project_day_skips_records_but_retains_its_whole_timed_draw()
+    public void Empty_scoped_project_day_adds_no_record_rows_but_retains_its_whole_timed_draw()
     {
         using var f = new WorkspaceOperationalPackageFixture(projects: 2, transform: source =>
         {
@@ -129,8 +180,9 @@ public sealed class WorkspaceOperationalPackageTests
         var result = f.Workflow.ExportOperationalPackage(new(f.Output, Days: [WorkspaceOperationalPackageFixture.FirstDay]), f.Workspace.Revision);
         Assert.Equal(11, result.Outputs.Count);
         Assert.Equal(2, result.Counts.TimedDrawMatchCount);
-        Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.ProjectRecordExcel);
-        Assert.Contains(result.Skips, s => s.Code == "export.empty-project-day" && s.ProjectId == f.Workspace.Projects[1].Id);
+        Assert.DoesNotContain(result.Outputs, o => o.Kind == OperationalMaterialKind.ProjectRecordExcel);
+        var row = Assert.Single(ReadRecord(Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.MergedRecordExcel)));
+        Assert.Equal(f.Workspace.Projects[0].Id.ToString(), row.ProjectId.Text);
     }
 
     [Theory]
@@ -258,7 +310,7 @@ public sealed class WorkspaceOperationalPackageTests
             if (output.Path.EndsWith(".xlsx")) { using var book = new XLWorkbook(output.Path); Assert.NotEmpty(book.Worksheets); }
             if (output.Path.EndsWith(".pdf")) Assert.StartsWith("%PDF-", System.Text.Encoding.ASCII.GetString(File.ReadAllBytes(output.Path).Take(8).ToArray()));
         });
-        var record = Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.ProjectRecordExcel);
+        var record = Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.MergedRecordExcel);
         var parsed = new WorkspaceMatchRecordReader().ReadWorkspaceRecord(File.ReadAllBytes(record.Path));
         Assert.Single(parsed.Rows);
         var durable = new TournamentWorkspaceStore().Read(fixture.Archive);
@@ -266,7 +318,10 @@ public sealed class WorkspaceOperationalPackageTests
         using var manifest = JsonDocument.Parse(File.ReadAllText(Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.Manifest).Path));
         Assert.Equal("Planned", manifest.RootElement.GetProperty("Audit").GetProperty("State").GetString());
         Assert.Equal(8, manifest.RootElement.GetProperty("Files").GetArrayLength());
-        Assert.Empty(Directory.GetDirectories(fixture.Output));
+        var package = Assert.Single(Directory.GetDirectories(fixture.Output));
+        Assert.Equal(Path.Combine(fixture.Output, "9月20日-9月22日多项目合并材料包"), package);
+        Assert.Empty(Directory.GetDirectories(package));
+        Assert.All(result.Outputs, output => Assert.Equal(package, Path.GetDirectoryName(output.Path)));
         fixture.Retain("single-project", before, result);
     }
 }

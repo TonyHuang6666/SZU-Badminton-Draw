@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ClosedXML.Excel;
 using BadmintonDraw.Core.Tournaments;
 using BadmintonDraw.Core.Scheduling;
 using BadmintonDraw.Persistence;
@@ -68,7 +69,19 @@ internal sealed partial class V5AcceptanceScenario(V5AcceptanceEvidence evidence
         Step("package-" + name, () => result = workflow.ExportOperationalPackage(new(evidence.PathFor("materials/" + name), project, days, carry), Revision));
         Require(result!.AuditRecorded && Workspace.AuditEvents.Count(a => a.Id == result.AuditId) == 1, "Package audit is not actually committed exactly once.");
         Require(result.Counts.RequiredOutputCount == result.Outputs.Count && result.Outputs.All(o => File.Exists(o.Path) && new FileInfo(o.Path).Length == o.ByteLength && Hash(o.Path).Equals(o.Sha256, StringComparison.OrdinalIgnoreCase)), "Published package output hash/coverage is incomplete.");
-        evidence.Json("package-" + name + "-record-bindings.json", result.Outputs.Where(o => o.Kind is OperationalMaterialKind.ProjectRecordExcel or OperationalMaterialKind.MergedRecordExcel)
+        var records = result.Outputs.Where(o => o.Kind == OperationalMaterialKind.MergedRecordExcel).ToArray();
+        Require(!result.Outputs.Any(o => o.Kind == OperationalMaterialKind.ProjectRecordExcel) &&
+            records.All(o => o.ProjectId is null && o.RecordDay is not null) &&
+            records.Select(o => o.RecordDay).Distinct().Count() == records.Length &&
+            records.Select(o => o.RecordDay).Order().SequenceEqual(result.Outputs.Where(o => o.Kind == OperationalMaterialKind.DailyScheduleExcel).Select(o => o.RecordDay).Order()),
+            "Each nonempty material day must contain exactly one merged record and no per-project record.");
+        foreach (var record in records)
+        {
+            using var book = new XLWorkbook(record.Path);
+            var rows = V5AcceptanceResults.Rows(book.Worksheet("对阵记录表"));
+            Require(rows.Count > 0 && rows.All(r => result.Scope.ProjectIds.Contains(r.Key.ProjectId)), "Merged record contains a project outside the selected package scope.");
+        }
+        evidence.Json("package-" + name + "-record-bindings.json", records
             .Select(o => V5AcceptanceResults.InspectBindings(o.Path, Workspace)).ToArray());
         evidence.Json("package-" + name + ".json", new { result.SourceRevision, result.AuditId, result.ExportedAt, result.Scope, result.Counts, result.Outputs, result.Skips,
             ActualAudit = Workspace.AuditEvents.Single(a => a.Id == result.AuditId), ManifestAuditSemantics = "planned until archive audit commit" });

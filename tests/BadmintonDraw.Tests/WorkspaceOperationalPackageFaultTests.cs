@@ -70,7 +70,7 @@ public sealed class WorkspaceOperationalPackageFaultTests
         var error = Assert.Throws<OperationalPackageExportException>(() => f.Workflow.ExportOperationalPackage(new(f.Output), f.Workspace.Revision));
         Assert.Equal(code, error.Error.Code); Assert.False(error.AuditRecorded); Assert.Empty(error.Outputs);
         Assert.Equal(0, files.PublishCalls); Assert.Equal(hash, Hash(f.Archive));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(f.Output));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(PackageDirectory(f)));
         Assert.True(File.Exists(error.Error.CandidatePath));
         Assert.Null(error.AttemptedOutputPath); Assert.Null(error.RetainedStagingDirectory);
     }
@@ -88,7 +88,7 @@ public sealed class WorkspaceOperationalPackageFaultTests
         Assert.Equal(published.Sha256, Hash(published.Path)); Assert.Equal(hash, Hash(f.Archive));
         Assert.NotNull(error.AttemptedOutputPath); Assert.NotEqual(published.Path, error.AttemptedOutputPath);
         Assert.Equal(throwAfterMove, File.Exists(error.AttemptedOutputPath));
-        Assert.Equal(throwAfterMove ? 2 : 1, Directory.GetFiles(f.Output).Length);
+        Assert.Equal(throwAfterMove ? 2 : 1, Directory.GetFiles(PackageDirectory(f)).Length);
         Assert.DoesNotContain(new TournamentWorkspaceStore().Read(f.Archive).AuditEvents, a => a.Id == error.AuditId);
         Assert.Null(error.RetainedStagingDirectory);
     }
@@ -118,7 +118,7 @@ public sealed class WorkspaceOperationalPackageFaultTests
     {
         var files = new ExportFaultFiles(); using var f = new WorkspaceOperationalPackageFixture(files: files);
         var victim = Path.Combine(f.DirectoryPath, "user-data.txt"); File.WriteAllText(victim, "keep this user data");
-        var target = Path.Combine(f.Output, $"{f.Workspace.Id:D}_Manifest.json");
+        var target = Path.Combine(PackageDirectory(f), "材料包校验清单.json");
         files.AfterAllChecks = () =>
         {
             if (race == "directory") Directory.CreateDirectory(target);
@@ -237,8 +237,11 @@ public sealed class WorkspaceOperationalPackageFaultTests
         var error = Assert.Throws<OperationalPackageExportException>(() => f.Workflow.ExportOperationalPackage(
             new(f.Output, Days: [FirstDay.AddDays(1)], PendingCarryoverDay: FirstDay.AddDays(1)), f.Workspace.Revision));
         Assert.Equal("export.layout", error.Error.Code); Assert.Empty(error.Outputs); Assert.Equal(hash, Hash(f.Archive));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(f.Output));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(f.Output, "9月21日多项目合并材料包")));
     }
+
+    private static string PackageDirectory(WorkspaceOperationalPackageFixture f) =>
+        Path.Combine(f.Output, "9月20日-9月22日多项目合并材料包");
 
     private sealed class ExportFaultFiles : OperationalPackageFileOperations
     {
@@ -260,7 +263,7 @@ public sealed class WorkspaceOperationalPackageFaultTests
                 if (ReadFault == "missing") File.Delete(path);
                 if (ReadFault == "changed") File.AppendAllText(path, "changed staged bytes");
                 if (ReadFault == "manifest-empty")
-                    File.WriteAllBytes(Directory.GetFiles(Path.GetDirectoryName(path)!, "*_Manifest.json").Single(), []);
+                    File.WriteAllBytes(Path.Combine(Path.GetDirectoryName(path)!, "材料包校验清单.json"), []);
             }
             if (reads == 17) AfterAllChecks?.Invoke();
             return base.OpenRead(path);

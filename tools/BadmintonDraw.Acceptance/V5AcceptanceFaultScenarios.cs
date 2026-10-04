@@ -41,7 +41,7 @@ internal sealed class V5AcceptanceFaultScenarios(V5AcceptanceEvidence evidence)
         w.ImportRoster(id, roster, w.CurrentSession.Workspace.Revision); w.PreviewDraw(id, definition.Settings, w.CurrentSession.Workspace.Revision); w.ConfirmDraw(id, w.CurrentSession.Workspace.Revision);
         w.GenerateSchedule(V5AcceptanceRosterFactory.SmallResources(), V5AcceptanceRosterFactory.Policy(w.CurrentSession.Workspace, false), w.CurrentSession.Workspace.Revision);
         var package = w.ExportOperationalPackage(new(evidence.PathFor("materials/fault-baseline")), w.CurrentSession.Workspace.Revision);
-        pendingFile = package.Outputs.Single(o => o.Kind == OperationalMaterialKind.ProjectRecordExcel).Path;
+        pendingFile = package.Outputs.Single(o => o.Kind == OperationalMaterialKind.MergedRecordExcel).Path;
         var expected = V5AcceptanceResults.Fold(w.CurrentSession.Workspace, w.CurrentSession.Workspace.Resources!.Days[0].Date);
         resultFile = V5AcceptanceResults.CopyFill(pendingFile, evidence.PathFor("imports/fault-complete.xlsx"), w.CurrentSession.Workspace, expected);
         evidence.Json("fault-baseline.json", new { Sha256 = Hash(checkpoint), package.AuditId, package.SourceRevision, package.Outputs });

@@ -31,14 +31,15 @@ public sealed class WorkspaceExportConflictTests
     public void Operational_preview_uses_actual_project_day_scope_and_includes_package_metadata_without_writes()
     {
         using var f = new WorkspaceOperationalPackageFixture(projects: 2);
-        Directory.CreateDirectory(f.Output);
         var project = f.Workspace.Projects[1].Id;
-        var paths = new[] { OperationalPath(f, project, "TimedDrawA4Pdf.pdf"),
-            OperationalPath(f, project, "ProjectRecordExcel_2026-09-20.xlsx"),
-            OperationalPath(f, f.Workspace.Id, "Manifest.json") };
+        var package = Path.Combine(f.Output, "9月20日同名项目（2）比赛材料包");
+        Directory.CreateDirectory(package);
+        var paths = new[] { Path.Combine(package, "同名项目（2）带时间对阵图.pdf"),
+            Path.Combine(package, "9月20日合并赛程记录表.xlsx"),
+            Path.Combine(package, "材料包校验清单.json") };
         foreach (var path in paths) File.WriteAllText(path, "existing");
-        File.WriteAllText(OperationalPath(f, f.Workspace.Projects[0].Id, "TimedDrawExcel.xlsx"), "other project");
-        File.WriteAllText(OperationalPath(f, project, "ProjectRecordExcel_2026-09-21.xlsx"), "other day");
+        File.WriteAllText(Path.Combine(package, "同名项目带时间对阵图.xlsx"), "other project");
+        File.WriteAllText(Path.Combine(package, "9月21日合并赛程记录表.xlsx"), "other day");
         var before = Snapshot(f); var session = f.Workflow.CurrentSession; var notifications = 0;
         f.Workflow.SessionChanged += (_, _) => notifications++;
 
@@ -64,11 +65,12 @@ public sealed class WorkspaceExportConflictTests
     [InlineData(true)]
     public void Confirmed_paths_allow_only_the_previewed_overwrite_and_normalize_path_segments(bool operational)
     {
-        using var f = new WorkspaceOperationalPackageFixture(); Directory.CreateDirectory(f.Output);
-        var target = Target(f, operational); File.WriteAllText(target, "existing user output");
+        using var f = new WorkspaceOperationalPackageFixture();
+        var target = Target(f, operational); Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        File.WriteAllText(target, "existing user output");
         var conflicts = Preview(f, operational);
         Assert.Equal(new[] { target }, conflicts);
-        var approved = new[] { Path.Combine(f.Output, ".", Path.GetFileName(target)) };
+        var approved = new[] { Path.Combine(Path.GetDirectoryName(target)!, ".", Path.GetFileName(target)) };
 
         Export(f, operational, approved);
 
@@ -82,13 +84,14 @@ public sealed class WorkspaceExportConflictTests
     public void Newly_existing_unapproved_target_after_preview_prevents_all_publication_even_with_legacy_bool(bool operational)
     {
         using var f = new WorkspaceOperationalPackageFixture();
-        var approved = Preview(f, operational); Directory.CreateDirectory(f.Output);
-        var target = Target(f, operational); File.WriteAllText(target, "new user output"); var hash = WorkspaceOperationalPackageFixture.Hash(f.Archive);
+        var approved = Preview(f, operational);
+        var target = Target(f, operational); Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        File.WriteAllText(target, "new user output"); var hash = WorkspaceOperationalPackageFixture.Hash(f.Archive);
 
         Assert.Equal("export.exists", ExportError(() => Export(f, operational, approved, overwrite: true), operational));
 
         Assert.Equal("new user output", File.ReadAllText(target)); Assert.Equal(hash, WorkspaceOperationalPackageFixture.Hash(f.Archive));
-        Assert.Single(Directory.GetFiles(f.Output)); Assert.Empty(Directory.GetDirectories(f.Output));
+        Assert.Single(Directory.GetFiles(Path.GetDirectoryName(target)!)); Assert.Empty(Directory.GetDirectories(Path.GetDirectoryName(target)!));
     }
 
     [Theory]
@@ -100,8 +103,8 @@ public sealed class WorkspaceExportConflictTests
     [InlineData(true, "source")]
     public void Preview_and_confirmed_export_reject_protected_targets(bool operational, string protection)
     {
-        using var f = new WorkspaceOperationalPackageFixture(); Directory.CreateDirectory(f.Output);
-        var target = Target(f, operational);
+        using var f = new WorkspaceOperationalPackageFixture();
+        var target = Target(f, operational); Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         if (protection == "symlink") File.CreateSymbolicLink(target, f.Archive);
         else if (protection == "directory") Directory.CreateDirectory(target);
         else
@@ -185,7 +188,7 @@ public sealed class WorkspaceExportConflictTests
             Assert.Equal("export.exists", error.Error.Code); Assert.Single(error.Outputs); Assert.Equal(1, drawFiles.PublishCalls);
         }
         Assert.Equal("late user output", File.ReadAllText(target)); Assert.Equal(hash, WorkspaceOperationalPackageFixture.Hash(f.Archive));
-        Assert.Empty(Directory.GetDirectories(f.Output));
+        Assert.Empty(Directory.GetDirectories(Path.GetDirectoryName(target)!));
     }
 
     [Theory]
@@ -223,9 +226,8 @@ public sealed class WorkspaceExportConflictTests
 
     private static string DrawPath(WorkspaceOperationalPackageFixture f, int project, string extension) =>
         Path.Combine(f.Output, $"同名项目_{f.Workspace.Projects[project].Id:N}_已确认抽签结果{extension}");
-    private static string OperationalPath(WorkspaceOperationalPackageFixture f, Guid id, string suffix) => Path.Combine(f.Output, $"{id:D}_{suffix}");
     private static string Target(WorkspaceOperationalPackageFixture f, bool operational) => operational
-        ? OperationalPath(f, f.Workspace.Id, "Manifest.json") : DrawPath(f, 0, ".xlsx");
+        ? Path.Combine(f.Output, "9月20日-9月22日多项目合并材料包", "材料包校验清单.json") : DrawPath(f, 0, ".xlsx");
     private static IReadOnlyList<string> Preview(WorkspaceOperationalPackageFixture f, bool operational, long? revision = null) => operational
         ? f.Workflow.PreviewOperationalExportConflicts(new(f.Output), revision ?? f.Workspace.Revision)
         : f.Workflow.PreviewDrawExportConflicts(null, new(f.Output, WorkflowExportFormat.Excel), revision ?? f.Workspace.Revision);

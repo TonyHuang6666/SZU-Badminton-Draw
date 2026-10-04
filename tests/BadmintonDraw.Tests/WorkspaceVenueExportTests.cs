@@ -28,7 +28,7 @@ public sealed class WorkspaceVenueExportTests : IDisposable
     }
 
     [Fact]
-    public void DailyScheduleKeepsAllThirtyTwoEastHallCourtsInEightNaturallyOrderedGridSheets()
+    public void DailyScheduleKeepsAllThirtyTwoEastHallCourtsInOneNaturallyOrderedOverview()
     {
         // Dropping unused courts, sorting lexically, or shortening qualified labels loses printed resources.
         string[] courts = ["粤海东馆 · A1", "粤海东馆 · A2", "粤海东馆 · A3", "粤海东馆 · A4",
@@ -41,8 +41,8 @@ public sealed class WorkspaceVenueExportTests : IDisposable
             "粤海东馆 · D5", "粤海东馆 · D6", "粤海东馆 · D7", "粤海东馆 · D8"];
         using var book = Export(courts);
         var grids = GridSheets(book).ToArray();
-        Assert.Equal(8, grids.Length);
-        Assert.All(grids, sheet => Assert.Equal(5, sheet.LastColumnUsed()!.ColumnNumber()));
+        var grid = Assert.Single(grids);
+        Assert.Equal(33, grid.LastColumnUsed()!.ColumnNumber());
         Assert.Equal(courts, GridHeaders(book));
         Assert.Contains("粤海东馆 · A1", DetailCourts(book));
         Assert.Equal("粤海校区·运动广场东馆羽毛球场", VenueExplanation(book, "粤海东馆"));
@@ -58,10 +58,10 @@ public sealed class WorkspaceVenueExportTests : IDisposable
         Assert.Contains("丽湖至快 · 1号场", courts);
         Assert.Contains("丽湖至畅 · 1号场", courts);
         var grid = book.Worksheet("时间场地网格");
-        Assert.True(grid.Cell(4, 2).Style.Alignment.WrapText);
-        Assert.True(grid.Row(4).Height > 30, "Qualified venue names need a wrapped header tall enough to remain visible.");
-        Assert.False(grid.Cell(5, 2).IsEmpty());
-        Assert.False(grid.Cell(5, 3).IsEmpty());
+        Assert.True(grid.Cell(2, 2).Style.Alignment.WrapText);
+        Assert.True(grid.Row(2).Height > 30, "Qualified venue names need a wrapped header tall enough to remain visible.");
+        Assert.False(grid.Cell(3, 2).IsEmpty());
+        Assert.False(grid.Cell(3, 3).IsEmpty());
         Assert.Equal("丽湖校区·至快体育馆", VenueExplanation(book, "丽湖至快"));
         Assert.Equal("丽湖校区·至畅体育馆", VenueExplanation(book, "丽湖至畅"));
         Assert.DoesNotContain("粤海校区·运动广场东馆羽毛球场", SettingsText(book));
@@ -88,7 +88,7 @@ public sealed class WorkspaceVenueExportTests : IDisposable
         book.Worksheets.Where(s => s.Name.StartsWith("时间场地网格", StringComparison.Ordinal));
 
     private static string[] GridHeaders(XLWorkbook book) => GridSheets(book)
-        .SelectMany(s => s.Row(4).CellsUsed().Skip(1).Select(c => c.GetString())).ToArray();
+        .SelectMany(s => s.Row(2).CellsUsed().Skip(1).Select(c => c.GetString())).ToArray();
 
     private static string[] DetailCourts(XLWorkbook book) => book.Worksheet("赛程明细")
         .RowsUsed().Where(r => r.RowNumber() >= 5).Select(r => r.Cell(5).GetString()).ToArray();

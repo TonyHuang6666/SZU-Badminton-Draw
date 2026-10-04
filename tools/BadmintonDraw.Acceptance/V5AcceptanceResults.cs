@@ -38,8 +38,9 @@ internal static class V5AcceptanceResults
     }
     internal static Dictionary<string, int> Headers(IXLWorksheet sheet)
     {
-        var headers = Enumerable.Range(1, 22).ToDictionary(c => sheet.Cell(4, c).GetString(), c => c, StringComparer.Ordinal);
-        foreach (var (header, column) in new[] { ("比分（A-B）", 9), ("时长（分钟）", 10), ("胜者（A/B）", 12), ("备注", 13),
+        var headers = Enumerable.Range(1, 22).Where(c => !sheet.Cell(4, c).IsEmpty())
+            .ToDictionary(c => sheet.Cell(4, c).GetString(), c => c, StringComparer.Ordinal);
+        foreach (var (header, column) in new[] { ("比分", 9), ("用时", 10), ("胜方", 12), ("备注", 13),
                      ("MatchId", 14), ("WorkspaceId", 17), ("ProjectId", 18), ("GraphRevision", 19), ("DrawConfirmedAt", 20), ("结果类型", 21), ("实际比赛日期", 22) })
             Require(headers.TryGetValue(header, out var actual) && actual == column, "Record schema/header mismatch: " + header);
         Require(Enumerable.Range(14, 7).All(c => sheet.Column(c).IsHidden), "Record N:T provenance must be hidden.");
@@ -105,11 +106,22 @@ internal static class V5AcceptanceResults
                     var formula = option.FormulaA1.Replace("$", "", StringComparison.Ordinal);
                     var withoutLiterals = Regex.Replace(formula, "\"(?:\"\"|[^\"])*\"", "");
                     var references = Regex.Matches(withoutLiterals, @"\b[A-Z]+[1-9][0-9]*\b").Select(m => m.Value).ToHashSet();
-                    Require(option.HasFormula && references.SetEquals(new[] { "L" + prerequisiteRow, "O" + prerequisiteRow, "P" + prerequisiteRow }) &&
-                        display.FormulaA1.Replace("$", "", StringComparison.Ordinal) == (optionColumn == 15 ? "O" : "P") + row, "Formula references cross-qualified/incorrect prerequisite or display cell.");
+                    Require(option.HasFormula && references.SetEquals(new[] { "L" + prerequisiteRow, "O" + prerequisiteRow, "P" + prerequisiteRow }),
+                        "Option formula references cross-qualified/incorrect prerequisite.");
                     var selectedA = (input is EntrantSource.WinnerOf ? "O" : "P") + prerequisiteRow;
                     var selectedB = (input is EntrantSource.WinnerOf ? "P" : "O") + prerequisiteRow;
                     Require(formula.Contains("," + selectedA + ",IF(", StringComparison.Ordinal) && formula.Contains("," + selectedB + ",\"\"))", StringComparison.Ordinal), "Winner/loser formula branches are reversed or incomplete.");
+                    var displayFormula = display.FormulaA1.Replace("$", "", StringComparison.Ordinal);
+                    var displayWithoutLiterals = Regex.Replace(displayFormula, "\"(?:\"\"|[^\"])*\"", "");
+                    var displayReferences = Regex.Matches(displayWithoutLiterals, @"\b[A-Z]+[1-9][0-9]*\b").Select(m => m.Value).ToHashSet();
+                    Require(display.HasFormula && displayReferences.SetEquals(new[] { "L" + prerequisiteRow, "O" + prerequisiteRow,
+                        "P" + prerequisiteRow, "F" + prerequisiteRow, "H" + prerequisiteRow }),
+                        "Display formula must select typed player lines from the qualified prerequisite.");
+                    var displayedA = (input is EntrantSource.WinnerOf ? "F" : "H") + prerequisiteRow;
+                    var displayedB = (input is EntrantSource.WinnerOf ? "H" : "F") + prerequisiteRow;
+                    Require(displayFormula.Contains("," + displayedA + ",IF(", StringComparison.Ordinal) &&
+                        displayFormula.Contains("," + displayedB + ",\"\"))", StringComparison.Ordinal),
+                        "Display winner/loser branches are reversed or incomplete.");
                 }
                 else Require(!option.HasFormula && !display.HasFormula && sheet.Cell(row, 13).GetString().Contains("前置比赛未在本表", StringComparison.Ordinal), "Out-of-sheet unresolved dependency is not explicitly unavailable.");
                 evidence.Add(new { key, Row = row, Side = letter, Source = input, PrerequisiteId = dependency == Guid.Empty ? (Guid?)null : dependency,

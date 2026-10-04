@@ -33,13 +33,13 @@ public sealed class WorkspaceMatchRecordWriterTests : IDisposable
             Assert.Equal(rows[i].RecordDay.ToString("yyyy-MM-dd"), sheet.Cell(row, 2).GetString());
             Assert.All(new[] { 9, 10, 12, 22 }, column => Assert.True(sheet.Cell(row, column).IsEmpty()));
         }
-        Assert.Contains("记录", sheet.Cell("B4").GetString());
+        Assert.Equal("日期", sheet.Cell("B4").GetString());
         Assert.Contains("实际", sheet.Cell("V4").GetString());
         Assert.All(Enumerable.Range(14, 7), column => Assert.True(sheet.Column(column).IsHidden));
         Assert.False(sheet.Column(21).IsHidden); Assert.False(sheet.Column(22).IsHidden);
         var print = sheet.PageSetup.PrintAreas.Single().RangeAddress;
         Assert.Equal(1, print.FirstAddress.RowNumber); Assert.Equal(1, print.FirstAddress.ColumnNumber);
-        Assert.Equal(13, print.LastAddress.RowNumber); Assert.Equal(22, print.LastAddress.ColumnNumber);
+        Assert.Equal(13, print.LastAddress.RowNumber); Assert.Equal(13, print.LastAddress.ColumnNumber);
         var preciseRow = 6 + Array.FindIndex(rows, r => r.Key.MatchId == workspace.Projects[0].MatchGraph!.Matches[0].Id);
         Assert.Contains("09:00:00.0001234", sheet.Cell(preciseRow, 3).GetString());
         Assert.Equal(before, JsonSerializer.Serialize(workspace));

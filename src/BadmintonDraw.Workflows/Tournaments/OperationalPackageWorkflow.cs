@@ -29,7 +29,7 @@ public sealed partial class OperationalPackageWorkflow(OperationalPackageFileOpe
             foreach (var material in plan.Materials.Where(m => m.Kind is not OperationalMaterialKind.Description and not OperationalMaterialKind.Manifest))
                 Render(Path.Combine(stage, material.FileName), material, plan, stage, request.DrawLayout ?? new(), auditId, exportedAt);
             var description = plan.Materials.Single(m => m.Kind == OperationalMaterialKind.Description);
-            File.WriteAllText(Path.Combine(stage, description.FileName), Description(source, auditId, exportedAt, progress));
+            File.WriteAllText(Path.Combine(stage, description.FileName), Description(source, plan, auditId, exportedAt, progress));
             var verified = plan.Materials.Where(m => m.Kind != OperationalMaterialKind.Manifest)
                 .ToDictionary(m => m.FileName, m => Inspect(stage, m, plan.OutputDirectory));
             var manifest = plan.Materials.Single(m => m.Kind == OperationalMaterialKind.Manifest);
@@ -47,6 +47,7 @@ public sealed partial class OperationalPackageWorkflow(OperationalPackageFileOpe
             {
                 var output = verified[material.FileName];
                 progress.AttemptedOutputPath = output.Path;
+                ValidatePackageDirectory(plan.OutputDirectory);
                 WorkspaceExportPublication.Publish(Path.Combine(stage, material.FileName), output.Path, source,
                     workspacePath, overwrite(output.Path), files.Publish);
                 progress.Outputs.Add(output);
@@ -78,6 +79,8 @@ public sealed partial class OperationalPackageWorkflow(OperationalPackageFileOpe
                 new WorkspaceMatchRecordWriter().Write(path, plan.Context, material.Rows); break;
             case OperationalMaterialKind.DailyScheduleExcel:
                 new ScheduleExcelWriter().WriteDailySchedule(path, plan.Context, material.Rows); break;
+            case OperationalMaterialKind.DailySchedulePdf:
+                new ScheduleExcelWriter().WriteDailySchedulePdf(path, plan.Context, material.Rows); break;
             case OperationalMaterialKind.IndividualScorePdf:
                 new ScoreSheetExcelWriter().WriteIndividualMatchScorePdf(path, plan.Context, material.Rows); break;
             case OperationalMaterialKind.TeamScoreExcel:

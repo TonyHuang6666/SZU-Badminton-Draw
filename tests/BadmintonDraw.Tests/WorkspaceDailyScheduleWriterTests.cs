@@ -55,14 +55,14 @@ public sealed class WorkspaceDailyScheduleWriterTests : IDisposable
         var path = PathFor("durations"); new ScheduleExcelWriter().WriteDailySchedule(path, new(workspace),
             [new(new(a.ProjectId, a.Id), new(2026, 9, 14)), new(new(b.ProjectId, b.Id), new(2026, 9, 14))]);
         using var book = new XLWorkbook(path); var grid = book.Worksheet("时间场地网格");
-        Assert.Equal("B2", grid.Cell("B4").GetString()); Assert.Equal("B1", grid.Cell("C4").GetString());
+        Assert.Equal("B2", grid.Cell("B2").GetString()); Assert.Equal("B1", grid.Cell("C2").GetString());
         var shortRow = grid.Column(1).CellsUsed().Single(c => c.GetString() == "13:00:12-13:25:12").Address.RowNumber;
         var longRow = grid.Column(1).CellsUsed().Single(c => c.GetString() == "13:00:12-13:35:12").Address.RowNumber;
         Assert.NotEqual(shortRow, longRow); Assert.Contains(workspace.Projects[0].DisplayName, grid.Cell(shortRow, 3).GetString());
         Assert.Contains(workspace.Projects[1].DisplayName, grid.Cell(longRow, 2).GetString());
-        Assert.Contains("2026-09-13", grid.Cell(shortRow, 3).GetString());
+        Assert.Contains("9/13", grid.Cell(shortRow, 3).GetString());
         Assert.Contains("09:00:00.0001234", grid.Cell(shortRow, 3).GetString());
-        Assert.Contains("胜者", grid.Cell(shortRow, 3).GetString()); Assert.Contains("负者", grid.Cell(shortRow, 3).GetString());
+        Assert.Contains("B1胜 vs 9/13 11:00-11:30 B1负", grid.Cell(shortRow, 3).GetString());
     }
 
     [Theory]
@@ -143,7 +143,7 @@ public sealed class WorkspaceDailyScheduleWriterTests : IDisposable
     }
 
     [Fact]
-    public void SixteenCourtsPrintInFourLegibleGroupsWithoutLosingOrDuplicatingMatches()
+    public void SixteenCourtsStayTogetherInTheLegacyOverviewWithoutLosingOrDuplicatingMatches()
     {
         var workspace = WorkspaceRecordExportTestData.Create();
         var courts = new[] { "B1", "B2" }.Concat(Enumerable.Range(1, 14).Select(i => "C" + i)).ToArray();
@@ -158,27 +158,59 @@ public sealed class WorkspaceDailyScheduleWriterTests : IDisposable
         new ScheduleExcelWriter().WriteDailySchedule(path, new(workspace), selected.Select(k => new WorkspaceRecordExportRow(k, new(2026, 9, 13))).ToArray());
         using var book = new XLWorkbook(path);
         var grids = book.Worksheets.Where(s => s.Name.StartsWith("时间场地网格", StringComparison.Ordinal)).ToArray();
-        Assert.Equal(4, grids.Length);
-        Assert.Equal(courts, grids.SelectMany(s => s.Row(4).CellsUsed().Skip(1).Select(c => c.GetString())));
-        for (var i = 0; i < grids.Length; i++)
+        var grid = Assert.Single(grids);
+        Assert.Equal("2026-09-13 赛程", grid.Cell("A1").GetString());
+        Assert.Equal("时间", grid.Cell("A2").GetString());
+        Assert.Equal(courts, grid.Row(2).CellsUsed().Skip(1).Select(c => c.GetString()));
+        Assert.Equal(17, grid.LastColumnUsed()!.ColumnNumber());
+        Assert.Equal(XLColor.FromHtml("#1F4E78"), grid.Cell("A1").Style.Fill.BackgroundColor);
+        Assert.Equal(XLColor.FromHtml("#D9EAF7"), grid.Cell("B2").Style.Fill.BackgroundColor);
+        Assert.Equal(XLColor.Black, grid.Cell("B2").Style.Font.FontColor);
+        Assert.Equal(18, grid.Column(2).Width);
+        Assert.Equal(14, grid.Column(1).Width);
+        Assert.Single(grid.PageSetup.PrintAreas);
+        Assert.Equal(1, grid.PageSetup.PagesWide); Assert.Equal(0, grid.PageSetup.PagesTall);
+        Assert.Equal(XLPaperSize.A4Paper, grid.PageSetup.PaperSize);
+        var cards = grid.CellsUsed().Where(c => c.Address.RowNumber >= 3 && c.Address.ColumnNumber >= 2 && !c.IsEmpty()).ToArray();
+        Assert.Equal(4, cards.Length);
+        for (var i = 0; i < selected.Length; i++)
         {
-            Assert.Equal(5, grids[i].LastColumnUsed()!.ColumnNumber());
-            Assert.Contains($"第 {i + 1}/4 组场地", grids[i].Cell("A1").GetString());
-            Assert.Single(grids[i].PageSetup.PrintAreas);
-            Assert.Equal(1, grids[i].PageSetup.PagesWide); Assert.Equal(0, grids[i].PageSetup.PagesTall);
-            Assert.Equal(XLPaperSize.A4Paper, grids[i].PageSetup.PaperSize);
-            var cards = grids[i].CellsUsed().Where(c => c.Address.RowNumber >= 5 && c.Address.ColumnNumber >= 2 && !c.IsEmpty()).ToArray();
-            var card = Assert.Single(cards);
+            var card = Assert.Single(cards, c => c.Address.ColumnNumber == i * 4 + 2);
             var expected = workspace.Projects.SelectMany(p => p.MatchGraph!.Matches).Single(n => n.Id == selected[i].MatchId);
             Assert.Contains(expected.DisplayName, card.GetString());
-            Assert.Equal(courts[i * 4], grids[i].Cell(4, card.Address.ColumnNumber).GetString());
+            Assert.Equal(courts[i * 4], grid.Cell(2, card.Address.ColumnNumber).GetString());
+            Assert.Equal(XLColor.FromHtml("#FCE4D6"), card.Style.Fill.BackgroundColor);
+            Assert.True(card.Style.Alignment.WrapText);
+            Assert.True(grid.Row(card.Address.RowNumber).Height >= 70);
         }
-        // A section with no selected placements must describe only its own courts, not the whole day.
-        path = PathFor("empty-court-groups");
+        // Empty configured courts remain visible in a sparse overview.
+        path = PathFor("sparse-overview");
         new ScheduleExcelWriter().WriteDailySchedule(path, new(workspace), [new(selected[0], new(2026, 9, 13))]);
         using var sparse = new XLWorkbook(path);
-        Assert.Contains("本组场地无已安排比赛", Text(sparse.Worksheet("时间场地网格 2")));
-        Assert.DoesNotContain("无本日已安排场次", Text(sparse.Worksheet("时间场地网格 2")));
+        Assert.Equal(courts, sparse.Worksheet("时间场地网格").Row(2).CellsUsed().Skip(1).Select(c => c.GetString()));
+        Assert.DoesNotContain("无本日已安排场次", Text(sparse.Worksheet("时间场地网格")));
+    }
+
+    [Fact]
+    public void DailySchedulePdfUsesTheTypedDailySelectionAndProducesTheLegacyLandscapeOverview()
+    {
+        var workspace = WorkspaceRecordExportTestData.Create();
+        var before = JsonSerializer.Serialize(workspace);
+        var context = new WorkspaceScheduleExportContext(workspace);
+        var rows = context.MatchKeys.Where(k => workspace.Schedule!.Placements[k.MatchId].DayLabel == "2026-09-13")
+            .Select(k => new WorkspaceRecordExportRow(k, new(2026, 9, 13))).ToArray();
+        var path = Path.Combine(directory, "schedule.pdf");
+        new ScheduleExcelWriter().WriteDailySchedulePdf(path, context, rows);
+
+        var bytes = File.ReadAllBytes(path);
+        var pdf = System.Text.Encoding.Latin1.GetString(bytes);
+        Assert.StartsWith("%PDF", pdf);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(pdf, @"/Type\s*/Page(?!s)"));
+        Assert.Contains("/MediaBox [0 0 842 595]", pdf);
+        Assert.Contains("/ToUnicode", pdf);
+        Assert.DoesNotContain("/Subtype /Image", pdf);
+        Assert.Equal(before, JsonSerializer.Serialize(workspace));
+        Assert.Equal(new[] { path }, Directory.GetFiles(directory));
     }
 
     [Fact]

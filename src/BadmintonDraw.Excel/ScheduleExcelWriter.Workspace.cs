@@ -74,25 +74,16 @@ public sealed partial class ScheduleExcelWriter
     {
         var settings = context.Workspace.Schedule!.Resources.Days.Single(d => d.Date == day);
         var currentDay = rows.Where(r => context.Placements[r.Key].DayLabel == day.ToString("yyyy-MM-dd")).ToArray();
-        // Four courts plus the time column remain readable on A4; keep unused configured courts as well.
-        var sections = settings.Courts.Chunk(4).ToArray();
-        for (var i = 0; i < sections.Length; i++)
-            WriteWorkspaceGridSection(book, context, currentDay, day, sections[i], i, sections.Length);
-    }
-
-    private static void WriteWorkspaceGridSection(XLWorkbook book, WorkspaceScheduleExportContext context,
-        IReadOnlyList<WorkspaceRecordExportRow> currentDay, DateOnly day, string[] courts, int section, int sectionCount)
-    {
-        var sheet = book.Worksheets.Add(section == 0 ? "时间场地网格" : $"时间场地网格 {section + 1}");
+        var courts = settings.Courts.ToArray();
+        var sheet = book.Worksheets.Add("时间场地网格");
         var lastColumn = courts.Length + 1;
-        var inGrid = currentDay.Where(r => courts.Contains(context.Placements[r.Key].Court, StringComparer.OrdinalIgnoreCase)).ToArray();
-        sheet.Range(1, 1, 1, lastColumn).Merge().Value = $"{day:yyyy-MM-dd} 时间场地网格" +
-            (sectionCount > 1 ? $" · 第 {section + 1}/{sectionCount} 组场地" : "");
-        sheet.Range(2, 1, 2, lastColumn).Merge().Value =
-            "仅显示本日现有编排；异日记录见赛程明细，不代表补打已排入本日场地。";
-        WriteWorkspaceHeaders(sheet, new[] { "时间" }.Concat(courts).ToArray());
-        var currentRow = 5;
-        foreach (var group in inGrid.GroupBy(r => (context.Placements[r.Key].StartTime, context.Placements[r.Key].EndTime))
+        // Keep the mature whole-day overview, including idle courts and the legacy PDF section heading.
+        sheet.Range(1, 1, 1, lastColumn).Merge().Value = $"{day:yyyy-MM-dd} 赛程";
+        sheet.Cell(2, 1).Value = "时间";
+        for (var c = 0; c < courts.Length; c++) sheet.Cell(2, c + 2).Value = courts[c];
+        var phaseCells = new List<(IXLCell Cell, string Phase)>();
+        var currentRow = 3;
+        foreach (var group in currentDay.GroupBy(r => (context.Placements[r.Key].StartTime, context.Placements[r.Key].EndTime))
                      .OrderBy(g => g.Key.StartTime).ThenBy(g => g.Key.EndTime))
         {
             sheet.Cell(currentRow, 1).Value = WorkspaceTimeRange(group.Key.StartTime, group.Key.EndTime);
@@ -103,37 +94,65 @@ public sealed partial class ScheduleExcelWriter
                 var index = Array.FindIndex(courts, c => string.Equals(c, match.Court, StringComparison.OrdinalIgnoreCase));
                 if (index < 0 || !occupied.Add(index))
                     throw new WorkspaceValidationException("export.grid-overlap", "时间场地网格包含未知场地或重复位置，无法无损导出。");
-                var text = $"{WorkspaceProjectLabel(context, key.ProjectId)} · {match.MatchName}\n{match.SideA} vs {match.SideB}";
-                var notes = WorkspacePrerequisiteNotes(context, key).ToList();
+                var node = context.Nodes[key];
+                var sideA = WorkspaceGridSide(context, key, node.SideA, day);
+                var sideB = WorkspaceGridSide(context, key, node.SideB, day);
+                var text = $"{WorkspaceProjectLabel(context, key.ProjectId)} · {match.MatchName}\n{sideA} vs {sideB}";
+                var notes = new List<string>();
                 if (!string.IsNullOrWhiteSpace(match.Note)) notes.Add(match.Note);
                 if (context.Workspace.Results.ContainsKey(key)) notes.Add("已录入赛果");
                 if (notes.Count > 0) text += "\n" + string.Join("\n", notes);
-                sheet.Cell(currentRow, index + 2).Value = text;
+                var cell = sheet.Cell(currentRow, index + 2);
+                cell.Value = text;
+                phaseCells.Add((cell, node.Phase));
                 maxLines = Math.Max(maxLines, EstimateWrappedLineCount(text, GridEstimatedCharsPerLine));
             }
             sheet.Row(currentRow).Height = CalculateGridBodyRowHeight(maxLines);
             currentRow++;
         }
-        if (inGrid.Length == 0)
+        if (currentDay.Length == 0)
         {
-            sheet.Range(currentRow, 1, currentRow, lastColumn).Merge().Value = currentDay.Count == 0
-                ? "无本日已安排场次；异日记录仅列入明细。" : "本组场地无已安排比赛；其他场地见其余网格。";
+            sheet.Range(currentRow, 1, currentRow, lastColumn).Merge().Value = "无本日已安排场次；异日记录仅列入明细。";
             sheet.Row(currentRow).Height = 32;
             currentRow++;
         }
-        StyleWorkspaceTable(sheet, currentRow - 1, lastColumn);
-        foreach (var group in inGrid.GroupBy(r => (context.Placements[r.Key].StartTime, context.Placements[r.Key].EndTime))
-                     .OrderBy(g => g.Key.StartTime).ThenBy(g => g.Key.EndTime).Select((g, i) => (Rows: g, Row: i + 5)))
-        foreach (var record in group.Rows)
+        ApplySheetTitleStyle(sheet, lastColumn);
+        ApplyTableStyle(sheet.Range(2, 1, currentRow - 1, lastColumn));
+        sheet.Range(2, 1, 2, lastColumn).Style.Fill.BackgroundColor = XLColor.FromHtml("#D9EAF7");
+        sheet.Range(2, 1, 2, lastColumn).Style.Font.FontColor = XLColor.Black;
+        sheet.Range(2, 1, 2, lastColumn).Style.Font.Bold = true;
+        foreach (var (cell, phase) in phaseCells) ApplyGridPhaseStyle(cell, phase);
+        if (rows.Count != currentDay.Length)
         {
-            var index = Array.FindIndex(courts, c => string.Equals(c, context.Placements[record.Key].Court, StringComparison.OrdinalIgnoreCase));
-            ApplyGridPhaseStyle(sheet.Cell(group.Row, index + 2), context.Nodes[record.Key].Phase);
+            sheet.Range(currentRow, 1, currentRow, lastColumn).Merge().Value =
+                "仅显示本日现有编排；异日记录见赛程明细，不代表补打已排入本日场地。";
+            sheet.Range(currentRow, 1, currentRow, lastColumn).Style.Alignment.WrapText = true;
+            sheet.Row(currentRow).Height = 32;
+            currentRow++;
         }
-        sheet.Columns(1, lastColumn).Width = 24; sheet.Column(1).Width = 26;
-        sheet.Range(4, 1, 4, lastColumn).Style.Alignment.WrapText = true;
-        sheet.Row(4).Height = Math.Max(30, 12 + courts.Max(c => EstimateWrappedLineCount(c, 8)) * 14);
-        sheet.Row(2).Height = 38;
+        sheet.Columns(1, lastColumn).Width = 18; sheet.Column(1).Width = 14;
+        sheet.Row(2).Height = Math.Max(38, 10 + courts.Max(c => EstimateWrappedLineCount(c, 10)) * 14);
+        sheet.ShowGridLines = false;
+        sheet.SheetView.FreezeRows(2);
         SetupWorkspacePrint(sheet, currentRow - 1, lastColumn, XLPageOrientation.Landscape);
+        sheet.PageSetup.SetRowsToRepeatAtTop(1, 2);
+    }
+
+    private static string WorkspaceGridSide(WorkspaceScheduleExportContext context, WorkspaceMatchKey key,
+        EntrantSource source, DateOnly day)
+    {
+        if (context.ResolveParticipant(key.ProjectId, source) is { } participant) return participant.DisplayName;
+        var sourceId = source switch
+        {
+            EntrantSource.WinnerOf winner => winner.MatchId,
+            EntrantSource.LoserOf loser => loser.MatchId,
+            _ => throw new WorkspaceValidationException("export.source", "赛程网格包含无法显示的参赛来源。")
+        };
+        var placement = context.Placements[new(key.ProjectId, sourceId)];
+        var sourceDay = DateOnly.ParseExact(placement.DayLabel, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var date = sourceDay == day ? "" : sourceDay.ToString("M/d", CultureInfo.InvariantCulture) + " ";
+        return $"{date}{WorkspaceTimeRange(placement.StartTime, placement.EndTime)} {placement.Court}" +
+            (source is EntrantSource.WinnerOf ? "胜" : "负");
     }
 
     private static IEnumerable<string> WorkspacePrerequisiteNotes(WorkspaceScheduleExportContext context, WorkspaceMatchKey key)
@@ -158,7 +177,7 @@ public sealed partial class ScheduleExcelWriter
             ("工作区 / 赛程版本", $"{workspace.Revision} / {schedule.Revision}"),
             ("本表记录日期 / 场次", $"{day:yyyy-MM-dd} / {count}"),
             ("参数范围", "以下参数来自整个赛事，不是单个项目独立排程参数；本表不改变任何编排或赛果。"),
-            ("网格打印", "每组最多 4 片场地，按配置顺序分表；所有场地均保留，纵向按实际行数分页。"),
+            ("网格打印", "本日全部场地按配置顺序合并总览；保留空闲场地，PDF 为 A4 横向每日总览。"),
             ("裁判人数默认值", resources.RefereeCount is { } referee ? $"{referee} 人" : "按可用场地数"),
             ("全局最短休息", $"{resources.MinimumRestMinutes} 分钟"),
             ("全局选手每日上限", $"{resources.MaxPlayerMatchesPerDay} 场"),

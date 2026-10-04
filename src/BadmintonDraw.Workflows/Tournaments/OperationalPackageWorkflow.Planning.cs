@@ -68,30 +68,32 @@ public sealed partial class OperationalPackageWorkflow
         var carryKeys = proofs.Select(p => p.Key).ToHashSet();
         var nodeOrders = source.Projects.SelectMany(p => p.MatchGraph!.Matches).ToDictionary(n => n.Id, n => n.Order);
         var projectOrders = projects.ToDictionary(p => p.Id, p => p.SortOrder);
+        var courtOrders = schedule.Resources.Days.SelectMany(day => day.Courts.Select((court, order) =>
+            (Day: day.Date.ToString("yyyy-MM-dd"), Court: court, Order: order)))
+            .ToDictionary(item => (item.Day, item.Court), item => item.Order);
         var rows = days.SelectMany(day => keys.Where(key => schedule.Placements[key.MatchId].DayLabel == day.ToString("yyyy-MM-dd") ||
                 (day == request.PendingCarryoverDay && carryKeys.Contains(key))).Select(key => new WorkspaceRecordExportRow(key, day)))
             .OrderBy(r => r.RecordDay).ThenBy(r => schedule.Placements[r.Key.MatchId].DayLabel, StringComparer.Ordinal)
-            .ThenBy(r => schedule.Placements[r.Key.MatchId].StartTime).ThenBy(r => schedule.Placements[r.Key.MatchId].EndTime)
+            .ThenBy(r => schedule.Placements[r.Key.MatchId].StartTime)
+            .ThenBy(r => courtOrders[(schedule.Placements[r.Key.MatchId].DayLabel, schedule.Placements[r.Key.MatchId].Court)])
             .ThenBy(r => projectOrders[r.Key.ProjectId]).ThenBy(r => r.Key.ProjectId)
             .ThenBy(r => nodeOrders[r.Key.MatchId]).ThenBy(r => r.Key.MatchId).ToArray();
         var materials = new List<MaterialPlan>();
+        var projectNames = ProjectFileNames(source);
+        var multipleYears = days[0].Year != days[^1].Year;
         void Add(OperationalMaterialKind kind, Guid? projectId, DateOnly? day, string extension,
             IReadOnlyList<WorkspaceRecordExportRow>? selectedRows = null) => materials.Add(new(kind, projectId, day,
-                $"{(projectId ?? source.Id):D}_{kind}{(day is { } d ? "_" + d.ToString("yyyy-MM-dd") : "")}{extension}", selectedRows ?? []));
+                MaterialFileName(kind, projectId is { } id ? projectNames[id] : null, day, extension,
+                    request.ProjectId is not null, multipleYears), selectedRows ?? []));
         foreach (var project in projects)
         { Add(OperationalMaterialKind.TimedDrawExcel, project.Id, null, ".xlsx"); Add(OperationalMaterialKind.TimedDrawA4Pdf, project.Id, null, ".pdf"); }
         foreach (var day in days)
         {
             var dayRows = rows.Where(r => r.RecordDay == day).ToArray();
-            foreach (var project in projects)
-            {
-                var projectRows = dayRows.Where(r => r.Key.ProjectId == project.Id).ToArray();
-                if (projectRows.Length > 0) Add(OperationalMaterialKind.ProjectRecordExcel, project.Id, day, ".xlsx", projectRows);
-                else progress.Skips.Add(new("export.empty-project-day", "该项目在所选记录日期无场次，跳过项目记录表。", project.Id, day));
-            }
             if (dayRows.Length == 0)
             { progress.Skips.Add(new("export.empty-day", "该记录日期无场次，跳过合并每日材料。", RecordDay: day)); continue; }
             Add(OperationalMaterialKind.DailyScheduleExcel, null, day, ".xlsx", dayRows);
+            Add(OperationalMaterialKind.DailySchedulePdf, null, day, ".pdf", dayRows);
             Add(OperationalMaterialKind.MergedRecordExcel, null, day, ".xlsx", dayRows);
             Add(source.Kind == TournamentKind.Team ? OperationalMaterialKind.TeamScoreExcel : OperationalMaterialKind.IndividualScorePdf,
                 null, day, source.Kind == TournamentKind.Team ? ".xlsx" : ".pdf", dayRows);
@@ -102,7 +104,8 @@ public sealed partial class OperationalPackageWorkflow
         Add(OperationalMaterialKind.Manifest, null, null, ".json");
         progress.Counts = new(rows.Select(r => r.Key).Distinct().Count(), rows.Length, carryKeys.Count,
             projects.Sum(p => p.MatchGraph!.Matches.Count), materials.Count);
-        var outputDirectory = Path.GetFullPath(request.OutputDirectory);
+        var outputDirectory = PackageDirectory(request.OutputDirectory, days,
+            request.ProjectId is { } selectedId ? projectNames[selectedId] : null);
         Require(materials.Select(m => m.FileName).Distinct(StringComparer.OrdinalIgnoreCase).Count() == materials.Count,
             "export.duplicate-path", "材料文件名重复，无法安全导出。");
         foreach (var material in materials)

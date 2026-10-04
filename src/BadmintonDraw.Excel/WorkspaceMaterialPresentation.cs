@@ -1,11 +1,14 @@
 using System.Globalization;
 using BadmintonDraw.Core.Tournaments;
+using ClosedXML.Excel;
 
 namespace BadmintonDraw.Excel;
 
 /// <summary>Derived display values only; selecting carryover and changing placements are not renderer responsibilities.</summary>
 internal static class WorkspaceMaterialPresentation
 {
+    internal static XLColor PhaseFill(string phase) => ScheduleExcelWriter.GetGridPhaseFill(phase);
+
     internal static WorkspaceRecordExportRow[] SelectRows(WorkspaceScheduleExportContext context,
         IReadOnlyList<WorkspaceRecordExportRow> rows, string materialName)
     {

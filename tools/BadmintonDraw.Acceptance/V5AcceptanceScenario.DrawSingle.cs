@@ -58,7 +58,7 @@ internal sealed partial class V5AcceptanceScenario
         var package = Package("initial"); var day = Workspace.Resources!.Days[0].Date;
         var expected = V5AcceptanceResults.Fold(Workspace, day); var root = nodes.First(n => n.Dependencies.Count == 0);
         var rootKey = new WorkspaceMatchKey(Workspace.Projects.Single().Id, root.Id);
-        var record = package.Outputs.First(o => o.Kind == OperationalMaterialKind.ProjectRecordExcel && o.RecordDay == day).Path;
+        var record = package.Outputs.Single(o => o.Kind == OperationalMaterialKind.MergedRecordExcel && o.RecordDay == day).Path;
         var first = V5AcceptanceResults.CopyFill(record, evidence.PathFor("imports/partial.xlsx"), Workspace, expected, new HashSet<WorkspaceMatchKey> { rootKey });
         Import("import-partial", [first]);
         Require(Workspace.Stage == TournamentStage.InProgress && Workspace.Results.Count == 1 && Workspace.ImportLogs.SelectMany(l => l.Rows).Any(r => !r.HadResult), "Partial result did not preserve pending coverage.");
@@ -118,7 +118,7 @@ internal sealed partial class V5AcceptanceScenario
     {
         var package = Package(name, [target], target); Require(package.Counts.PendingCarryoverCount > 0, "Explicit carryover was a no-op.");
         var pending = expected.Keys.Where(k => !Workspace.Results.ContainsKey(k)).ToHashSet();
-        var files = package.Outputs.Where(o => o.Kind == OperationalMaterialKind.ProjectRecordExcel).Select((output, index) =>
+        var files = package.Outputs.Where(o => o.Kind == OperationalMaterialKind.MergedRecordExcel).Select((output, index) =>
         {
             using (var book = new XLWorkbook(output.Path))
             {

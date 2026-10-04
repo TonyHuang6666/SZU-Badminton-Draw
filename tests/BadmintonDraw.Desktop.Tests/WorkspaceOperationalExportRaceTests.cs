@@ -104,7 +104,9 @@ public sealed class WorkspaceOperationalExportRaceTests
         try { vm.Days[0].IsSelected = false; vm.Days[1].IsSelected = true; vm.OutputDirectory = f.Data.PathFor("new-output"); }
         finally { release.Set(); }
         await pending;
-        Assert.Equal(9, Directory.GetFiles(originalOutput).Length); Assert.False(Directory.Exists(vm.OutputDirectory));
+        var capturedPackage = Assert.Single(Directory.GetDirectories(originalOutput));
+        Assert.Equal(Path.Combine(originalOutput, "9月13日多项目合并材料包"), capturedPackage);
+        Assert.Equal(9, Directory.GetFiles(capturedPackage).Length); Assert.False(Directory.Exists(vm.OutputDirectory));
         Assert.Single(f.Shell.CurrentSession!.Workspace.AuditEvents, a => a.Action == "OperationalPackageExported");
         Assert.Null(vm.Outcome); Assert.False(vm.ScopeConfirmed); Assert.DoesNotContain("正在", vm.StateMessage);
     }

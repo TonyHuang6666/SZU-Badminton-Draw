@@ -18,7 +18,7 @@ public sealed record OperationalExportRequest(string OutputDirectory, Guid? Proj
 public enum OperationalMaterialKind
 {
     TimedDrawExcel, TimedDrawA4Pdf, ProjectRecordExcel, DailyScheduleExcel, MergedRecordExcel,
-    IndividualScorePdf, TeamScoreExcel, QualityExcel, Description, Manifest
+    IndividualScorePdf, TeamScoreExcel, QualityExcel, Description, Manifest, DailySchedulePdf
 }
 public sealed record OperationalPackageOutput(OperationalMaterialKind Kind, Guid? ProjectId, DateOnly? RecordDay,
     string Path, long ByteLength, string Sha256);

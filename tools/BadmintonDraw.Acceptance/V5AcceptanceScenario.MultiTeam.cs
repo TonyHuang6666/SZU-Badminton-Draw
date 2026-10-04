@@ -16,20 +16,39 @@ internal sealed partial class V5AcceptanceScenario
         Schedule("benchmark-exact-20-minutes", V5AcceptanceRosterFactory.ModerateResources(), false, 80);
         Schedule("mixed-20-25-30-minutes", V5AcceptanceRosterFactory.ModerateResources(), true, 80);
         var plan = Placements(Workspace); var package = Package("all-projects");
-        var first = package.Outputs.First(o => o.Kind == OperationalMaterialKind.ProjectRecordExcel && o.ProjectId == Workspace.Projects[1].Id);
+        var draftProject = Workspace.Projects[1];
+        var draftNode = draftProject.MatchGraph!.Matches.OrderBy(n => Workspace.Schedule!.Placements[n.Id].DayLabel, StringComparer.Ordinal)
+            .ThenBy(n => Workspace.Schedule!.Placements[n.Id].StartTime).ThenBy(n => n.Order).First();
+        var draftKey = new WorkspaceMatchKey(draftProject.Id, draftNode.Id);
+        var draftDay = DateOnly.Parse(Workspace.Schedule!.Placements[draftNode.Id].DayLabel);
+        var first = package.Outputs.Single(o => o.Kind == OperationalMaterialKind.MergedRecordExcel && o.RecordDay == draftDay);
         // Genuine coherent numeric draft, no winner: coverage only, never a result.
+        var sourceHash = Hash(first.Path);
         var draft = evidence.PathFor("imports/pending-numeric-draft.xlsx"); Directory.CreateDirectory(Path.GetDirectoryName(draft)!); File.Copy(first.Path, draft, false);
-        using (var book = new XLWorkbook(draft)) { var sheet = book.Worksheet("对阵记录表"); sheet.Cell(V5AcceptanceResults.Rows(sheet)[0].Row, 9).Value = 21; book.Save(); }
+        using (var book = new XLWorkbook(draft))
+        {
+            var sheet = book.Worksheet("对阵记录表"); var rows = V5AcceptanceResults.Rows(sheet);
+            sheet.Cell(rows.Single(r => r.Key == draftKey).Row, 9).Value = 21;
+            Require(rows.All(r => r.Key == draftKey || sheet.Cell(r.Row, 9).IsEmpty()), "Numeric draft filled another qualified match's score.");
+            book.Save();
+        }
+        Require(Hash(first.Path) == sourceHash, "Numeric draft changed the original merged record.");
         var pending = Import("numeric-draft-coverage", [draft]);
         Require(Workspace.Results.Count == 0 && pending.Evaluation.ProposedCounts.PendingRowCount > 0 && pending.Evaluation.Diagnostics.Any(d => d.Severity == ResultImportDiagnosticSeverity.Warning), "Numeric draft was not a warned coverage-only import.");
         var target = Workspace.Resources!.Days.Last().Date;
         var subset = Package("md-qualified-carry", [target], target, Workspace.Projects[1].Id);
         Require(subset.Scope.ProjectIds.SequenceEqual([Workspace.Projects[1].Id]) && subset.Counts.PendingCarryoverCount > 0 && subset.Outputs.Where(o => o.ProjectId.HasValue).All(o => o.ProjectId == Workspace.Projects[1].Id), "Qualified project carryover leaked another project.");
+        using (var book = new XLWorkbook(subset.Outputs.Single(o => o.Kind == OperationalMaterialKind.MergedRecordExcel).Path))
+        {
+            var rows = V5AcceptanceResults.Rows(book.Worksheet("对阵记录表"));
+            Require(rows.Count > 0 && rows.All(r => r.Key.ProjectId == draftProject.Id) && rows.Any(r => r.Key == draftKey),
+                "Selected-project merged carryover omitted its pending match or included another project.");
+        }
         var expected = V5AcceptanceResults.Fold(Workspace, target);
         V5AcceptanceResults.EmitExpected(evidence, "expected-results.csv", expected.Values);
-        var files = FillProjectFiles(package, "complete", expected).Reverse().ToArray();
+        var files = FillMergedFiles(package, "complete", expected).Reverse().ToArray();
         var order = files.SelectMany(path => { using var book = new XLWorkbook(path); return V5AcceptanceResults.Rows(book.Worksheet("对阵记录表")).Select(r => r.Key).ToArray(); }).ToArray();
-        Require(order.Length == 80 && order.Distinct().Count() == 80, "Per-project daily record coverage duplicated or omitted a node.");
+        Require(order.Length == 80 && order.Distinct().Count() == 80, "Merged daily record coverage duplicated or omitted a node.");
         var indices = order.Select((key, index) => (key, index)).ToDictionary(x => x.key, x => x.index);
         Require(Workspace.Projects.Any(p => p.MatchGraph!.Matches.Any(n => n.Dependencies.Any(d => indices[new(p.Id, n.Id)] < indices[new(p.Id, d)]))), "Reversed batch failed to exercise dependent-before-prerequisite file order.");
         evidence.Json("actual-reversed-batch-order.json", new { Files = files, Keys = order });
@@ -60,10 +79,10 @@ internal sealed partial class V5AcceptanceScenario
         evidence.Json("team-block-evidence.json", new { ActualAggregateNodes = 91, Blocks = blocks, RowsPerBlock = 18, SubmatchesPerBlock = 5, NativePagination = "NotRun" });
         var expected = V5AcceptanceResults.Fold(Workspace, Workspace.Resources!.Days.Last().Date);
         V5AcceptanceResults.EmitExpected(evidence, "expected-results.csv", expected.Values);
-        Import("team-whole-batch", FillProjectFiles(package, "team", expected)); Finish(expected);
+        Import("team-whole-batch", FillMergedFiles(package, "team", expected)); Finish(expected);
     }
-    private string[] FillProjectFiles(OperationalPackageOutcome package, string name, IReadOnlyDictionary<WorkspaceMatchKey, V5ExpectedResult> expected) =>
-        package.Outputs.Where(o => o.Kind == OperationalMaterialKind.ProjectRecordExcel).Select((o, i) =>
+    private string[] FillMergedFiles(OperationalPackageOutcome package, string name, IReadOnlyDictionary<WorkspaceMatchKey, V5ExpectedResult> expected) =>
+        package.Outputs.Where(o => o.Kind == OperationalMaterialKind.MergedRecordExcel).OrderBy(o => o.RecordDay).Select((o, i) =>
             V5AcceptanceResults.CopyFill(o.Path, evidence.PathFor($"imports/{name}-{i}.xlsx"), Workspace, expected)).ToArray();
     private void Scale(bool rejection)
     {

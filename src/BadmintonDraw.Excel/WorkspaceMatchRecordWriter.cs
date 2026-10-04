@@ -18,30 +18,43 @@ public sealed class WorkspaceMatchRecordWriter
         var rowNumbers = selected.Select((row, i) => (row.Key, Row: FirstDataRow + i)).ToDictionary(p => p.Key, p => p.Row);
         using var workbook = new XLWorkbook();
         var sheet = workbook.AddWorksheet(SheetName);
-        WriteHeading(sheet, context.Workspace.Name);
+        WriteHeading(sheet, selected.Select(r => r.RecordDay).Distinct().Order().ToArray());
         for (var i = 0; i < selected.Length; i++) WriteRow(sheet, context, selected[i], FirstDataRow + i, i + 1, rowNumbers);
         ApplyLayout(sheet, FirstDataRow + selected.Length - 1);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
         WorkbookPrintTitles.SaveAs(workbook, outputPath);
     }
 
-    private static void WriteHeading(IXLWorksheet sheet, string name)
+    private static void WriteHeading(IXLWorksheet sheet, IReadOnlyList<DateOnly> recordDays)
     {
         // Merge only the contiguous visible region; hidden provenance columns must not clip the heading.
-        sheet.Range(1, 1, 1, Note).Merge().Value = name + " · 对阵记录表";
+        var title = recordDays.Count == 1
+            ? recordDays[0].ToString("M月d日", CultureInfo.InvariantCulture) + "赛程记录表"
+            : "对阵记录表";
+        sheet.Range(1, 1, 1, Note).Merge().Value = title;
         sheet.Range(2, 1, 2, Note).Merge().Value =
-            "比分按 A–B 填写。单项：一局 x-y，或已决胜的两/三局（如 21-15, 18-21, 21-19）；团体：总比分 x-y。均为非负整数，不限 21 分。";
-        sheet.Range(3, 1, 3, Note).Merge().Value =
-            "胜者用下拉或 A/B；正常比赛时长填正整数（可加 m/分钟）；弃权必须选“弃权”、时长 0，可写备注。实际日期填 yyyy-MM-dd；记录日期仅供汇总，不代表已调整赛程。";
-        string[] headers = ["序号", "记录日期", "计划时间", "赛程阶段", "项目 / 组别", "A 方", "VS", "B 方", "比分（A-B）", "时长（分钟）", "场地", "胜者（A/B）", "备注",
+            "第5行为填写示例；比分、用时首次导出时留空。胜方可点击下拉选择，后续占空对阵会随前序胜负自动更新。";
+        // Keep v5's required editable facts available, outside the unchanged v4.6 printed form.
+        sheet.Range(1, ResultKind, 3, ActualPlayedDay).Merge().Value =
+            "导入赛果前，请填写实际比赛日期。弃权请选择“弃权”，用时填 0。";
+        string[] headers = ["序号", "日期", "时间", "进度", "组别", "对阵数据", "", "", "比分", "用时", "场地", "胜方", "备注",
             "MatchId", "A 选项", "B 选项", "WorkspaceId", "ProjectId", "GraphRevision", "DrawConfirmedAt", "结果类型", "实际比赛日期"];
         for (var i = 0; i < headers.Length; i++) sheet.Cell(HeaderRow, i + 1).Value = headers[i];
+        sheet.Range(HeaderRow, SideA, HeaderRow, SideB).Merge();
         sheet.Cell(ExampleRow, Order).Value = "示例";
-        sheet.Cell(ExampleRow, SideA).Value = "A【示例选手】"; sheet.Cell(ExampleRow, SideB).Value = "B【示例选手】";
-        sheet.Cell(ExampleRow, Versus).Value = "VS"; sheet.Cell(ExampleRow, Score).Value = "21-15";
-        sheet.Cell(ExampleRow, Duration).Value = 18; sheet.Cell(ExampleRow, Winner).Value = "A";
-        sheet.Cell(ExampleRow, ResultKind).Value = "正常"; sheet.Cell(ExampleRow, ActualPlayedDay).Value = "yyyy-MM-dd";
-        sheet.Cell(ExampleRow, Note).Value = "此行仅示例，不参与导入。下方填写实际赛果和日期；未赛可留空。";
+        sheet.Cell(ExampleRow, RecordDay).Value = recordDays[0].ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        sheet.Cell(ExampleRow, Time).Value = "14:00-14:20"; sheet.Cell(ExampleRow, Phase).Value = "首轮赛";
+        sheet.Cell(ExampleRow, Group).Value = "A组";
+        sheet.Cell(ExampleRow, SideA).Value = "A【张三\n李四】"; sheet.Cell(ExampleRow, SideB).Value = "B【王五\n赵六】";
+        sheet.Cell(ExampleRow, Versus).Value = "vs"; sheet.Cell(ExampleRow, Score).Value = "15-10, 15-12";
+        sheet.Cell(ExampleRow, Duration).Value = "18m"; sheet.Cell(ExampleRow, Court).Value = "B1";
+        sheet.Cell(ExampleRow, Winner).Value = "A【张三 李四】";
+        sheet.Cell(ExampleRow, OptionA).Value = "A【张三 李四】";
+        sheet.Cell(ExampleRow, OptionB).Value = "B【王五 赵六】";
+        sheet.Cell(ExampleRow, Winner).CreateDataValidation().List(sheet.Range(ExampleRow, OptionA, ExampleRow, OptionB), true);
+        sheet.Cell(ExampleRow, ResultKind).Value = "正常";
+        sheet.Cell(ExampleRow, ActualPlayedDay).Value = recordDays[0].ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        sheet.Cell(ExampleRow, Note).Value = "胜者进入下一轮";
     }
 
     private static void WriteRow(IXLWorksheet sheet, WorkspaceScheduleExportContext context, WorkspaceRecordExportRow selection,
@@ -52,12 +65,13 @@ public sealed class WorkspaceMatchRecordWriter
         context.Workspace.Results.TryGetValue(selection.Key, out var result);
         var recordDay = selection.RecordDay.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var differentDay = recordDay != placement.DayLabel;
-        var time = TimeText(placement.StartTime) + "–" + TimeText(placement.EndTime);
+        var time = TimeText(placement.StartTime) + "-" + TimeText(placement.EndTime);
         sheet.Cell(row, Order).Value = order; sheet.Cell(row, RecordDay).Value = recordDay;
         sheet.Cell(row, Time).Value = differentDay ? result is null ? "待安排" : $"原计划 {placement.DayLabel}\n{time}" : time;
-        sheet.Cell(row, Phase).Value = node.Phase + "\n" + node.DisplayName;
+        sheet.Cell(row, Phase).Value = node.Phase;
+        sheet.Cell(row, Phase).Style.Fill.BackgroundColor = PhaseFill(node.Phase);
         sheet.Cell(row, Group).Value = project.DisplayName + (string.IsNullOrWhiteSpace(node.GroupName) ? "" : "\n" + node.GroupName);
-        sheet.Cell(row, Versus).Value = "VS";
+        sheet.Cell(row, Versus).Value = "vs";
         sheet.Cell(row, Court).Value = differentDay && result is null ? "待安排" : placement.Court;
         var notes = new List<string>();
         if (!string.IsNullOrWhiteSpace(node.Note)) notes.Add(node.Note);
@@ -109,7 +123,8 @@ public sealed class WorkspaceMatchRecordWriter
         if (rowNumbers.TryGetValue(sourceKey, out var sourceRow))
         {
             sheet.Cell(row, optionColumn).FormulaA1 = OutcomeFormula(sourceRow, source is EntrantSource.WinnerOf, side, placeholder);
-            sheet.Cell(row, displayColumn).FormulaA1 = Address(row, optionColumn);
+            // Propagate the source's typed player lines without treating spaces inside a name as separators.
+            sheet.Cell(row, displayColumn).FormulaA1 = OutcomeFormula(sourceRow, source is EntrantSource.WinnerOf, side, placeholder, display: true);
         }
         else
         {
@@ -118,12 +133,14 @@ public sealed class WorkspaceMatchRecordWriter
         }
     }
 
-    private static string OutcomeFormula(int sourceRow, bool winner, ScheduleMatchSide target, string placeholder)
+    private static string OutcomeFormula(int sourceRow, bool winner, ScheduleMatchSide target, string placeholder, bool display = false)
     {
         var selected = Address(sourceRow, Winner); var a = Address(sourceRow, OptionA); var b = Address(sourceRow, OptionB);
         var isA = $"OR(UPPER(TRIM({selected}))=\"A\",{selected}={a})";
         var isB = $"OR(UPPER(TRIM({selected}))=\"B\",{selected}={b})";
-        var outcome = $"IF({isA},{(winner ? a : b)},IF({isB},{(winner ? b : a)},\"\"))";
+        var valueA = display ? Address(sourceRow, SideA) : a;
+        var valueB = display ? Address(sourceRow, SideB) : b;
+        var outcome = $"IF({isA},{(winner ? valueA : valueB)},IF({isB},{(winner ? valueB : valueA)},\"\"))";
         var prefix = target == ScheduleMatchSide.SideA ? "A【" : "B【";
         return $"IF({outcome}=\"\",{Literal(placeholder)},{Literal(prefix)}&MID({outcome},3,LEN({outcome})-3)&\"】\")";
     }
@@ -131,30 +148,49 @@ public sealed class WorkspaceMatchRecordWriter
     private static string Literal(string text) => "\"" + text.Replace("\"", "\"\"") + "\"";
     private static void ApplyLayout(IXLWorksheet sheet, int lastRow)
     {
-        sheet.Range(1, 1, lastRow, LastColumn).Style.Font.FontName = "Microsoft YaHei";
         var body = sheet.Range(HeaderRow, 1, lastRow, LastColumn);
+        body.Style.Font.FontName = "Microsoft YaHei";
         body.Style.Font.FontSize = 10; body.Style.Alignment.WrapText = true;
+        body.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         body.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
-        body.Style.Border.InsideBorder = XLBorderStyleValues.Thin; body.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-        sheet.Range(1, 1, 1, Note).Style.Font.SetBold().Font.FontSize = 18;
+        body.Style.Border.InsideBorder = XLBorderStyleValues.Thin; body.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+        body.Style.Border.InsideBorderColor = XLColor.FromHtml("#808080");
+        body.Style.Border.OutsideBorderColor = XLColor.FromHtml("#808080");
+        sheet.Range(1, 1, 2, Note).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        sheet.Range(1, 1, 2, Note).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        sheet.Range(1, 1, 1, Note).Style.Font.SetBold().Font.FontSize = 16;
         sheet.Range(1, 1, 1, Note).Style.Fill.BackgroundColor = XLColor.FromHtml("#1F4E78");
         sheet.Range(1, 1, 1, Note).Style.Font.FontColor = XLColor.White;
-        sheet.Range(2, 1, 3, Note).Style.Alignment.WrapText = true;
-        sheet.Range(2, 1, 3, Note).Style.Font.FontSize = 10;
+        sheet.Range(1, ResultKind, 3, ActualPlayedDay).Style.Alignment.WrapText = true;
+        sheet.Range(1, ResultKind, 3, ActualPlayedDay).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        sheet.Range(1, ResultKind, 3, ActualPlayedDay).Style.Font.FontSize = 10;
         sheet.Range(HeaderRow, 1, HeaderRow, LastColumn).Style.Fill.BackgroundColor = XLColor.FromHtml("#305496");
         sheet.Range(HeaderRow, 1, HeaderRow, LastColumn).Style.Font.SetBold().Font.FontColor = XLColor.White;
-        sheet.Range(ExampleRow, 1, ExampleRow, LastColumn).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF2CC");
-        sheet.Rows(FirstDataRow, lastRow).Height = 54;
-        sheet.Row(1).Height = 30; sheet.Rows(2, 3).Height = 30; sheet.Row(HeaderRow).Height = 32; sheet.Row(ExampleRow).Height = 46;
-        double[] widths = [6, 13, 21, 16, 16, 25, 4, 25, 19, 10, 10, 25, 33];
+        for (var row = FirstDataRow; row <= lastRow; row++)
+        {
+            var phaseFill = sheet.Cell(row, Phase).Style.Fill.BackgroundColor;
+            sheet.Range(row, 1, row, LastColumn).Style.Fill.BackgroundColor = XLColor.FromHtml("#F8FAFC");
+            sheet.Cell(row, Phase).Style.Fill.BackgroundColor = phaseFill;
+        }
+        var example = sheet.Range(ExampleRow, 1, ExampleRow, LastColumn);
+        example.Style.Fill.BackgroundColor = XLColor.FromHtml("#F2F2F2");
+        example.Style.Font.Italic = true; example.Style.Font.FontColor = XLColor.FromHtml("#5B677A");
+        sheet.Range(ExampleRow, Score, lastRow, Winner).Style.Fill.BackgroundColor = XLColor.White;
+        sheet.Range(ExampleRow, ResultKind, lastRow, ActualPlayedDay).Style.Fill.BackgroundColor = XLColor.White;
+        sheet.Range(ExampleRow, SideA, lastRow, SideB).Style.Font.Bold = true;
+        sheet.Range(ExampleRow, Versus, lastRow, Versus).Style.Font.FontSize = 12;
+        sheet.Rows(ExampleRow, lastRow).Height = 42;
+        sheet.Row(1).Height = 30; sheet.Row(2).Height = 24;
+        double[] widths = [7, 12, 15, 12, 10, 26, 6, 26, 18, 10, 10, 24, 24];
         for (var i = 0; i < widths.Length; i++) sheet.Column(i + 1).Width = widths[i];
         sheet.Column(ResultKind).Width = 10; sheet.Column(ActualPlayedDay).Width = 15;
         sheet.Columns(MatchId, DrawConfirmedAt).Hide();
         sheet.PageSetup.PageOrientation = XLPageOrientation.Landscape;
         sheet.PageSetup.PaperSize = XLPaperSize.A4Paper;
         sheet.PageSetup.PagesWide = 1; sheet.PageSetup.PagesTall = 0;
-        sheet.PageSetup.SetRowsToRepeatAtTop(HeaderRow, HeaderRow);
-        sheet.PageSetup.PrintAreas.Add(1, 1, lastRow, LastColumn);
+        sheet.PageSetup.SetRowsToRepeatAtTop(1, HeaderRow);
+        sheet.PageSetup.PrintAreas.Add(1, 1, lastRow, Note);
         sheet.SheetView.FreezeRows(HeaderRow);
+        sheet.ShowGridLines = false;
     }
 }

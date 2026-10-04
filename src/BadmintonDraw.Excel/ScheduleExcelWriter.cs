@@ -43,7 +43,7 @@ public sealed partial class ScheduleExcelWriter
         if (phase.Contains("决赛", StringComparison.Ordinal)) cell.Style.Font.Bold = true;
     }
 
-    private static XLColor GetGridPhaseFill(string phase)
+    internal static XLColor GetGridPhaseFill(string phase)
     {
         if (phase.Contains("首轮", StringComparison.Ordinal)) return PlayInGridFill;
         if (phase.Contains("总决赛", StringComparison.Ordinal)) return GrandFinalGridFill;
