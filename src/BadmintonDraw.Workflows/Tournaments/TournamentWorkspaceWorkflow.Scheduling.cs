@@ -13,7 +13,10 @@ public sealed partial class TournamentWorkspaceWorkflow
     /// Desktop callers should run this synchronous search off the UI thread.
     /// </summary>
     public WorkspaceCommandResult GenerateSchedule(TournamentResourcePlan resources, TournamentSchedulingPolicy policy,
-        long expectedRevision) => WithCapturedSession(captured =>
+        long expectedRevision) => GenerateSchedule(resources, policy, expectedRevision, TournamentSchedulingOptions.Default);
+
+    public WorkspaceCommandResult GenerateSchedule(TournamentResourcePlan resources, TournamentSchedulingPolicy policy,
+        long expectedRevision, TournamentSchedulingOptions options, CancellationToken cancellationToken = default) => WithCapturedSession(captured =>
     {
         var source = captured.Workspace;
         RequireSchedulingRevision(source, expectedRevision);
@@ -36,11 +39,26 @@ public sealed partial class TournamentWorkspaceWorkflow
             // Revisions are monotonic identity tokens, not counts of Generate invocations.
             ScheduleRevision = checked(Math.Max(source.Revision, source.Schedule?.Revision ?? 0) + 1)
         };
-        var result = new TournamentScheduler().Generate(request);
+        var result = new TournamentScheduler().Generate(request, options, cancellationToken);
         if (result is TournamentSchedulingResult.Failure failure)
-            throw new WorkspaceCommandException(new("schedule.generation-failed", failure.Detail.Message,
+            throw new WorkspaceCommandException(new(failure.Detail.Diagnostics?.FailureKind == SchedulingFailureKind.Canceled
+                ? "schedule.generation-canceled" : "schedule.generation-failed", failure.Detail.Message,
                 SchedulingFailure: failure.Detail));
         var success = (TournamentSchedulingResult.Success)result;
+
+        // Recheck after search, before entering atomic persistence. The mutation callback retains all
+        // checks as a process may still change the archive between this read and the store's lock.
+        durable = store.Read(captured.WorkspacePath);
+        Require(ReferenceEquals(CurrentSession, captured), "workspace.session-changed", "当前工作区已切换，请重新执行操作。");
+        RequireWorkspaceIdentity(durable, captured);
+        RequireSchedulingRevision(durable, expectedRevision);
+        RequireSchedulingSource(durable, sourceIdentity);
+        if (cancellationToken.IsCancellationRequested)
+        {
+            var diagnostics = success.Diagnostics! with { FailureKind = SchedulingFailureKind.Canceled, ExhaustedPhase = null };
+            throw new WorkspaceCommandException(new("schedule.generation-canceled", "本次赛程生成已取消，原赛程没有改变。",
+                SchedulingFailure: new("本次赛程生成已取消，原赛程没有改变。", [], [], [], []) { Diagnostics = diagnostics }));
+        }
 
         // No candidate, backup, audit or Mutate call exists before a complete successful search.
         return CommitChange(captured, expectedRevision, workspace =>
@@ -54,7 +72,7 @@ public sealed partial class TournamentWorkspaceWorkflow
                 Resources = success.Schedule.Resources,
                 Stage = TournamentStage.ScheduleReady
             }, audit, "赛程已重新生成，原待处理记录作废；请重新导出记录表。");
-        });
+        }) with { SchedulingQuality = success.Quality, SchedulingDiagnostics = success.Diagnostics };
     });
 
     private static void RequireSchedulingRevision(TournamentWorkspace workspace, long expectedRevision) =>

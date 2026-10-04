@@ -24,4 +24,8 @@ public sealed record SchedulingBlockedMatch(Guid ProjectId, string ProjectName, 
 public sealed record SchedulingDayCapacity(string DayLabel, int AvailableMatchMinutes, int RequiredPlacedMinutes);
 public sealed record SchedulingFailure(string Message, IReadOnlyList<SchedulingBlockedMatch> UnplacedMatches,
     IReadOnlyList<SchedulingViolation> Violations, IReadOnlyList<SchedulingDayCapacity> Capacity,
-    IReadOnlyList<string> Suggestions);
+    IReadOnlyList<string> Suggestions)
+{
+    public SchedulingRunDiagnostics? Diagnostics { get; init; }
+    public SchedulingCapacityEvidence? CapacityEvidence { get; init; }
+}

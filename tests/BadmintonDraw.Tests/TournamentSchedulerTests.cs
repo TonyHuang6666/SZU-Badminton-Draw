@@ -306,7 +306,8 @@ public sealed class TournamentSchedulerTests
             Policy = request.Policy with { SynchronizeStageWaves = true, StageWaveTargets = [new(TournamentSchedulerTestData.Day, .9)] } };
         var result = Assert.IsType<TournamentSchedulingResult.Success>(new TournamentScheduler().Generate(request));
         Assert.Equal(.9, result.Schedule.Policy.StageWaveTargets[0].CumulativeProgress);
-        Assert.True(result.Schedule.Policy.StageWaveTargets[1].CumulativeProgress >= .9);
+        Assert.Single(result.Schedule.Policy.StageWaveTargets); // Persist only the explicitly requested Balanced target.
+        Assert.True(result.Diagnostics!.Policy.StageWaveTargets[1].CumulativeProgress >= .9);
     }
 
     [Fact]

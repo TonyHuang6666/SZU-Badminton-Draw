@@ -48,6 +48,33 @@ public sealed class TournamentSchedulingWorkflowTests : IDisposable
             reopened.Resources!, reopened.Schedule.Policy)).ValidateSchedule(reopened.Schedule.Placements).IsValid);
     }
 
+    [Theory]
+    [InlineData(false, 3, 3)]
+    [InlineData(true, 0, 6)]
+    public void BalancedArchiveReopenRegeneratesWithRequestedStagePreferences(bool explicitTargets, int firstDay, int secondDay)
+    {
+        var workflow = Confirmed(new ObservedStore(), roundRobin: true);
+        var resources = Resources() with { Days = [Resources().Days[0],
+            Resources().Days[0] with { Date = new(2026, 9, 14) }] };
+        var policy = Policy() with { Strategy = ScheduleAutoSchedulingStrategy.BalancedRelaxed,
+            SynchronizeStageWaves = true, StageWaveTargets = explicitTargets
+                ? [new("2026-09-13", .5), new("2026-09-14", 1)] : [] };
+        var saved = workflow.GenerateSchedule(resources, policy, workflow.CurrentSession!.Workspace.Revision);
+        var reopenedWorkflow = new TournamentWorkspaceWorkflow();
+        var reopened = reopenedWorkflow.OpenWorkspace(saved.WorkspacePath).Workspace;
+        Assert.Equal(policy.StageWaveTargets, reopened.Schedule!.Policy.StageWaveTargets);
+        Assert.Empty(reopened.Schedule.Policy.DayLoadTargets);
+        var regenerated = reopenedWorkflow.GenerateSchedule(reopened.Schedule.Resources,
+            reopened.Schedule.Policy, reopened.Revision).Workspace;
+        foreach (var schedule in new[] { reopened.Schedule, regenerated.Schedule! })
+        {
+            Assert.Equal(new[] { firstDay, secondDay }, resources.Days.Select(d =>
+                schedule.Placements.Values.Count(p => p.DayLabel == d.DayLabel)).ToArray());
+            Assert.True(new TournamentPlacementValidator(new(regenerated.Projects.Select(p => p.MatchGraph!).ToArray(),
+                schedule.Resources, schedule.Policy)).ValidateSchedule(schedule.Placements).IsValid);
+        }
+    }
+
     [Fact]
     public void DrawOnlyFailsWithoutMutationAndUpgradePreservesDrawsThenEnablesScheduling()
     {
@@ -364,6 +391,85 @@ public sealed class TournamentSchedulingWorkflowTests : IDisposable
         Assert.Equal(other.Workspace.Id, workflow.CurrentSession!.Workspace.Id);
         Assert.Null(workflow.CurrentSession.Workspace.Schedule);
     }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void CanceledBeforeCommitDoesNotMutateStore(int cancelOnRead)
+    {
+        var store = new ObservedStore(); var workflow = Confirmed(store);
+        using var cancellation = new CancellationTokenSource(); var reads = 0;
+        store.BeforeRead = _ => { if (++reads == cancelOnRead) cancellation.Cancel(); };
+        var error = RejectUnchanged(workflow, store, () => GenerateWithOptions(workflow,
+            TournamentSchedulingOptions.Default, cancellation.Token), "schedule.generation-canceled");
+        Assert.Equal(SchedulingFailureKind.Canceled, error.SchedulingFailure!.Diagnostics!.FailureKind);
+    }
+
+    [Fact]
+    public void BudgetFailureKeepsOriginalArchiveBytes()
+    {
+        var store = new ObservedStore(); var workflow = Confirmed(store);
+        workflow.GenerateSchedule(Resources(), Policy(), workflow.CurrentSession!.Workspace.Revision);
+        var error = RejectUnchanged(workflow, store, () => GenerateWithOptions(workflow,
+            TournamentSchedulingOptions.Default with { SearchWorkUnits = 0 }), "schedule.generation-failed");
+        Assert.Equal(SchedulingFailureKind.SearchIncomplete, error.SchedulingFailure!.Diagnostics!.FailureKind);
+    }
+
+    [Fact]
+    public void StaleWorkspaceAfterSuccessfulSearchDoesNotCommit()
+    {
+        var store = new ObservedStore(); var workflow = Confirmed(store); var before = workflow.CurrentSession!;
+        var reads = 0; byte[]? externalHash = null; store.Mutations = 0;
+        store.BeforeRead = _ =>
+        {
+            if (++reads != 2) return;
+            new TournamentWorkspaceStore().Mutate(before.WorkspacePath, before.Workspace.Revision, w => w with { Name = "外部更新" });
+            externalHash = Hash(before.WorkspacePath);
+        };
+        var error = Assert.Throws<WorkspaceCommandException>(() => workflow.GenerateSchedule(Resources(), Policy(), before.Workspace.Revision)).Error;
+        Assert.Equal("RevisionConflict", error.Code); Assert.False(error.Committed);
+        Assert.Same(before, workflow.CurrentSession); Assert.Equal(0, store.Mutations);
+        Assert.Equal(externalHash, Hash(before.WorkspacePath));
+        Assert.Null(new TournamentWorkspaceStore().Read(before.WorkspacePath).Schedule);
+    }
+
+    [Fact]
+    public void SaveFailureKeepsOriginalSchedule()
+    {
+        var files = new ControlledFiles(); var store = new ObservedStore(new ReadFaultStore(files)); var workflow = Confirmed(store);
+        workflow.GenerateSchedule(Resources(), Policy(), workflow.CurrentSession!.Workspace.Revision);
+        var prior = JsonSerializer.Serialize(workflow.CurrentSession!.Workspace.Schedule);
+        files.FailPublish = true;
+        RejectUnchanged(workflow, store, () => workflow.GenerateSchedule(Resources(startHour: 12), Policy(), workflow.CurrentSession!.Workspace.Revision),
+            "WorkspaceWriteFailed", expectedMutations: 1, unchangedFiles: false);
+        Assert.Equal(prior, JsonSerializer.Serialize(new TournamentWorkspaceStore().Read(workflow.CurrentSession!.WorkspacePath).Schedule));
+    }
+
+    [Fact]
+    public void CancellationAfterPublishCannotReplaceCommittedReadFailure()
+    {
+        var files = new ControlledFiles(); var inner = new ReadFaultStore(files); var store = new ObservedStore(inner); var workflow = Confirmed(store);
+        using var cancellation = new CancellationTokenSource(); var before = workflow.CurrentSession!;
+        files.AfterPublish = () => { cancellation.Cancel(); inner.FailPath = before.WorkspacePath; inner.FailuresRemaining = 1; };
+        var error = Assert.Throws<WorkspaceCommandException>(() => GenerateWithOptions(workflow, TournamentSchedulingOptions.Default, cancellation.Token)).Error;
+        Assert.Equal("CommittedReadFailed", error.Code); Assert.True(error.Committed);
+        Assert.Equal(before.Workspace.Revision + 1, new TournamentWorkspaceStore().Read(before.WorkspacePath).Revision);
+    }
+
+    [Fact]
+    public void SuccessCarriesTransientQualityAndDiagnostics()
+    {
+        var workflow = Confirmed(new ObservedStore()); var result = workflow.GenerateSchedule(Resources(), Policy(), workflow.CurrentSession!.Workspace.Revision);
+        Assert.NotNull(result.SchedulingQuality);
+        Assert.NotNull(result.SchedulingDiagnostics);
+        var persisted = JsonSerializer.Serialize(new TournamentWorkspaceStore().Read(result.WorkspacePath));
+        Assert.DoesNotContain("SchedulingDiagnostics", persisted);
+        Assert.DoesNotContain("SchedulingQuality", persisted);
+    }
+
+    private static WorkspaceCommandResult GenerateWithOptions(TournamentWorkspaceWorkflow workflow, TournamentSchedulingOptions options,
+        CancellationToken cancellationToken = default) => workflow.GenerateSchedule(Resources(), Policy(),
+            workflow.CurrentSession!.Workspace.Revision, options, cancellationToken);
 
     private TournamentWorkspaceWorkflow Confirmed(ObservedStore store, int projectCount = 1,
         TournamentPurpose purpose = TournamentPurpose.FullTournament, bool roundRobin = false, string file = "workspace.szbd")

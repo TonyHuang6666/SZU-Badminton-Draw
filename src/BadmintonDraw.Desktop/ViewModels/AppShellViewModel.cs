@@ -21,12 +21,14 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
     private ViewModelBase currentPage;
     private WorkspaceSession? currentSession;
     private WorkspaceError? lastError;
+    private WorkspaceCommandResult? lastCommandResult;
     public WorkspaceNavigator Navigator { get; } = new();
     public StartPageViewModel StartPage { get; }
     public IReadOnlyList<WorkspaceNavigationItemViewModel> NavigationItems { get; }
     public ViewModelBase CurrentPage { get => currentPage; private set { SetProperty(ref currentPage, value); RefreshPresentation(); } }
     public WorkspaceSession? CurrentSession { get => currentSession; private set => SetProperty(ref currentSession, value); }
     public WorkspaceError? LastError { get => lastError; private set { SetProperty(ref lastError, value); RefreshPresentation(); } }
+    public WorkspaceCommandResult? LastCommandResult { get => lastCommandResult; private set => SetProperty(ref lastCommandResult, value); }
     public string Status { get => status; private set { SetProperty(ref status, value); RefreshPresentation(); } }
     public bool IsBusy => Volatile.Read(ref busy) != 0;
     public bool HasWorkspace => CurrentSession is not null;
@@ -149,7 +151,7 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
             if (expectedSession.RequiresReload)
                 throw new WorkspaceCommandException(new("workspace.reload-required", "工作区已保存但无法重新读取，请点击重新载入后再操作。"));
             return command(workflow, expectedSession.Workspace.Revision);
-        }), successMessage);
+        }), successMessage, expectedSession: expectedSession);
 
     /// <summary>Read-only work has no save result. Background hover checks keep dragging enabled; quiet internal refreshes retain status but still own busy and report errors.</summary>
     public async Task<WorkspaceQueryResult<T>> RunWorkspaceQueryAsync<T>(WorkspaceSession expectedSession,
@@ -158,7 +160,7 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         var ownsBusy = !background && !disposed && Interlocked.CompareExchange(ref busy, 1, 0) == 0;
         if (disposed || (!background && !ownsBusy) || (background && IsBusy))
             return new(false, null, new("desktop.query-busy", "当前操作尚未完成。"));
-        if (ownsBusy) { LastError = null; if (showStatus) Status = "正在检查，尚未保存…"; RefreshAvailability(); }
+        if (ownsBusy) { LastError = null; LastCommandResult = null; if (showStatus) Status = "正在检查，尚未保存…"; RefreshAvailability(); }
         try
         {
             void CheckSession()
@@ -183,17 +185,28 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
     }
 
     private async Task<bool> RunCommandAsync(Func<Task<WorkspaceCommandResult?>> command, string successMessage,
-        bool remember = false, bool forceOverview = false, bool ensureWorkspacePage = false, bool requirePageLeave = false)
+        bool remember = false, bool forceOverview = false, bool ensureWorkspacePage = false, bool requirePageLeave = false,
+        WorkspaceSession? expectedSession = null)
     {
         if (disposed || IsBusy || (requirePageLeave && !TryLeaveCurrentPage()) || Interlocked.CompareExchange(ref busy, 1, 0) != 0) return false;
-        LastError = null; Status = "正在处理，请稍候…"; RefreshAvailability();
+        LastError = null; LastCommandResult = null; Status = "正在处理，请稍候…"; RefreshAvailability();
         var succeeded = false;
         try
         {
             var result = await command();
             if (disposed) return false;
             if (result is null) { Status = "已取消选择。"; return false; }
-            if (workflow.CurrentSession is { } session) ApplySession(session);
+            var session = workflow.CurrentSession;
+            // Publish creates a new session, so compare the command's actual saved snapshot, not
+            // the pre-command session. Reopening even the same path must not own an older result.
+            if (session is null || !ReferenceEquals(session.Workspace, result.Workspace) || session.WorkspacePath != result.WorkspacePath)
+            {
+                if (session is not null) ApplySession(session);
+                Status = "当前工作区已更新或切换；请查看当前工作区。";
+                return false;
+            }
+            ApplySession(session);
+            LastCommandResult = result;
             Status = successMessage;
             if (result.BackupPath is { } backup) Status += " 备份：" + backup;
             if (remember)
@@ -207,7 +220,24 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
             succeeded = true;
             return true;
         }
-        catch (Exception exception) { if (!disposed) ReportError(exception); return false; }
+        catch (Exception exception)
+        {
+            if (disposed) return false;
+            var session = workflow.CurrentSession;
+            // A committed read failure legitimately publishes a replacement session. Keep its
+            // saved outcome visible, while discarding ordinary failures from a replaced session.
+            var ownCommittedFailure = exception is WorkspaceCommandException { Error.Committed: true } &&
+                CommittedPublication(exception) is { } published &&
+                ReferenceEquals(session, published);
+            var staleCommandRejection = exception is WorkspaceCommandException { Error.Code: "workspace.session-changed", Error.SchedulingFailure: null };
+            if (expectedSession is not null && !ReferenceEquals(session, expectedSession) && !ownCommittedFailure && !staleCommandRejection)
+            {
+                if (session is not null) ApplySession(session);
+                Status = "当前工作区已更新或切换；请查看当前工作区。";
+            }
+            else ReportError(exception);
+            return false;
+        }
         finally
         {
             Interlocked.Exchange(ref busy, 0);
@@ -220,8 +250,25 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
             if (!disposed) RefreshAvailability();
         }
     }
+    private static WorkspaceSession? CommittedPublication(Exception exception)
+    {
+        // Export/backup commands preserve their precise published session inside
+        // a material-specific exception, then the view model wraps its error for
+        // the shell. Only follow these known wrappers, never match archive IDs.
+        var error = ((WorkspaceCommandException)exception).Error;
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is WorkspaceCommandException command && ReferenceEquals(command.Error, error) && command.CommittedSession is { } published)
+                return published;
+            if (current is not WorkspaceCommandException and not DrawPackageExportException and not WorkspaceBackupException and not OperationalPackageExportException)
+                break;
+        }
+        return null;
+    }
+
     public void ReportError(Exception exception)
     {
+        LastCommandResult = null;
         LastError = exception is WorkspaceCommandException command ? command.Error : new("desktop.operation-failed", "操作失败：" + exception.Message);
         Status = LastError.Message + " [" + LastError.Code + "]";
         if (LastError.Committed) Status += " 文件已保存；请检查当前快照，必要时重新载入。";
@@ -237,6 +284,9 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
     {
         if (disposed || !ReferenceEquals(workflow.CurrentSession, session)) return;
         var sameWorkspace = CurrentSession?.Workspace.Id == session.Workspace.Id && CurrentSession.WorkspacePath == session.WorkspacePath;
+        if (!sameWorkspace) LastError = null;
+        if (LastCommandResult is { } result && (!ReferenceEquals(result.Workspace, session.Workspace) || result.WorkspacePath != session.WorkspacePath))
+            LastCommandResult = null;
         CurrentSession = session;
         Recovery.RefreshContext();
         Navigator.UpdateWorkspace(session.Workspace.Stage, session.Workspace.Purpose);

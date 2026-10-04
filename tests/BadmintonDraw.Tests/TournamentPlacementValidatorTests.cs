@@ -165,4 +165,27 @@ public sealed class TournamentPlacementValidatorTests
         Assert.Null(forecast.ProbabilityAtOrAboveLimit);
         Assert.Empty(forecast.Distribution);
     }
+
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(8, 2)]
+    public void BoundedQualityReusesExactDailyCapProofForTheSamePlayerAndMatchSet(int cacheEntries, int? expectedMaximum)
+    {
+        var first = Node(1, Player("A"), Player("B"));
+        var winner = Node(2, new EntrantSource.WinnerOf(first.Id), Player("C"));
+        var loser = Node(3, new EntrantSource.LoserOf(first.Id), Player("D"));
+        var request = Request([new(Id(1), "v1", [first, winner, loser])]);
+        request = request with { Resources = request.Resources with { MaxPlayerMatchesPerDay = 2 } };
+        var budget = new SchedulingWorkBudget(new() { MaxCacheEntries = cacheEntries, QualityWorkUnits = 1_400 }, default);
+        Assert.True(GraphSchedulingCandidates.TryCreate(request, budget, out var context));
+        var state = new TournamentSearchState(context!, new Dictionary<Guid, MatchPlacement>
+            { [first.Id] = Place(first, 9), [winner.Id] = Place(winner, 10), [loser.Id] = Place(loser, 10, court: "B") });
+        Assert.Equal(BoundedValidationStatus.Valid, TournamentPlacementValidator.FromContext(context!)
+            .ValidateScheduleBounded(state, budget, SchedulingRunPhase.Validation).Status);
+        var load = new TournamentScheduleQualityAnalyzer().AnalyzeBounded(request, state, budget, true)
+            .PlayerLoads.Single(p => p.PlayerKey == "student:A");
+        Assert.Equal(expectedMaximum, load.MaximumCount);
+        Assert.InRange(load.MaximumLowerBound, 1, 2);
+        Assert.InRange(load.MaximumUpperBound, 2, 3);
+    }
 }

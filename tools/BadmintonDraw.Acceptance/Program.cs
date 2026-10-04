@@ -8,6 +8,16 @@ internal static class V5AcceptanceProgram
     internal static readonly string[] Flows = ["01-public-draw", "02-single", "03-multiple", "04-team", "05-faults", "06-large-292", "07-rejection-345"];
     internal static async Task<int> Run(string[] args)
     {
+        if (Environment.GetEnvironmentVariable(V5SchedulingAuditValidation.WorkerVariable) is { } validationDirectory)
+            return args.Length == 0 ? V5SchedulingAuditValidation.Worker(validationDirectory) : 2;
+        if (args.Contains("--scheduling-audit", StringComparer.Ordinal))
+        {
+            if (args.Length != 4 || args[0] != "--scheduling-audit" || args[2] != "--output" ||
+                string.IsNullOrWhiteSpace(args[1]) || args[1].StartsWith("--", StringComparison.Ordinal) ||
+                string.IsNullOrWhiteSpace(args[3]) || args[3].StartsWith("--", StringComparison.Ordinal))
+            { Console.Error.WriteLine("Usage: --scheduling-audit <input.szbd> --output <new-or-empty-directory>"); return 2; }
+            return V5SchedulingAudit.Run(args[1], args[3]);
+        }
         V5AcceptanceEvidence? evidence = null;
         var success = false; var failures = new List<string>(); var outcomes = new List<object>();
         try

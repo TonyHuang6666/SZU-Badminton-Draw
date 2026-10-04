@@ -12,12 +12,12 @@ internal sealed class ScheduleUiFixture : IDisposable
     public TournamentWorkspaceWorkflow Workflow { get; }
     public AppShellViewModel Shell { get; }
     public ScheduleUiFixture(int count = 1, TournamentWorkspaceWorkflow? workflow = null,
-        TournamentPurpose purpose = TournamentPurpose.FullTournament)
+        TournamentPurpose purpose = TournamentPurpose.FullTournament, bool roundRobin = false, bool deterministicPlayerIds = false)
     {
         Workflow = workflow ?? new();
         var disciplines = new[] { EventDiscipline.MenSingles, EventDiscipline.WomenSingles, EventDiscipline.MenDoubles };
         Workflow.CreateWorkspace(new("统一赛程测试", TournamentKind.Individual, purpose,
-            disciplines.Take(count).Select(d => new WorkspaceProjectRequest(d, CompetitionMode.SinglesKnockout)).ToArray(),
+            disciplines.Take(count).Select(d => new WorkspaceProjectRequest(d, roundRobin ? CompetitionMode.SinglesRoundRobin : CompetitionMode.SinglesKnockout)).ToArray(),
             Path.Combine(DirectoryPath, "比赛.szbd")));
         foreach (var project in Workflow.CurrentSession!.Workspace.Projects)
         {
@@ -26,9 +26,10 @@ internal sealed class ScheduleUiFixture : IDisposable
             {
                 var sheet = book.AddWorksheet("名单"); sheet.Cell(1, 1).Value = "姓名"; sheet.Cell(1, 2).Value = "学号";
                 if (project.Discipline == EventDiscipline.MenDoubles) { sheet.Cell(1, 3).Value = "搭档姓名"; sheet.Cell(1, 4).Value = "搭档学号"; }
-                for (var i = 1; i <= 2; i++)
+                for (var i = 1; i <= (roundRobin ? 4 : 2); i++)
                 {
-                    sheet.Cell(i + 1, 1).Value = project.DisplayName + i; sheet.Cell(i + 1, 2).Value = project.Id + "-" + i;
+                    sheet.Cell(i + 1, 1).Value = project.DisplayName + i;
+                    sheet.Cell(i + 1, 2).Value = (deterministicPlayerIds ? "ui-player" : project.Id.ToString()) + "-" + i;
                     if (project.Discipline == EventDiscipline.MenDoubles) { sheet.Cell(i + 1, 3).Value = "搭档" + i; sheet.Cell(i + 1, 4).Value = project.Id + "-p-" + i; }
                 }
                 book.SaveAs(path);

@@ -88,12 +88,12 @@
         </StackPanel></Border>
         <Border Classes="card" IsVisible="{Binding HasFailure}" Background="{DynamicResource AppErrorCardBackgroundBrush}">
           <StackPanel Spacing="10">
-            <TextBlock Text="暂时无法排下全部比赛" FontWeight="SemiBold" Foreground="{DynamicResource AppErrorTextBrush}" />
-            <TextBlock Text="已保存的比赛资料没有改变。请根据下面的原因增加时间、场地，或调整相关设置后重试。" TextWrapping="Wrap" />
-            <SelectableTextBlock Text="{Binding FailureDetails}" TextWrapping="Wrap" />
-            <Expander Header="技术详情" HorizontalAlignment="Stretch"><SelectableTextBlock Text="{Binding FailureTechnicalDetails}" TextWrapping="Wrap" Margin="0,10,0,0" /></Expander>
+            <TextBlock Text="{Binding FailureSummary}" FontWeight="SemiBold" Foreground="{DynamicResource AppErrorTextBrush}" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding FailureAdvice}" TextWrapping="Wrap" />
+            <Expander Header="未安排场次与原因详情" IsExpanded="False" HorizontalAlignment="Stretch"><SelectableTextBlock Text="{Binding FailureTechnicalDetails}" TextWrapping="Wrap" Margin="0,10,0,0" /></Expander>
           </StackPanel>
         </Border>
+        <Border Classes="callout" IsVisible="{Binding HasSuccessSummary}"><SelectableTextBlock Text="{Binding SuccessSummary}" TextWrapping="Wrap" /></Border>
         <StackPanel Classes="editable-settings" Spacing="22">
           <Border x:Name="MultiProjectNotice" Classes="inset" IsVisible="{Binding IsMultiProject}">
             <StackPanel Spacing="6"><TextBlock Text="多个项目，一起安排" FontWeight="SemiBold" />
@@ -166,7 +166,7 @@
               <ItemsControl ItemsSource="{Binding Days}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ScheduleDayEditorViewModel">
                 <Border Classes="card" Margin="0,0,0,12"><StackPanel Spacing="14">
                   <TextBlock Text="{Binding DateText}" FontSize="18" FontWeight="SemiBold" />
-                  <TextBlock Classes="muted" Text="百分比留空使用所选偏好的默认值；填写 0 表示明确的零目标。" TextWrapping="Wrap" />
+                  <TextBlock Classes="muted" Text="百分比留空表示由所选策略自动安排；填写 0 表示明确的零目标。已填写的目标会继续作为自定义偏好保留。" TextWrapping="Wrap" />
                   <WrapPanel>
                     <StackPanel Width="180" Spacing="6" Margin="0,0,12,8"><TextBlock Text="目标负载 %" /><TextBox Text="{Binding TargetLoadText}" PlaceholderText="使用默认值" AutomationProperties.Name="每日目标负载百分比" /></StackPanel>
                     <StackPanel Width="180" Spacing="6" Margin="0,0,12,8"><TextBlock Text="警戒负载 %" /><TextBox Text="{Binding WarningLoadText}" PlaceholderText="目标 + 15" AutomationProperties.Name="每日警戒负载百分比" /></StackPanel>

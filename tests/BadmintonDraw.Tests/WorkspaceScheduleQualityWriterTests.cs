@@ -107,6 +107,46 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
     }
 
     [Fact]
+    public void UnknownMaximumIsNotWrittenAsZeroOrUpperBound()
+    {
+        var (_, book) = Write(WorkspaceScheduleQualityFixture.UnknownMaximum()); using (book)
+        {
+            var row = book.Worksheet(Sheets[3]).RowsUsed().Single(r => r.Cell(1).GetString() == "student:P0");
+            Assert.Equal("未完成计算", row.Cell(5).GetString());
+            Assert.Contains("下界", row.Cell(11).GetString());
+            Assert.Contains("上界", row.Cell(11).GetString());
+            Assert.Contains("未完成", Text(book.Worksheet(Sheets[0])));
+        }
+    }
+
+    [Fact]
+    public void IncompleteValidationDoesNotClaimZeroConflicts()
+    {
+        var (_, book) = Write(WorkspaceScheduleQualityFixture.UnknownMaximum()); using (book)
+        {
+            var overview = book.Worksheet(Sheets[0]);
+            Assert.Contains("未完成", Value(overview, "硬约束违规项数").GetString());
+            Assert.Contains("未完成", Value(overview, "全局检查结论").GetString());
+            Assert.DoesNotContain("未发现硬约束违规", Text(overview));
+            Assert.Contains("未完成", Text(book.Worksheet(Sheets[2])));
+        }
+    }
+
+    [Fact]
+    public void IncompleteSoftAnalysisIsNotWrittenAsZero()
+    {
+        var workspace = WorkspaceScheduleQualityFixture.UnknownMaximum();
+        // Repeated resource windows make the bounded integration allowance refuse work.
+        var resource = workspace.Schedule!.Resources;
+        var day = resource.Days[0] with { UnavailableCourtWindows = Enumerable.Range(0, 2_000)
+            .Select(_ => new BadmintonDraw.Core.ScheduleCourtAvailabilityBlock(new(17, 58), new(18, 0), ["A"])).ToArray() };
+        resource = resource with { Days = [day] };
+        workspace = workspace with { Resources = resource, Schedule = workspace.Schedule with { Resources = resource } };
+        var (_, book) = Write(workspace); using (book)
+            Assert.Equal("未完成计算", Value(book.Worksheet(Sheets[0]), "当前基线软约束评分").GetString());
+    }
+
+    [Fact]
     public void RealNineteenVariableForecastKeepsUnknownProbabilityAndExactCounts()
     {
         var workspace = WorkspaceScheduleQualityFixture.UnknownForecast();

@@ -76,6 +76,22 @@ internal static class WorkspaceScheduleQualityFixture
             new Dictionary<WorkspaceMatchKey, TournamentMatchResult>());
     }
 
+    internal static TournamentWorkspace UnknownMaximum()
+    {
+        var roster = Enumerable.Range(0, 259).Select(i => new DrawParticipant("P" + i, PrimaryStudentId: "P" + i)).ToArray();
+        var players = roster.Select(r => ProjectEntrantIdentity.Create(EventDiscipline.MenSingles, r)).ToArray();
+        var projectId = Id(1);
+        var first = new MatchNode(Id(100), projectId, "first", 1, 1, "初赛", "初赛", players[0], players[1], 1, []);
+        var nodes = new[] { first }.Concat(Enumerable.Range(1, 257).Select(i => new MatchNode(Id(100 + i), projectId,
+            "next-" + i, i + 1, 1, "后续", "后续 " + i, new EntrantSource.WinnerOf(first.Id), players[i + 1], 1, [first.Id]))).ToArray();
+        var project = Project(projectId, EventDiscipline.MenSingles, CompetitionMode.SinglesRoundRobin, 0, roster, nodes);
+        var resources = new TournamentResourcePlan([new(new(2026, 9, 19), new(9, 0), new(18, 0), ["A"])], 1, 0, 200);
+        var placements = nodes.ToDictionary(n => n.Id, n => new MatchPlacement(n.Id, "2026-09-19",
+            new TimeOnly(9, 0).AddMinutes(n.Order * 2), new TimeOnly(9, 1).AddMinutes(n.Order * 2), "A"));
+        return Workspace([project], resources, new(ScheduleAutoSchedulingStrategy.Compact, [], false, [], []), placements,
+            new Dictionary<WorkspaceMatchKey, TournamentMatchResult>());
+    }
+
     private static TournamentProject Project(Guid id, EventDiscipline discipline, CompetitionMode mode, int order,
         DrawParticipant[] roster, IReadOnlyList<MatchNode> nodes)
     {

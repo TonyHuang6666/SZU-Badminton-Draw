@@ -7,6 +7,9 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <None Include="../../tests/BadmintonDraw.Tests/Fixtures/KnownFeasible292.json" Link="Fixtures/KnownFeasible292.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('../../tests/BadmintonDraw.Tests/Fixtures/KnownFeasible292.json')" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="ClosedXML" Version="0.104.2" />
   </ItemGroup>
   <ItemGroup>

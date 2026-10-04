@@ -32,7 +32,13 @@ internal static class V5ArtifactValidator
         var request = new TournamentSchedulingRequest(w.Projects.Select(p => p.MatchGraph!).ToArray(), w.Resources!, schedule.Policy)
         { ProjectNames = w.Projects.ToDictionary(p => p.Id, p => p.DisplayName), Results = w.Results, BaselinePlacements = schedule.Placements,
             LockedMatchIds = w.Results.Keys.Select(k => k.MatchId).ToArray(), ScheduleRevision = schedule.Revision };
-        var validation = new TournamentPlacementValidator(request).ValidateSchedule(schedule.Placements);
+        var quality = new TournamentScheduleQualityAnalyzer().Analyze(request, schedule.Placements);
+        var validation = new { IsValid = quality.HardValidationComplete && quality.HardConstraintCount == 0,
+            quality.HardValidationComplete, quality.PlayerAnalysisComplete, quality.Violations };
+        if (!quality.HardValidationComplete)
+            evidence.Json(prefix + "-schedule-validation.json", new { validation, Quality = quality,
+                CurrentSnapshotBaseline = true, HistoricalMovementClaim = false, MatchCount = nodes.Length });
+        Require(quality.HardValidationComplete, "Bounded whole-workspace validation did not complete; conflicts remain unknown.");
         Require(validation.IsValid && validation.Violations.Count == 0, "Fresh whole-workspace placement validator found a violation.");
         Require(nodes.Select(x => x.Node.Id).ToHashSet().SetEquals(schedule.Placements.Keys), "Schedule node coverage differs.");
         long Ticks(MatchPlacement p, bool end = false) => DateOnly.ParseExact(p.DayLabel, "yyyy-MM-dd", CultureInfo.InvariantCulture).ToDateTime(end ? p.EndTime : p.StartTime).Ticks;
@@ -67,7 +73,7 @@ internal static class V5ArtifactValidator
         { var p = schedule.Placements[x.Node.Id]; return new { x.Project.Id, x.Project.SortOrder, x.Project.Discipline, MatchId = x.Node.Id, x.Node.OriginalMatchId, p.DayLabel, StartTicks = Ticks(p), EndTicks = Ticks(p, true), p.Court }; }).ToArray();
         evidence.Text(prefix + "-placements.csv", Csv("ProjectId", "Ordinal", "Discipline", "MatchId", "OriginalMatchId", "Day", "StartTicks", "EndTicks", "Court") + "\n" +
             string.Join("\n", rows.Select(r => Csv(r.Id, r.SortOrder, r.Discipline, r.MatchId, r.OriginalMatchId, r.DayLabel, r.StartTicks, r.EndTicks, r.Court))));
-        evidence.Json(prefix + "-schedule-validation.json", new { validation, Quality = new TournamentScheduleQualityAnalyzer().Analyze(request, schedule.Placements),
+        evidence.Json(prefix + "-schedule-validation.json", new { validation, Quality = quality,
             CurrentSnapshotBaseline = true, HistoricalMovementClaim = false, MatchCount = nodes.Length,
             RawGuidPlacementSha256 = HashText(JsonSerializer.Serialize(rows)), LogicalPlacementSha256 = HashText(JsonSerializer.Serialize(rows.Select(r => new { r.SortOrder, r.Discipline, r.OriginalMatchId, r.DayLabel, r.StartTicks, r.EndTicks, r.Court }))) });
     }

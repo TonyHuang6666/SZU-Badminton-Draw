@@ -326,6 +326,60 @@ public sealed class AppShellViewModelTests : IDisposable
         Assert.Equal(1, shell.CurrentSession.Workspace.Revision);
     }
 
+    [Theory]
+    [InlineData(false, "none")]
+    [InlineData(true, "none")]
+    [InlineData(false, "draw")]
+    [InlineData(true, "draw")]
+    [InlineData(false, "backup")]
+    [InlineData(true, "backup")]
+    public async Task ReopenedSameArchiveDoesNotOwnEarlierCommittedFailure(bool switchAwayFirst, string wrapper)
+    {
+        var store = new FailingReadStore(); var workflow = new TournamentWorkspaceWorkflow(store);
+        using var shell = Shell(workflow);
+        await shell.CreateWorkspaceAsync(Request()); var original = shell.CurrentSession!;
+        var other = new TournamentWorkspaceWorkflow().CreateWorkspace(Request("另一个")).WorkspacePath;
+        WorkspaceSession? failedPublication = null;
+        store.FailRead = true;
+        Assert.False(await shell.RunWorkspaceCommandAsync(original, (flow, revision) =>
+        {
+            try { return flow.UpgradeToFullTournament(revision); }
+            catch (WorkspaceCommandException exception)
+            {
+                Assert.True(exception.Error.Committed);
+                failedPublication = flow.CurrentSession;
+                store.FailRead = false;
+                if (switchAwayFirst) flow.OpenWorkspace(other);
+                flow.OpenWorkspace(original.WorkspacePath);
+                if (wrapper == "draw") throw new WorkspaceCommandException(exception.Error,
+                    new DrawPackageExportException(exception.Error, [], null, exception));
+                if (wrapper == "backup") throw new WorkspaceCommandException(exception.Error,
+                    new WorkspaceBackupException(exception.Error, null, null, exception));
+                throw;
+            }
+        }, "已升级"));
+        Assert.NotNull(failedPublication); Assert.NotSame(failedPublication, shell.CurrentSession);
+        Assert.Equal(original.Workspace.Id, shell.CurrentSession!.Workspace.Id);
+        Assert.Equal(original.WorkspacePath, shell.CurrentSession.WorkspacePath);
+        Assert.Equal(1, shell.CurrentSession.Workspace.Revision);
+        Assert.False(shell.CurrentSession.RequiresReload); Assert.Null(shell.LastError); Assert.Null(shell.LastCommandResult);
+        Assert.DoesNotContain("重新读取失败", shell.Status);
+    }
+
+    [Fact]
+    public async Task SameOperationCommittedFailureStillSurfacesAfterSuccessfulRefresh()
+    {
+        var store = new FailingReadStore(); var workflow = new TournamentWorkspaceWorkflow(store);
+        using var shell = Shell(workflow);
+        await shell.CreateWorkspaceAsync(Request()); var original = shell.CurrentSession!;
+        store.FailMutationReadBack = true;
+        Assert.False(await shell.RunWorkspaceCommandAsync(original, (flow, revision) => flow.UpgradeToFullTournament(revision), "已升级"));
+        Assert.NotSame(original, shell.CurrentSession);
+        Assert.False(shell.CurrentSession!.RequiresReload); Assert.Equal(1, shell.CurrentSession.Workspace.Revision);
+        Assert.True(shell.LastError!.Committed); Assert.Equal("CommittedReadFailed", shell.LastError.Code);
+        Assert.Contains("文件已保存", shell.Status); Assert.Null(shell.LastCommandResult);
+    }
+
     private sealed class FailingPublish : WorkspaceFileOperations
     {
         public bool Fail { get; set; }
@@ -340,12 +394,13 @@ public sealed class AppShellViewModelTests : IDisposable
     {
         private readonly TournamentWorkspaceStore actual = new();
         public bool FailRead { get; set; }
+        public bool FailMutationReadBack { get; set; }
         public TournamentWorkspace Create(string path, TournamentWorkspace workspace) => actual.Create(path, workspace);
         public TournamentWorkspace Read(string path) => FailRead ? throw new IOException("reread failed") : actual.Read(path);
         public WorkspaceMutationResult Mutate(string path, long revision, Func<TournamentWorkspace, TournamentWorkspace> mutation)
         {
             var result = actual.Mutate(path, revision, mutation);
-            if (FailRead) throw new WorkspaceStoreException("CommittedReadFailed", "文件已保存，但重新读取失败。",
+            if (FailRead || FailMutationReadBack) throw new WorkspaceStoreException("CommittedReadFailed", "文件已保存，但重新读取失败。",
                 backupPath: result.BackupPath, committed: true);
             return result;
         }

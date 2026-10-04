@@ -14,7 +14,10 @@ public sealed class WorkspaceCommandException(WorkspaceError error, Exception? i
 {
     public WorkspaceError Error { get; } = error;
 
-    internal static WorkspaceCommandException From(Exception exception)
+    /// <summary>The exact replacement session published while handling this command's committed store failure.</summary>
+    public WorkspaceSession? CommittedSession { get; internal init; }
+
+    internal static WorkspaceCommandException From(Exception exception, WorkspaceSession? committedSession = null)
     {
         if (exception is WorkspaceCommandException command) return command;
         var store = exception as WorkspaceStoreException;
@@ -34,6 +37,6 @@ public sealed class WorkspaceCommandException(WorkspaceError error, Exception? i
             _ => ("workspace.operation-failed", "操作失败：" + exception.Message)
         };
         return new(new(code, message, store?.CandidatePath, store?.BackupPath, store?.Committed ?? false,
-            (cause as WorkspaceCommandException)?.Error.SchedulingFailure), exception);
+            (cause as WorkspaceCommandException)?.Error.SchedulingFailure), exception) { CommittedSession = committedSession };
     }
 }

@@ -12,6 +12,201 @@ namespace BadmintonDraw.Desktop.Tests;
 public sealed class ScheduleSetupPageViewModelTests
 {
     [Fact]
+    public async Task PlayerFailureKeepsStudentIdentityOutOfOrdinarySummaryAndShellStatus()
+    {
+        using var fixture = new ScheduleUiFixture(roundRobin: true, deterministicPlayerIds: true); var page = Page(fixture);
+        page.DailyMaximumText = "1";
+        await page.GenerateCommand.ExecuteAsync();
+        Assert.StartsWith("student:ui-player-", page.Failure!.CapacityEvidence!.PlayerKey);
+        Assert.Contains("男子单打", page.FailureSummary);
+        Assert.DoesNotContain("ui-player-", page.FailureSummary);
+        Assert.DoesNotContain("ui-player-", fixture.Shell.Status);
+        Assert.Contains("ui-player-", page.FailureTechnicalDetails);
+        Assert.Contains("涉及项目：男子单打", page.FailureTechnicalDetails);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void FailureDetailsUseCapturedSettingsAndDistinguishNotRunFromUnknown(bool contextFailure)
+    {
+        using var fixture = new ScheduleUiFixture(); var page = Page(fixture); var request = page.BuildSetup();
+        var options = contextFailure ? TournamentSchedulingOptions.Default with { ContextWorkUnits = 0 }
+            : TournamentSchedulingOptions.Default with { PreflightWorkUnits = 0, SearchWorkUnits = 0 };
+        var result = Assert.IsType<TournamentSchedulingResult.Failure>(new TournamentScheduler().Generate(new(
+            fixture.Workflow.CurrentSession!.Workspace.Projects.Select(p => p.MatchGraph!).ToArray(), request.Resources, request.Policy), options));
+        typeof(ScheduleSetupPageViewModel).GetProperty(nameof(page.Failure))!.SetValue(page, result.Detail);
+        page.MinimumRestText = "47"; page.DailyMaximumText = "12"; page.StrategyIndex = 1;
+        var details = page.FailureTechnicalDetails;
+        Assert.Contains(contextFailure ? "Context" : "Search", details);
+        Assert.Contains(contextFailure ? "NotRun" : "Unknown", details);
+        Assert.Contains("预算拒绝支出", details);
+        Assert.Contains(contextFailure ? "Context=0" : "Preflight=0", details);
+        Assert.Contains("最短休息：30 分钟", details); Assert.DoesNotContain("47 分钟", details);
+        Assert.Contains("每日上限：4 场", details); Assert.Contains("策略：尽快完成", details);
+        Assert.Contains(request.Resources.Days[0].DayLabel, details); Assert.Contains("B1", details);
+        Assert.Contains("ProjectTimings", details); // Complete captured policy, including duration overrides.
+    }
+
+    [Fact]
+    public void NonBudgetSearchLimitDoesNotClaimBudgetExhaustion()
+    {
+        using var fixture = new ScheduleUiFixture(); var page = Page(fixture); var request = page.BuildSetup();
+        var result = Assert.IsType<TournamentSchedulingResult.Failure>(new TournamentScheduler().Generate(new(
+            fixture.Workflow.CurrentSession!.Workspace.Projects.Select(p => p.MatchGraph!).ToArray(), request.Resources, request.Policy),
+            TournamentSchedulingOptions.Default with { MaxDecisionAlternatives = 0 }));
+        typeof(ScheduleSetupPageViewModel).GetProperty(nameof(page.Failure))!.SetValue(page, result.Detail);
+        Assert.Contains("未记录预算拒绝支出", page.FailureTechnicalDetails);
+        Assert.Contains("有界搜索", page.FailureTechnicalDetails);
+        Assert.DoesNotContain("预算已用尽", page.FailureTechnicalDetails);
+    }
+
+    [Fact]
+    public async Task RegenerationShowsActualMovementAndReopenDoesNotInventComparison()
+    {
+        using var fixture = new ScheduleUiFixture(); var page = Page(fixture);
+        page.Days[0].DateText = "2026-09-13";
+        await page.GenerateCommand.ExecuteAsync();
+        Assert.Contains("1 场", page.SuccessSummary); Assert.Contains("策略：尽快完成", page.SuccessSummary);
+        Assert.DoesNotContain("重新生成变动", page.SuccessSummary);
+        page.Days[0].DateText = "2026-09-14";
+        await page.GenerateCommand.ExecuteAsync();
+        Assert.Contains("重新生成变动：1 场", page.SuccessSummary);
+        Assert.Contains("跨日 1 场", page.SuccessSummary);
+        fixture.Shell.Navigate(WorkspaceRoute.Overview); fixture.Shell.Navigate(WorkspaceRoute.ScheduleSetup);
+        var reopened = Assert.IsType<ScheduleSetupPageViewModel>(fixture.Shell.CurrentPage);
+        Assert.Contains("1 场", reopened.SuccessSummary); Assert.Contains("策略：尽快完成", reopened.SuccessSummary);
+        Assert.DoesNotContain("重新生成变动", reopened.SuccessSummary);
+    }
+
+    [Fact]
+    public async Task IncompleteRegenerationAnalysisDoesNotReportZeroMovement()
+    {
+        using var fixture = new ScheduleUiFixture(); var page = Page(fixture);
+        await page.GenerateCommand.ExecuteAsync();
+        var workspace = fixture.Workflow.CurrentSession!.Workspace; var request = page.BuildSetup();
+        var result = Assert.IsType<TournamentSchedulingResult.Success>(new TournamentScheduler().Generate(new(
+            workspace.Projects.Select(p => p.MatchGraph!).ToArray(), request.Resources, request.Policy)
+            { BaselinePlacements = workspace.Schedule!.Placements }, TournamentSchedulingOptions.Default with { QualityWorkUnits = 0 }));
+        var summary = (string)typeof(ScheduleSetupPageViewModel).GetMethod("BuildSuccessSummary", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(null, [result.Schedule, result.Quality, result.Diagnostics])!;
+        Assert.Contains("重新生成变动：分析未完成", summary);
+        Assert.DoesNotContain("变动：0 场", summary);
+        Assert.Contains("1 场", summary);
+    }
+
+    [Fact]
+    public async Task ProvenPlayerCapacityFailureShowsCountAndUsefulAdvice()
+    {
+        using var fixture = new ScheduleUiFixture(roundRobin: true, deterministicPlayerIds: true); var page = Page(fixture);
+        page.DailyMaximumText = "1";
+        await page.GenerateCommand.ExecuteAsync();
+        Assert.Equal("PlayerDailyCap", page.Failure!.CapacityEvidence!.Kind);
+        var summary = page.FailureSummary; var advice = page.FailureAdvice;
+        var evidence = page.Failure.CapacityEvidence;
+        Assert.InRange(evidence.RequiredLowerBound, 2, 3);
+        Assert.Equal(evidence.WitnessMatchIds.Count, evidence.RequiredLowerBound);
+        Assert.Equal(1, evidence.CapacityUpperBound);
+        Assert.Contains($"至少需 {evidence.RequiredLowerBound} 场", summary);
+        Assert.Contains("1 天 × 每天 1 场 = 1 场", summary); Assert.Contains("原赛程没有改变", summary);
+        Assert.Contains("比赛日", advice); Assert.DoesNotContain("增加场地", advice);
+        Assert.DoesNotContain(page.Failure.CapacityEvidence.WitnessMatchIds[0].ToString(), summary);
+    }
+
+    [Fact]
+    public void SearchIncompleteNeverClaimsImpossible()
+    {
+        using var fixture = new ScheduleUiFixture(); var page = Page(fixture); var request = page.BuildSetup();
+        var result = Assert.IsType<TournamentSchedulingResult.Failure>(new TournamentScheduler().Generate(new(
+            fixture.Workflow.CurrentSession!.Workspace.Projects.Select(p => p.MatchGraph!).ToArray(), request.Resources, request.Policy),
+            TournamentSchedulingOptions.Default with { SearchWorkUnits = 0 }));
+        // Supply the real core failure to the presentation boundary without making the default desktop budget tiny.
+        typeof(ScheduleSetupPageViewModel).GetProperty(nameof(page.Failure))!.SetValue(page, result.Detail);
+        var summary = page.FailureSummary;
+        Assert.Contains("未完成", summary); Assert.Contains("不表示", summary); Assert.Contains("原赛程没有改变", summary);
+    }
+
+    [Fact]
+    public async Task FailureRetainsCurrentEditorInputs()
+    {
+        using var fixture = new ScheduleUiFixture(); var page = Page(fixture);
+        await page.GenerateCommand.ExecuteAsync();
+        Assert.NotEmpty(page.SuccessSummary);
+        page.Days[0].EndText = "09:05"; page.MinimumRestText = "47";
+        await page.GenerateCommand.ExecuteAsync();
+        Assert.Equal("09:05", page.Days[0].EndText); Assert.Equal("47", page.MinimumRestText);
+        Assert.Empty(page.SuccessSummary);
+        Assert.Null(fixture.Shell.LastCommandResult);
+        page.Days[0].EndText = "09:";
+        await page.GenerateCommand.ExecuteAsync();
+        Assert.Null(page.Failure); Assert.Empty(page.FailureSummary);
+    }
+
+    [Fact]
+    public async Task SuccessfulGenerationShowsPerDayUtilization()
+    {
+        using var fixture = new ScheduleUiFixture(); var page = Page(fixture);
+        page.Days[0].DateText = "2026-09-13"; page.Days[0].StartText = "09:00"; page.Days[0].EndText = "10:00";
+        await page.GenerateCommand.ExecuteAsync();
+        var summary = page.SuccessSummary;
+        Assert.Contains("2026-09-13", summary); Assert.Contains("30 / 120", summary); Assert.Contains("25", summary);
+        Assert.NotNull(fixture.Shell.LastCommandResult);
+        fixture.Shell.Navigate(WorkspaceRoute.Overview); fixture.Shell.Navigate(WorkspaceRoute.ScheduleSetup);
+        var reopened = Assert.IsType<ScheduleSetupPageViewModel>(fixture.Shell.CurrentPage);
+        Assert.Contains("30 / 120", reopened.SuccessSummary);
+        Assert.DoesNotContain("预算", reopened.SuccessSummary);
+    }
+
+    [Fact]
+    public async Task ResultFromWorkspaceSwitchedBeforeReturnIsNeverPresentedAsSuccess()
+    {
+        using var fixture = new ScheduleUiFixture(); using var other = new ScheduleUiFixture(); var page = Page(fixture); var request = page.BuildSetup();
+        var succeeded = await fixture.Shell.RunWorkspaceCommandAsync(fixture.Workflow.CurrentSession!, (workflow, revision) =>
+        {
+            var result = workflow.GenerateSchedule(request.Resources, request.Policy, revision);
+            workflow.OpenWorkspace(other.Workflow.CurrentSession!.WorkspacePath);
+            return result;
+        }, "旧工作区生成成功");
+        Assert.False(succeeded);
+        Assert.Null(fixture.Shell.LastCommandResult);
+        Assert.DoesNotContain("旧工作区生成成功", fixture.Shell.Status);
+    }
+
+    [Fact]
+    public async Task FailureFromWorkspaceSwitchedBeforeReturnDoesNotLeakIntoCurrentSession()
+    {
+        using var fixture = new ScheduleUiFixture(); using var other = new ScheduleUiFixture(); var page = Page(fixture); var request = page.BuildSetup();
+        var succeeded = await fixture.Shell.RunWorkspaceCommandAsync(fixture.Workflow.CurrentSession!, (workflow, revision) =>
+        {
+            try { return workflow.GenerateSchedule(request.Resources, request.Policy, revision,
+                TournamentSchedulingOptions.Default with { SearchWorkUnits = 0 }); }
+            catch
+            {
+                workflow.OpenWorkspace(other.Workflow.CurrentSession!.WorkspacePath);
+                throw;
+            }
+        }, "旧工作区生成成功");
+        Assert.False(succeeded); Assert.Null(fixture.Shell.LastCommandResult); Assert.Null(fixture.Shell.LastError);
+        Assert.Equal(other.Workflow.CurrentSession!.Workspace.Id, fixture.Shell.CurrentSession!.Workspace.Id);
+        Assert.DoesNotContain("搜索", fixture.Shell.Status);
+    }
+
+    [Fact]
+    public void IncompleteQualityMarksEveryUnanalyzedDayWithoutInventingZeroLoad()
+    {
+        using var fixture = new ScheduleUiFixture(); var page = Page(fixture); var request = page.BuildSetup();
+        var result = Assert.IsType<TournamentSchedulingResult.Success>(new TournamentScheduler().Generate(new(
+            fixture.Workflow.CurrentSession!.Workspace.Projects.Select(p => p.MatchGraph!).ToArray(), request.Resources, request.Policy),
+            TournamentSchedulingOptions.Default with { QualityWorkUnits = 0 }));
+        var summary = (string)typeof(ScheduleSetupPageViewModel).GetMethod("BuildSuccessSummary", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(null, [result.Schedule, result.Quality, result.Diagnostics])!;
+        Assert.Contains(request.Resources.Days[0].DayLabel, summary);
+        Assert.Contains("负荷分析未完成", summary);
+        Assert.DoesNotContain("0 /", summary);
+        Assert.Contains("不能", summary);
+    }
+
+    [Fact]
     public void CapacityEstimateUsesCourtBlocksRefereeLimitsAndEditedProjectDurations()
     {
         using var fixture = new ScheduleUiFixture(3); var page = Page(fixture);

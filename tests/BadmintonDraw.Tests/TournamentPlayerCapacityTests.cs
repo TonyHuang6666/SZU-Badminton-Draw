@@ -17,13 +17,20 @@ public sealed class TournamentPlayerCapacityTests
         var failure = Assert.IsType<TournamentSchedulingResult.Failure>(new TournamentScheduler().Generate(request)).Detail;
         var issue = Assert.Single(failure.Violations);
         Assert.Equal(SchedulingConstraintCode.DailyMatchLimit, issue.Code);
-        Assert.Contains("student:shared", issue.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("student:shared", failure.CapacityEvidence!.PlayerKey);
+        Assert.Contains("共享选手", issue.Message);
+        Assert.DoesNotContain("student:shared", issue.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("至少 3", issue.Message);
         Assert.Contains("1 个比赛日", issue.Message);
         Assert.Contains("每日 2", issue.Message);
         Assert.DoesNotContain(SchedulingConstraintCode.SearchExhausted, failure.Violations.Select(v => v.Code));
         Assert.All(failure.Capacity, d => Assert.Equal(0, d.RequiredPlacedMinutes));
         Assert.Equal(3, failure.UnplacedMatches.Count);
+        Assert.Equal("PlayerDailyCap", failure.CapacityEvidence!.Kind);
+        Assert.Equal(3, failure.CapacityEvidence.RequiredLowerBound);
+        Assert.Equal(2, failure.CapacityEvidence.CapacityUpperBound);
+        Assert.Equal(request.MatchGraphs.SelectMany(g => g.Matches).Select(n => n.Id).Order(), failure.CapacityEvidence.WitnessMatchIds.Order());
+        Assert.Empty(failure.CapacityEvidence.OutcomeConditions);
     }
 
     [Fact]
@@ -153,21 +160,20 @@ public sealed class TournamentPlayerCapacityTests
     [Fact]
     public void LaterPlayersDoNotReceiveAFreshProofBudgetAfterEarlierPlayersUseIt()
     {
-        var source = Node(1, Player("A"), Player("B"));
-        var graph = new MatchGraph(Id(1), "v1", [source,
-            Node(2, new EntrantSource.WinnerOf(source.Id), Player("C")),
-            Node(3, new EntrantSource.LoserOf(source.Id), Player("D")),
-            Node(4, Player("E"), Player("F")), Node(5, Player("E"), Player("G")), Node(6, Player("E"), Player("H"))]);
-        var request = Request([graph], 12);
-        request = request with { Resources = request.Resources with { MaxPlayerMatchesPerDay = 2 } };
-        // A and B each have three alternatives but at most two compatible matches;
-        // E is truly overloaded. The small shared budget runs out before proving E.
-        var limited = Assert.IsType<TournamentSchedulingResult.Failure>(GenerateWithBudget(request, 75)).Detail;
-        Assert.Contains(limited.Violations, v => v.Code == SchedulingConstraintCode.SearchExhausted);
-        Assert.True(limited.Capacity.Sum(d => d.RequiredPlacedMinutes) > 0);
-        var proved = Assert.IsType<TournamentSchedulingResult.Failure>(new TournamentScheduler().Generate(request)).Detail;
-        Assert.Equal(SchedulingConstraintCode.DailyMatchLimit, Assert.Single(proved.Violations).Code);
-        Assert.All(proved.Capacity, d => Assert.Equal(0, d.RequiredPlacedMinutes));
+        IReadOnlyList<IReadOnlyList<ConditionalPlayerPath>> matches = Enumerable.Range(0, 3)
+            .Select(_ => (IReadOnlyList<ConditionalPlayerPath>)[new ConditionalPlayerPath("shared", "Shared", new Dictionary<Guid, bool>())]).ToArray();
+        var shared = new SchedulingWorkBudget(new() { PreflightWorkUnits = 100_000 }, default);
+        var earlierPlayer = new AppearanceProofBudget(shared, SchedulingRunPhase.Preflight);
+        Assert.Equal(AppearanceProof.ProvenAtLeast, ConditionalPlayerPaths.ProveAtLeast(matches, 3, earlierPlayer));
+        Assert.True(shared.UsedWorkUnits[SchedulingRunPhase.Preflight] > 0);
+
+        // Consume what remains without assuming which player or path was visited first.
+        Assert.True(shared.TrySpend(SchedulingRunPhase.Preflight, shared.Remaining(SchedulingRunPhase.Preflight)));
+        var laterPlayer = new AppearanceProofBudget(shared, SchedulingRunPhase.Preflight);
+        Assert.Equal(AppearanceProof.Unknown, ConditionalPlayerPaths.ProveAtLeast(matches, 3, laterPlayer));
+        Assert.True(laterPlayer.Exhausted);
+        Assert.Equal(100_000, shared.UsedWorkUnits[SchedulingRunPhase.Preflight]);
+        Assert.Equal(AppearanceProof.ProvenAtLeast, ConditionalPlayerPaths.ProveAtLeast(matches, 3, new AppearanceProofBudget(100_000)));
     }
 
     private static TournamentSchedulingRequest ThreeProjects(int cap)

@@ -2,11 +2,14 @@ namespace BadmintonDraw.Core.Scheduling;
 
 internal static class TournamentScheduleSpreader
 {
-    internal static Dictionary<Guid, MatchPlacement> Spread(TournamentPlacementValidator validator, Dictionary<Guid, MatchPlacement> original)
+    internal static IReadOnlyDictionary<Guid, MatchPlacement> Spread(TournamentPlacementValidator validator,
+        IReadOnlyDictionary<Guid, MatchPlacement> original, SchedulingWorkBudget budget, TournamentSchedulingOptions options)
     {
         var context = validator.Context;
         if (context.Request.Policy.Strategy == ScheduleAutoSchedulingStrategy.Compact || context.Request.BaselinePlacements is not null)
             return original;
+        if (!budget.TrySpend(SchedulingRunPhase.Optimization, 1L + original.Count * (long)(context.Days.Length + 8) +
+            context.Paths.Values.Sum(p => (long)p.Count))) return original;
         var proposal = new Dictionary<Guid, MatchPlacement>(original);
         foreach (var day in context.Days)
         {
@@ -26,6 +29,7 @@ internal static class TournamentScheduleSpreader
         }
         // A referee window, locked match, dependency or compatible player path can invalidate
         // a spread. Retain the complete previous valid schedule in that case.
-        return validator.ValidateSchedule(proposal).IsValid ? proposal : original;
+        return validator.ValidateScheduleBounded(new(context, proposal), budget, SchedulingRunPhase.Optimization).Status ==
+            BoundedValidationStatus.Valid ? proposal : original;
     }
 }

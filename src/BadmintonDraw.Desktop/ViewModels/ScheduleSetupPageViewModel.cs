@@ -22,6 +22,7 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
     private bool edited, conflict, synchronizeStageWaves;
     private int strategyIndex;
     private SchedulingFailure? failure;
+    private string successSummary = "";
     public ObservableCollection<ScheduleDayEditorViewModel> Days { get; } = [];
     public event Action<ScheduleDayEditorViewModel>? DayAdded;
     public ObservableCollection<ScheduleProjectTimingViewModel> ProjectTimings { get; } = [];
@@ -70,13 +71,66 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         Session.Workspace.Stage is TournamentStage.DrawsConfirmed or TournamentStage.ScheduleReady;
     public string EditHint => conflict ? "赛程、抽签或资源已被其他操作更改。输入仍保留；请载入最新设置后再编排。" : Session.Workspace.Results.Count > 0
         ? "已有赛果，不能重新生成整场赛程；请到赛程板调整未完成场次。" : "修改设置不会自动重排。点击生成后才保存；失败时，已保存的数据保持不变。";
-    public SchedulingFailure? Failure { get => failure; private set { if (SetProperty(ref failure, value)) { OnPropertyChanged(nameof(FailureDetails)); OnPropertyChanged(nameof(FailureTechnicalDetails)); OnPropertyChanged(nameof(HasFailure)); } } }
+    public SchedulingFailure? Failure { get => failure; private set { if (SetProperty(ref failure, value)) { OnPropertyChanged(nameof(FailureDetails)); OnPropertyChanged(nameof(FailureSummary)); OnPropertyChanged(nameof(FailureAdvice)); OnPropertyChanged(nameof(FailureTechnicalDetails)); OnPropertyChanged(nameof(HasFailure)); } } }
     public bool HasFailure => Failure is not null;
+    public string SuccessSummary { get => successSummary; private set { if (SetProperty(ref successSummary, value)) OnPropertyChanged(nameof(HasSuccessSummary)); } }
+    public bool HasSuccessSummary => SuccessSummary.Length > 0;
+    public string FailureSummary
+    {
+        get
+        {
+            if (Failure is not { } detail) return "";
+            var summary = detail.Diagnostics?.FailureKind switch
+            {
+                SchedulingFailureKind.InvalidInput => "排程设置有误，请检查输入。",
+                SchedulingFailureKind.Canceled => "本次赛程生成已取消。",
+                SchedulingFailureKind.ProvenInfeasible => CapacityFailureSummary(detail),
+                SchedulingFailureKind.ValidationIncomplete => "本次约束验证未完成，不能确认完整赛程；这不表示赛事无法编排。",
+                _ => "本次搜索未完成，尚未找到满足全部条件的完整赛程；这不表示赛事无法编排。"
+            };
+            return summary + " 原赛程没有改变。";
+        }
+    }
+    public string FailureAdvice => Failure?.Diagnostics?.FailureKind switch
+    {
+        SchedulingFailureKind.InvalidInput => "请检查日期、时段、场地、裁判、预计时长及高级设置中的输入提示。",
+        SchedulingFailureKind.Canceled => "输入仍保留，可以检查设置后重新生成。",
+        SchedulingFailureKind.ProvenInfeasible when Failure.CapacityEvidence?.Kind == "PlayerDailyCap" => "请增加比赛日，或由赛事组织者复核每位选手的每日场次上限。场地和裁判数量不会改变该上限。",
+        SchedulingFailureKind.ProvenInfeasible when Failure.CapacityEvidence?.Kind == "PlayerTime" => "请增加比赛日或延长每日可用时段，并复核比赛时长、最短休息和每日上限；场地和裁判数量不会增加同一选手的可用时间。",
+        SchedulingFailureKind.ProvenInfeasible => "请增加比赛日、延长可用时段或增加可用场地与裁判，并检查不可用时段。",
+        _ when Failure is not null => "可以检查设置后重试，或请赛事组织者复核比赛时长、休息和每日上限。本次没有自动修改任何参数。",
+        _ => ""
+    };
+
+    private static string CapacityFailureSummary(SchedulingFailure detail)
+    {
+        if (detail.CapacityEvidence is not { } evidence || detail.Diagnostics is not { } diagnostics)
+            return "已证明当前设置的容量不足。";
+        var resources = diagnostics.Resources; var player = string.IsNullOrWhiteSpace(evidence.PlayerName) ? "该选手" : evidence.PlayerName;
+        if (evidence.Kind == "PlayerDailyCap")
+            return $"已证明每日场次上限不足：{player}在一种可能的晋级路径中至少需 {evidence.RequiredLowerBound} 场，" +
+                $"当前容量上界为 {resources.Days.Count} 天 × 每天 {resources.MaxPlayerMatchesPerDay} 场 = {evidence.CapacityUpperBound} 场。";
+        if (evidence.Kind == "PlayerTime" && evidence.WitnessMatchIds.Count > 0)
+        {
+            var count = evidence.WitnessMatchIds.Count;
+            var minimumTicks = evidence.RequiredLowerBound / count;
+            var capacityCount = minimumTicks > 0 ? evidence.CapacityUpperBound / minimumTicks : 0;
+            return $"已证明选手时间容量不足：{player}在一种可能的晋级路径中至少需 {count} 场，" +
+                $"按最短单场 {minimumTicks / (double)TimeSpan.TicksPerMinute:0.##} 分钟折算：" +
+                $"{count} 场 × 单场时长 > 容量上界 {capacityCount} 场 × 单场时长。" +
+                $"该上界已计入 {resources.MinimumRestMinutes} 分钟最短休息和每天 {resources.MaxPlayerMatchesPerDay} 场上限。";
+        }
+        return $"已证明场地与裁判时间容量不足：需要至少 {evidence.RequiredLowerBound / (double)TimeSpan.TicksPerMinute:0.##} 分钟，" +
+            $"可用容量上界为 {evidence.CapacityUpperBound / (double)TimeSpan.TicksPerMinute:0.##} 分钟。";
+    }
     public string FailureDetails => Failure is null ? "" : string.Join(Environment.NewLine,
         Failure.UnplacedMatches.Select(m => $"未安排：{m.ProjectName} · {m.MatchName}")
         .Concat(Failure.Violations.Select(v => v.Message))
         .Concat(Failure.Suggestions.Select(s => "建议：" + s)));
-    public string FailureTechnicalDetails => Failure is null ? "" : string.Join(Environment.NewLine, Failure.Violations.Select(v => $"{v.Code}：{v.Message}"));
+    public string FailureTechnicalDetails => Failure is null ? "" : string.Join(Environment.NewLine,
+        CapturedFailureDetails(Failure).Concat(Failure.UnplacedMatches.Select(m => $"未安排：{m.ProjectName} · {m.MatchName} ({string.Join(", ", m.ConstraintCodes)})"))
+        .Concat(Failure.Violations.Select(v => $"{v.Code}：{v.Message}"))
+        .Concat(Failure.Suggestions.Select(s => "建议：" + s)));
     public AsyncCommand GenerateCommand { get; }
     public DelegateCommand AddDayCommand { get; }
     public DelegateCommand ResetCommand { get; }
@@ -91,9 +145,18 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         this.chooseUnavailable = chooseUnavailable ?? (_ => Task.FromResult(false));
         GenerateCommand = new(async () =>
         {
-            var request = BuildSetup(); var expected = Session; Failure = null;
-            if (await shell.RunWorkspaceCommandAsync(expected, (workflow, revision) => workflow.GenerateSchedule(request.Resources, request.Policy, revision), "赛程已生成并自动保存，可以查看赛程板。")) Load();
-            else Failure = shell.LastError?.SchedulingFailure;
+            Failure = null; SuccessSummary = "";
+            var request = BuildSetup(); var expected = Session;
+            if (await shell.RunWorkspaceCommandAsync(expected, (workflow, revision) => workflow.GenerateSchedule(request.Resources, request.Policy, revision), "赛程已生成并自动保存，可以查看赛程板。"))
+            {
+                var result = shell.LastCommandResult;
+                if (disposed || !ReferenceEquals(shell.CurrentPage, this) || result is null ||
+                    !ReferenceEquals(Session.Workspace, result.Workspace) || Session.WorkspacePath != result.WorkspacePath) return;
+                Load();
+                SuccessSummary = BuildSuccessSummary(result.Workspace.Schedule, result.SchedulingQuality, result.SchedulingDiagnostics);
+            }
+            else if (!disposed && ReferenceEquals(shell.CurrentPage, this) && ReferenceEquals(Session, expected))
+                Failure = shell.LastError?.SchedulingFailure;
         }, () => CanSelectCourts, shell.ReportError);
         AddDayCommand = new(AddNewDay, () => CanSelectCourts);
         ResetCommand = new(Load, () => !shell.IsBusy);
@@ -159,12 +222,40 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         selectionGeneration++;
         var workspace = Session.Workspace; var resources = workspace.Schedule?.Resources ?? workspace.Resources; var policy = workspace.Schedule?.Policy;
         baseline = Source(workspace); conflict = false; edited = false;
+        Failure = null; SuccessSummary = BuildSuccessSummary(workspace.Schedule);
         refereeCountText = resources?.RefereeCount?.ToString() ?? ""; minimumRestText = (resources?.MinimumRestMinutes ?? 30).ToString(); dailyMaximumText = (resources?.MaxPlayerMatchesPerDay ?? 4).ToString();
         strategyIndex = (int)(policy?.Strategy ?? ScheduleAutoSchedulingStrategy.Compact); synchronizeStageWaves = policy?.SynchronizeStageWaves ?? false;
         Days.Clear(); foreach (var day in resources?.Days.OrderBy(d => d.Date).ToArray() ?? [new ScheduleDaySettings(DateOnly.FromDateTime(DateTime.Today), new(9, 0), new(18, 0), [])]) AddDay(day, policy);
         ProjectTimings.Clear(); foreach (var project in workspace.Projects.OrderBy(p => p.SortOrder)) ProjectTimings.Add(new(project, policy, Edited));
         foreach (var property in new[] { nameof(RefereeCountText), nameof(MinimumRestText), nameof(DailyMaximumText), nameof(StrategyIndex), nameof(SynchronizeStageWaves), nameof(PolicyLabel), nameof(IsSingleProject), nameof(IsMultiProject), nameof(ScheduleSummary), nameof(StrategyDescription) }) OnPropertyChanged(property);
         RefreshAvailability();
+    }
+    private static string BuildSuccessSummary(TournamentSchedule? schedule, TournamentScheduleQuality? quality = null,
+        SchedulingRunDiagnostics? diagnostics = null)
+    {
+        if (schedule is null) return "";
+        var loads = quality?.DayLoads ?? schedule.Resources.Days.OrderBy(d => d.Date).Select(d => new SchedulingDayCapacity(d.DayLabel,
+            ScheduleResourceCalculator.CalculateDayCapacityMinutes(schedule.Resources, d),
+            schedule.Placements.Values.Where(p => p.DayLabel == d.DayLabel).Sum(p => (int)(p.EndTime - p.StartTime).TotalMinutes))).ToArray();
+        var lines = new List<string> { diagnostics is null ? "已保存赛程的每日负荷：" : "本次赛程已生成并保存。每日负荷：",
+            $"策略：{StrategyName(schedule.Policy.Strategy)}" };
+        foreach (var day in schedule.Resources.Days.OrderBy(d => d.Date))
+        {
+            var load = loads.FirstOrDefault(d => d.DayLabel == day.DayLabel);
+            var count = schedule.Placements.Values.Count(p => p.DayLabel == day.DayLabel);
+            lines.Add(load is null ? $"{day.DayLabel}：{count} 场，本次负荷分析未完成。" :
+                $"{load.DayLabel}：{count} 场，{load.RequiredPlacedMinutes} / {load.AvailableMatchMinutes} 分钟（" +
+                (load.AvailableMatchMinutes > 0 ? $"{100d * load.RequiredPlacedMinutes / load.AvailableMatchMinutes:0.#}%" : "无可用容量") + "）。");
+        }
+        if (diagnostics is { HasBaselinePlacements: true })
+            lines.Add(quality is { SoftAnalysisComplete: true }
+                ? $"重新生成变动：{quality.MovedMatchCount} 场调整位置，其中跨日 {quality.CrossDayMoveCount} 场。"
+                : "重新生成变动：分析未完成，本次无法提供变动场数或跨日场数。");
+        if (diagnostics?.ExhaustedPhase is { } phase)
+            lines.Add($"本次{(phase == SchedulingRunPhase.Quality ? "质量分析" : "改进搜索")}预算已用尽；已保存满足硬约束的完整赛程，仍可能有更好的安排。");
+        if (quality is { PlayerAnalysisComplete: false }) lines.Add("部分选手负荷分析未完成，不能将负荷范围视为精确最大值。");
+        if (quality is { SoftAnalysisComplete: false }) lines.Add("比赛节奏评分未完成，本次不提供完整评分。");
+        return string.Join(Environment.NewLine, lines);
     }
     private static string Source(TournamentWorkspace workspace) => JsonSerializer.Serialize(new { workspace.Projects, workspace.Resources, workspace.Schedule, Results = workspace.Results.Values.OrderBy(r => r.Key.ProjectId).ThenBy(r => r.Key.MatchId).ToArray() });
     private void Edited() { selectionGeneration++; edited = true; RefreshAvailability(); }

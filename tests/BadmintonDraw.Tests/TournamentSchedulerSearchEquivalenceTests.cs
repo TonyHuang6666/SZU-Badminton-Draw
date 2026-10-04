@@ -9,6 +9,21 @@ namespace BadmintonDraw.Tests;
 public sealed class TournamentSchedulerSearchEquivalenceTests
 {
     [Fact]
+    public void ExactCourtAndRefereeBoundariesRemainCandidatesAlongsideTheMinuteGrid()
+    {
+        var graph = Independent(1);
+        var request = Request([graph], 10) with {
+            Resources = new([new(Date, new(9, 0), new(10, 0), ["A"],
+                RefereeCapacityWindows: [new(new(9, 0), new(9, 0, 45), 0)],
+                UnavailableCourtWindows: [new(new(9, 0), new(9, 0, 30), ["A"])])], 1, 0, 3),
+            Policy = new(ScheduleAutoSchedulingStrategy.Compact, [], false, [], [])
+        };
+        var success = Assert.IsType<TournamentSchedulingResult.Success>(new TournamentScheduler().Generate(request));
+        Assert.Equal(new TimeOnly(9, 0, 45), Assert.Single(success.Schedule.Placements).Value.StartTime);
+        Assert.Empty(new TournamentPlacementValidator(request).ValidateSchedule(success.Schedule.Placements).Violations);
+    }
+
+    [Fact]
     public void ShuffledNonconsecutiveDaysUseChronologicalScoresAndActualRest()
     {
         var first = Node(1, Player("shared"), Player("B"));
@@ -125,7 +140,10 @@ public sealed class TournamentSchedulerSearchEquivalenceTests
             Resources = new([new(Date, new(9, 0), new(9, 30), ["A"])], 1, 15, 12),
             Policy = new(ScheduleAutoSchedulingStrategy.Compact, [], false, [], [])
         };
-        var failure = Assert.IsType<TournamentSchedulingResult.Failure>(new TournamentScheduler().Generate(request)).Detail;
+        // This fixture exercises search rejection diagnostics; the capacity contradiction
+        // is now detected earlier when the optional preflight has an allowance.
+        var failure = Assert.IsType<TournamentSchedulingResult.Failure>(new TournamentScheduler().Generate(request,
+            new TournamentSchedulingOptions { PreflightWorkUnits = 0 })).Detail;
         Assert.Equal(graph.Matches[1].Id, Assert.Single(failure.UnplacedMatches).MatchId);
         Assert.Contains(failure.Violations, v => v.Code == SchedulingConstraintCode.CourtOverlap);
         Assert.Contains(failure.Violations, v => v.Code == SchedulingConstraintCode.RefereeCapacity);

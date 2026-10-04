@@ -209,6 +209,16 @@
           "xunit.extensibility.core": "[2.9.2]"
         }
       },
+      "badmintondraw.acceptance": {
+        "type": "Project",
+        "dependencies": {
+          "BadmintonDraw.Core": "[5.0.0, )",
+          "BadmintonDraw.Excel": "[5.0.0, )",
+          "BadmintonDraw.Persistence": "[5.0.0, )",
+          "BadmintonDraw.Workflows": "[5.0.0, )",
+          "ClosedXML": "[0.104.2, )"
+        }
+      },
       "badmintondraw.core": {
         "type": "Project"
       },

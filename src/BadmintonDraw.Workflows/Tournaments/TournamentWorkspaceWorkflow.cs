@@ -148,9 +148,9 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
             }
             catch (Exception exception)
             {
-                if (exception is WorkspaceStoreException { Committed: true } && captured is not null)
-                    RefreshAfterCommit(captured);
-                throw WorkspaceCommandException.From(exception);
+                var committedSession = exception is WorkspaceStoreException { Committed: true } && captured is not null
+                    ? RefreshAfterCommit(captured) : null;
+                throw WorkspaceCommandException.From(exception, committedSession);
             }
         }
     }
@@ -187,13 +187,14 @@ public sealed partial class TournamentWorkspaceWorkflow(ITournamentWorkspaceStor
         return new(workspace, path, backupPath, notices);
     }
 
-    private void RefreshAfterCommit(WorkspaceSession previous)
+    private WorkspaceSession RefreshAfterCommit(WorkspaceSession previous)
     {
         undoScheduleEdits = [];
         WorkspaceSession next;
         try { next = new(store.Read(previous.WorkspacePath), previous.WorkspacePath); }
         catch { next = previous with { RequiresReload = true }; }
         SetSession(next);
+        return next;
     }
 
     private void SetSession(WorkspaceSession session)
