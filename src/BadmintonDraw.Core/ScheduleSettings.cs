@@ -2,14 +2,6 @@ using System.Text.Json.Serialization;
 
 namespace BadmintonDraw.Core;
 
-public enum ScheduleAutoSchedulingStrategy
-{
-    Compact = 0,
-    BalancedRelaxed = 1,
-    FinalsDayFriendly = 2,
-    Custom = 3
-}
-
 public sealed record ScheduleDayLoadTarget(
     string DayLabel,
     double TargetUtilization,
@@ -46,12 +38,6 @@ public sealed record ScheduleStageWaveTarget(
         return Math.Clamp(value, 0.05, 1.0);
     }
 }
-
-public sealed record ScheduleSchedulingOptions(
-    ScheduleAutoSchedulingStrategy Strategy,
-    IReadOnlyList<ScheduleDayLoadTarget> DayLoadTargets,
-    bool SynchronizeStageWaves,
-    IReadOnlyList<ScheduleStageWaveTarget> StageWaveTargets);
 
 [method: JsonConstructor]
 public sealed record ScheduleSettings(

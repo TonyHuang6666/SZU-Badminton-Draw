@@ -29,6 +29,22 @@ public sealed record ScheduleCourtAvailabilityBlock(
 
 public static class ScheduleResourceCalculator
 {
+    /// <summary>Global resource capacity, preserving zero for entirely unavailable days.</summary>
+    public static int CalculateDayCapacityMinutes(Scheduling.TournamentResourcePlan resources, ScheduleDaySettings day)
+        => (int)Math.Min(int.MaxValue, CalculateDayCapacityTicks(resources, day) / TimeSpan.TicksPerMinute);
+
+    public static long CalculateDayCapacityTicks(Scheduling.TournamentResourcePlan resources, ScheduleDaySettings day)
+    {
+        var points = GetRefereeCapacityWindows(day).SelectMany(w => new[] { w.StartTime, w.EndTime })
+            .Concat(GetUnavailableCourtWindows(day).SelectMany(w => new[] { w.StartTime, w.EndTime }))
+            .Append(day.DayStart).Append(day.DayEnd).Where(t => t >= day.DayStart && t <= day.DayEnd).Distinct().Order().ToArray();
+        long capacity = 0;
+        for (var i = 0; i + 1 < points.Length; i++)
+            capacity = Scheduling.SchedulingCapacityArithmetic.Add(capacity, Scheduling.SchedulingCapacityArithmetic.Multiply(
+                (points[i + 1] - points[i]).Ticks, GetConcurrentMatchLimit(day, resources.RefereeCount, points[i], points[i + 1])));
+        return Math.Max(0, capacity);
+    }
+
     public static bool IsCourtAvailable(
         ScheduleDaySettings day,
         string court,
@@ -39,33 +55,8 @@ public static class ScheduleResourceCalculator
             block.AppliesTo(court) && block.Overlaps(start, end));
     }
 
-    public static bool IsCourtAvailable(
-        CrossEventScheduleBoardDay day,
-        string court,
-        TimeOnly start,
-        TimeOnly end)
-    {
-        return !GetUnavailableCourtWindows(day).Any(block =>
-            block.AppliesTo(court) && block.Overlaps(start, end));
-    }
-
     public static int GetConcurrentMatchLimit(
         ScheduleDaySettings day,
-        int? defaultRefereeCount,
-        TimeOnly start,
-        TimeOnly end)
-    {
-        return GetConcurrentMatchLimit(
-            day.Courts,
-            GetRefereeCapacityWindows(day),
-            GetUnavailableCourtWindows(day),
-            defaultRefereeCount,
-            start,
-            end);
-    }
-
-    public static int GetConcurrentMatchLimit(
-        CrossEventScheduleBoardDay day,
         int? defaultRefereeCount,
         TimeOnly start,
         TimeOnly end)
@@ -87,21 +78,6 @@ public static class ScheduleResourceCalculator
         return CalculateDayCapacityMinutes(
             day.DayStart,
             day.DayEnd,
-            day.Courts,
-            GetRefereeCapacityWindows(day),
-            GetUnavailableCourtWindows(day),
-            defaultRefereeCount,
-            slotMinutes);
-    }
-
-    public static int CalculateDayCapacityMinutes(
-        CrossEventScheduleBoardDay day,
-        int? defaultRefereeCount,
-        int slotMinutes)
-    {
-        return CalculateDayCapacityMinutes(
-            day.StartTime,
-            day.EndTime,
             day.Courts,
             GetRefereeCapacityWindows(day),
             GetUnavailableCourtWindows(day),
@@ -169,18 +145,9 @@ public static class ScheduleResourceCalculator
         return day.RefereeCapacityWindows ?? Array.Empty<ScheduleRefereeCapacityWindow>();
     }
 
-    private static IReadOnlyList<ScheduleRefereeCapacityWindow> GetRefereeCapacityWindows(CrossEventScheduleBoardDay day)
-    {
-        return day.RefereeCapacityWindows ?? Array.Empty<ScheduleRefereeCapacityWindow>();
-    }
-
     private static IReadOnlyList<ScheduleCourtAvailabilityBlock> GetUnavailableCourtWindows(ScheduleDaySettings day)
     {
         return day.UnavailableCourtWindows ?? Array.Empty<ScheduleCourtAvailabilityBlock>();
     }
 
-    private static IReadOnlyList<ScheduleCourtAvailabilityBlock> GetUnavailableCourtWindows(CrossEventScheduleBoardDay day)
-    {
-        return day.UnavailableCourtWindows ?? Array.Empty<ScheduleCourtAvailabilityBlock>();
-    }
 }

@@ -1,8 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifiers>win-x64;osx-arm64;osx-x64</RuntimeIdentifiers>
     <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/szuba-app-icon.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
@@ -21,7 +23,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../BadmintonDraw.Core/BadmintonDraw.Core.csproj" />
-    <ProjectReference Include="../BadmintonDraw.Excel/BadmintonDraw.Excel.csproj" />
     <ProjectReference Include="../BadmintonDraw.Workflows/BadmintonDraw.Workflows.csproj" />
   </ItemGroup>
 

@@ -6,7 +6,7 @@
         <ResourceDictionary>
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
-                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F5F7FB" />
+                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F3F6F5" />
                     <SolidColorBrush x:Key="AppHeaderBackgroundBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="AppSurfaceBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="AppSurfaceAltBrush" Color="#FBFCFF" />
@@ -15,12 +15,12 @@
                     <SolidColorBrush x:Key="AppSoftBorderBrush" Color="#E2E8F0" />
                     <SolidColorBrush x:Key="AppPanelBorderBrush" Color="#D8E0EC" />
                     <SolidColorBrush x:Key="AppTextBrush" Color="#111827" />
-                    <SolidColorBrush x:Key="AppTitleBrush" Color="#28104E" />
+                    <SolidColorBrush x:Key="AppTitleBrush" Color="#163D39" />
                     <SolidColorBrush x:Key="AppMutedTextBrush" Color="#64748B" />
-                    <SolidColorBrush x:Key="AppFieldLabelBrush" Color="#4D4366" />
-                    <SolidColorBrush x:Key="AppTabTextBrush" Color="#3F315F" />
-                    <SolidColorBrush x:Key="AppAccentBrush" Color="#0F5F9F" />
-                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#0B548D" />
+                    <SolidColorBrush x:Key="AppFieldLabelBrush" Color="#435C57" />
+                    <SolidColorBrush x:Key="AppTabTextBrush" Color="#21564D" />
+                    <SolidColorBrush x:Key="AppAccentBrush" Color="#187765" />
+                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#105B4D" />
                     <SolidColorBrush x:Key="AppAccentTextBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="AppButtonBackgroundBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="AppButtonHoverBackgroundBrush" Color="#F1F7FF" />
@@ -46,9 +46,9 @@
                     <SolidColorBrush x:Key="AppListSelectedBackgroundBrush" Color="#DBEAFE" />
                     <SolidColorBrush x:Key="AppListSelectedHoverBackgroundBrush" Color="#60A5FA" />
                     <SolidColorBrush x:Key="AppSelectionTextBrush" Color="#0F172A" />
-                    <SolidColorBrush x:Key="AppPurpleCardBackgroundBrush" Color="#F7F3FF" />
-                    <SolidColorBrush x:Key="AppPurpleCardBorderBrush" Color="#DED2F8" />
-                    <SolidColorBrush x:Key="AppPurpleTextBrush" Color="#5F5577" />
+                    <SolidColorBrush x:Key="AppPurpleCardBackgroundBrush" Color="#EAF4EF" />
+                    <SolidColorBrush x:Key="AppPurpleCardBorderBrush" Color="#C8DED5" />
+                    <SolidColorBrush x:Key="AppPurpleTextBrush" Color="#376455" />
                     <SolidColorBrush x:Key="AppSuccessCardBackgroundBrush" Color="#EFF6F2" />
                     <SolidColorBrush x:Key="AppSuccessCardBorderBrush" Color="#CFE5D7" />
                     <SolidColorBrush x:Key="AppSuccessTextBrush" Color="#25654A" />
@@ -61,9 +61,9 @@
                     <SolidColorBrush x:Key="AppErrorCardBackgroundBrush" Color="#FEF2F2" />
                     <SolidColorBrush x:Key="AppErrorCardBorderBrush" Color="#DC2626" />
                     <SolidColorBrush x:Key="AppErrorTextBrush" Color="#B91C1C" />
-                    <SolidColorBrush x:Key="AppTableHeaderBackgroundBrush" Color="#EDE1FC" />
-                    <SolidColorBrush x:Key="AppTableHeaderBorderBrush" Color="#D8C7F4" />
-                    <SolidColorBrush x:Key="AppTableHeaderTextBrush" Color="#32116D" />
+                    <SolidColorBrush x:Key="AppTableHeaderBackgroundBrush" Color="#E6F1EC" />
+                    <SolidColorBrush x:Key="AppTableHeaderBorderBrush" Color="#C7DED4" />
+                    <SolidColorBrush x:Key="AppTableHeaderTextBrush" Color="#235345" />
                     <SolidColorBrush x:Key="AppStatusBarBackgroundBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="AppStatusDotBrush" Color="#19A974" />
                 </ResourceDictionary>
@@ -77,13 +77,13 @@
                     <SolidColorBrush x:Key="AppSoftBorderBrush" Color="#26364F" />
                     <SolidColorBrush x:Key="AppPanelBorderBrush" Color="#334155" />
                     <SolidColorBrush x:Key="AppTextBrush" Color="#E5E7EB" />
-                    <SolidColorBrush x:Key="AppTitleBrush" Color="#F3E8FF" />
+                    <SolidColorBrush x:Key="AppTitleBrush" Color="#ECF5F0" />
                     <SolidColorBrush x:Key="AppMutedTextBrush" Color="#A7B4C8" />
-                    <SolidColorBrush x:Key="AppFieldLabelBrush" Color="#C4B5FD" />
-                    <SolidColorBrush x:Key="AppTabTextBrush" Color="#D8B4FE" />
-                    <SolidColorBrush x:Key="AppAccentBrush" Color="#0EA5E9" />
-                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#0284C7" />
-                    <SolidColorBrush x:Key="AppAccentTextBrush" Color="#F8FAFC" />
+                    <SolidColorBrush x:Key="AppFieldLabelBrush" Color="#B5CEC3" />
+                    <SolidColorBrush x:Key="AppTabTextBrush" Color="#9EE1C9" />
+                    <SolidColorBrush x:Key="AppAccentBrush" Color="#72D4B1" />
+                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#91E4C7" />
+                    <SolidColorBrush x:Key="AppAccentTextBrush" Color="#102D25" />
                     <SolidColorBrush x:Key="AppButtonBackgroundBrush" Color="#1E293B" />
                     <SolidColorBrush x:Key="AppButtonHoverBackgroundBrush" Color="#334155" />
                     <SolidColorBrush x:Key="AppButtonPressedBackgroundBrush" Color="#0F3A5E" />
@@ -108,9 +108,9 @@
                     <SolidColorBrush x:Key="AppListSelectedBackgroundBrush" Color="#1D4ED8" />
                     <SolidColorBrush x:Key="AppListSelectedHoverBackgroundBrush" Color="#2563EB" />
                     <SolidColorBrush x:Key="AppSelectionTextBrush" Color="#F8FAFC" />
-                    <SolidColorBrush x:Key="AppPurpleCardBackgroundBrush" Color="#24143A" />
-                    <SolidColorBrush x:Key="AppPurpleCardBorderBrush" Color="#6B4CA3" />
-                    <SolidColorBrush x:Key="AppPurpleTextBrush" Color="#D8B4FE" />
+                    <SolidColorBrush x:Key="AppPurpleCardBackgroundBrush" Color="#19392F" />
+                    <SolidColorBrush x:Key="AppPurpleCardBorderBrush" Color="#376C58" />
+                    <SolidColorBrush x:Key="AppPurpleTextBrush" Color="#A4DEC4" />
                     <SolidColorBrush x:Key="AppSuccessCardBackgroundBrush" Color="#0F2E21" />
                     <SolidColorBrush x:Key="AppSuccessCardBorderBrush" Color="#256D48" />
                     <SolidColorBrush x:Key="AppSuccessTextBrush" Color="#86EFAC" />
@@ -123,9 +123,9 @@
                     <SolidColorBrush x:Key="AppErrorCardBackgroundBrush" Color="#3A1518" />
                     <SolidColorBrush x:Key="AppErrorCardBorderBrush" Color="#B91C1C" />
                     <SolidColorBrush x:Key="AppErrorTextBrush" Color="#FCA5A5" />
-                    <SolidColorBrush x:Key="AppTableHeaderBackgroundBrush" Color="#2E1B4B" />
-                    <SolidColorBrush x:Key="AppTableHeaderBorderBrush" Color="#6B4CA3" />
-                    <SolidColorBrush x:Key="AppTableHeaderTextBrush" Color="#F3E8FF" />
+                    <SolidColorBrush x:Key="AppTableHeaderBackgroundBrush" Color="#1D3B32" />
+                    <SolidColorBrush x:Key="AppTableHeaderBorderBrush" Color="#38604F" />
+                    <SolidColorBrush x:Key="AppTableHeaderTextBrush" Color="#C3EED9" />
                     <SolidColorBrush x:Key="AppStatusBarBackgroundBrush" Color="#111827" />
                     <SolidColorBrush x:Key="AppStatusDotBrush" Color="#34D399" />
                 </ResourceDictionary>
@@ -134,7 +134,12 @@
     </Application.Resources>
 
     <Application.Styles>
-        <FluentTheme />
+        <FluentTheme>
+            <FluentTheme.Palettes>
+                <ColorPaletteResources x:Key="Light" Accent="#187765" />
+                <ColorPaletteResources x:Key="Dark" Accent="#72D4B1" />
+            </FluentTheme.Palettes>
+        </FluentTheme>
         <Style Selector="Window">
             <Setter Property="Background" Value="{DynamicResource AppBackgroundBrush}" />
         </Style>
@@ -243,5 +248,6 @@
             <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource AppInputBorderBrush}" />
         </Style>
+        <StyleInclude Source="/Styles/AssistantStyles.axaml" />
     </Application.Styles>
 </Application>

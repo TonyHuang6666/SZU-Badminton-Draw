@@ -1,0 +1,16 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="BadmintonDraw.Desktop.Views.DiscardScheduleChangesDialog"
+        Title="放弃未保存的修改？" Width="520" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource AppTextBrush}">
+  <StackPanel Margin="24" Spacing="20">
+    <TextBlock Classes="section-title" Text="放弃未保存的修改？" />
+    <TextBlock Text="放弃本次修改，恢复已保存的排程设置？现有赛程不会改变。" TextWrapping="Wrap" />
+    <TextBlock Classes="muted" Text="本页尚未保存的日期、时间、场地和其他设置都会恢复；没有已保存的设置时，恢复程序初始设置。" TextWrapping="Wrap" />
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12">
+      <Button x:Name="ContinueButton" Classes="secondary" Content="继续编辑" IsDefault="True" IsCancel="True" Click="ContinueClicked" />
+      <Button Classes="danger" Content="放弃修改" Click="DiscardClicked" />
+    </StackPanel>
+  </StackPanel>
+</Window>

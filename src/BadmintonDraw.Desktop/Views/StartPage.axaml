@@ -1,0 +1,75 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" x:Class="BadmintonDraw.Desktop.Views.StartPage" x:DataType="vm:StartPageViewModel">
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="42,32" Spacing="28" MaxWidth="1120" HorizontalAlignment="Stretch">
+      <Border Background="#153F35" CornerRadius="24" Padding="36,32" ClipToBounds="True">
+        <Grid ColumnDefinitions="*,240" ColumnSpacing="24">
+          <StackPanel Spacing="17" VerticalAlignment="Center">
+            <TextBlock Text="SZU BADMINTON  /  5.0" Foreground="#B8D6BD" LetterSpacing="2.5" FontSize="11" FontWeight="SemiBold" />
+            <TextBlock Text="让每一场比赛，&#10;有条不紊地开始。" FontSize="34" FontWeight="SemiBold" Foreground="#F4FAF0" LineHeight="48" />
+            <TextBlock Text="从公开抽签到比赛现场，一步一步完成筹备。&#10;你专注于比赛，繁琐的编排交给赛事助手。" Foreground="#C2D9CA" FontSize="14" LineHeight="25" TextWrapping="Wrap" />
+            <Button Content="＋  创建一场新比赛" Command="{Binding NewCommand}" Background="#D5EAB7" Foreground="#1A4132" BorderBrush="#D5EAB7" Padding="24,14" HorizontalAlignment="Left" Margin="0,4,0,0" FontWeight="SemiBold" />
+          </StackPanel>
+          <StackPanel Grid.Column="1" Spacing="16" VerticalAlignment="Center">
+            <Viewbox Width="228" Height="190">
+              <Canvas Width="260" Height="215">
+                <Ellipse Width="210" Height="210" Fill="#204F40" Canvas.Left="20" />
+                <Path Data="M 26,65 L 189,27 L 235,156 L 71,194 Z" Fill="#366D51" Stroke="#C3DFAF" StrokeThickness="2" />
+                <Path Data="M 39,99 L 201,61 M 59,160 L 222,123 M 33,83 L 196,45 M 65,178 L 229,141 M 48,129 L 212,91 M 45,61 L 89,189 M 170,31 L 216,160 M 112,46 L 127,86 M 142,133 L 155,174" Stroke="#C3DFAF" StrokeThickness="1.3" Opacity="0.75" />
+                <Path Data="M 40,127 L 219,85" Stroke="#F4E7AC" StrokeThickness="3" />
+                <Ellipse Canvas.Left="90" Canvas.Top="81" Width="10" Height="10" Fill="#F1E8B7" />
+                <Ellipse Canvas.Left="170" Canvas.Top="129" Width="10" Height="10" Fill="#D7E8BD" />
+                <Path Data="M 203,12 L 228,2 L 242,29 L 217,39 Z M 209,10 L 228,33 M 217,6 L 234,30 M 226,3 L 241,25" Fill="#E2EDCF" Stroke="#C0CDB0" StrokeThickness="1.2" />
+                <Ellipse Canvas.Left="212" Canvas.Top="29" Width="16" Height="16" Fill="#F6E2A3" />
+              </Canvas>
+            </Viewbox>
+            <TextBlock Text="每一次准备，都为更好的比赛。" Foreground="#B8D3BE" FontSize="11" HorizontalAlignment="Center" />
+          </StackPanel>
+        </Grid>
+      </Border>
+      <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
+        <Border Classes="card">
+          <StackPanel Spacing="14">
+            <TextBlock Text="接着上一次，继续筹备" Classes="section-title" />
+            <TextBlock Text="打开已保存的赛事文件，名单、抽签结果和比赛进度都在里面。" Classes="page-subtitle" />
+            <Button Content="打开已有比赛  ↗" Command="{Binding OpenCommand}" Classes="secondary" HorizontalAlignment="Left" />
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="1" Classes="card">
+          <StackPanel Spacing="14">
+            <TextBlock Text="今天只抽签？当然可以" Classes="section-title" />
+            <TextBlock Text="新建时选择“仅公开抽签”。公示结果后随时停下，以后再安排时间和场地。" Classes="page-subtitle" />
+            <TextBlock Text="名单准备  →  公开抽签  →  导出公示" Foreground="{DynamicResource AppAccentBrush}" FontSize="12" FontWeight="SemiBold" />
+          </StackPanel>
+        </Border>
+      </Grid>
+      <StackPanel Spacing="14" IsVisible="{Binding HasRecentWorkspaces}">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Text="最近的比赛" Classes="section-title" />
+          <TextBlock Grid.Column="1" Text="从离开的地方继续" Classes="muted" FontSize="12" VerticalAlignment="Center" />
+        </Grid>
+        <ItemsControl ItemsSource="{Binding RecentWorkspaces}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:RecentWorkspaceViewModel">
+              <Border Classes="card" Padding="18,12" Margin="0,0,0,8">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="14">
+                  <Border Background="{DynamicResource AppPurpleCardBackgroundBrush}" CornerRadius="10" Width="40" Height="40" VerticalAlignment="Center"><TextBlock Text="赛" Foreground="{DynamicResource AppAccentBrush}" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+                  <StackPanel Grid.Column="1" Spacing="5" VerticalAlignment="Center" ToolTip.Tip="{Binding Path}">
+                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Availability}" Classes="muted" FontSize="12" />
+                  </StackPanel>
+                  <Button Grid.Column="2" Content="继续 →" Command="{Binding OpenCommand}" Classes="quiet" VerticalAlignment="Center" AutomationProperties.Name="继续此比赛" />
+                  <Button Grid.Column="3" Content="×" Command="{Binding RemoveCommand}" Classes="quiet" Padding="8" MinWidth="32" ToolTip.Tip="只从最近列表移除，不删除赛事文件" AutomationProperties.Name="从最近列表移除此比赛" VerticalAlignment="Center" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+      <Border Classes="inset" IsVisible="{Binding HasNoRecentWorkspaces}">
+        <StackPanel Spacing="7"><TextBlock Text="你的第一场比赛，从这里开始" FontWeight="SemiBold" /><TextBlock Text="创建比赛后，它会出现在这里。也可以打开其他组织者交给你的 5.0 赛事文件。" Classes="muted" FontSize="13" /></StackPanel>
+      </Border>
+      <TextBlock Text="支持团体赛与单项赛 · 每场比赛独立保存" Classes="muted" FontSize="11" LineHeight="20" Margin="0,0,0,8" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

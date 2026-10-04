@@ -1,0 +1,107 @@
+using Avalonia.Controls;
+using Avalonia.Platform;
+using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using BadmintonDraw.Desktop.ViewModels;
+using BadmintonDraw.Desktop.Navigation;
+using BadmintonDraw.Workflows.Tournaments;
+
+namespace BadmintonDraw.Desktop;
+
+public partial class AppShellWindow : Window
+{
+    private static readonly FilePickerFileType WorkspaceFileType = new("v5 赛事工作区") { Patterns = ["*.szbd"] };
+    private static readonly FilePickerFileType RosterFileType = new("Excel 名单") { Patterns = ["*.xlsx"] };
+    public AppShellWindow() : this(new TournamentWorkspaceWorkflow(), new RecentWorkspaceStore(RecentWorkspaceStore.DefaultPath)) { }
+    public AppShellWindow(TournamentWorkspaceWorkflow workflow, RecentWorkspaceStore recentStore,
+        Func<Task<string?>>? openPicker = null, Func<Task<string?>>? recoveryTargetPicker = null,
+        Func<Task<string?>>? recoveryBackupPicker = null,
+        Func<Task<IReadOnlyList<string>?>>? resultFilesPicker = null, Func<Task<string?>>? operationalOutputPicker = null,
+        Func<Task<string?>>? drawOutputPicker = null)
+    {
+        InitializeComponent();
+        var shell = new AppShellViewModel(workflow, openPicker ?? PickOpenPathAsync, PickSavePathAsync,
+            recentStore, action => Dispatcher.UIThread.Post(action), recoveryTargetPicker ?? PickRecoveryTargetAsync,
+            recoveryBackupPicker ?? PickRecoveryBackupAsync, ConfirmExportOverwriteAsync);
+        shell.RegisterPageFactory(WorkspaceRoute.Rosters, session => new RostersPageViewModel(shell, session, PickRosterPathAsync, PickTemplatePathAsync));
+        shell.RegisterPageFactory(WorkspaceRoute.PublicDraw, session => new PublicDrawPageViewModel(shell, session,
+            drawOutputPicker ?? PickDrawOutputDirectoryAsync, options => new Views.DrawExportOptionsDialog(options).ShowDialog<bool>(this)));
+        shell.RegisterPageFactory(WorkspaceRoute.ScheduleSetup, session => new ScheduleSetupPageViewModel(shell, session,
+            options => new Views.VenueCourtSelectionDialog(options).ShowDialog<bool>(this),
+            options => new Views.UnavailableCourtSelectionDialog(options).ShowDialog<bool>(this),
+            () => new Views.DiscardScheduleChangesDialog().ShowDialog<bool>(this)));
+        shell.RegisterPageFactory(WorkspaceRoute.ScheduleBoard, session => new ScheduleBoardPageViewModel(shell, session));
+        shell.RegisterPageFactory(WorkspaceRoute.Operations, session => new OperationsPageViewModel(shell, session,
+            resultFilesPicker ?? PickResultFilesAsync, operationalOutputPicker ?? PickOperationalOutputAsync));
+        DataContext = shell;
+        ConfigureScheduleBoardWindow(shell);
+        Closed += (_, _) => shell.Dispose();
+        try
+        {
+            using var stream = AssetLoader.Open(new Uri("avares://BadmintonDraw.Desktop/Assets/szuba-app-icon.ico"));
+            Icon = new WindowIcon(stream);
+        }
+        catch (IOException) { /* The application bundle retains its platform icon. */ }
+    }
+    private Task<bool> ConfirmExportOverwriteAsync(IReadOnlyList<string> paths) =>
+        new Views.ExportOverwriteDialog(paths).ShowDialog<bool>(this);
+
+    private async Task<string?> PickOpenPathAsync()
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "打开 v5 赛事工作区", AllowMultiple = false, FileTypeFilter = [WorkspaceFileType]
+        });
+        return LocalPath(files.FirstOrDefault());
+    }
+    private async Task<string?> PickSavePathAsync(string name)
+    {
+        var safeName = string.Concat(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "保存新的赛事工作区", SuggestedFileName = safeName, DefaultExtension = "szbd",
+            FileTypeChoices = [WorkspaceFileType]
+        });
+        return LocalPath(file);
+    }
+    private static string? LocalPath(IStorageItem? item) => item is null ? null : item.TryGetLocalPath()
+        ?? throw new IOException("请选择本地文件位置。");
+    private Task<string?> PickRecoveryTargetAsync() => PickRecoveryFileAsync("选择损坏的正式工作区（将被恢复替换）");
+    private Task<string?> PickRecoveryBackupAsync() => PickRecoveryFileAsync("选择要核对的备份工作区（不会直接恢复）");
+    private async Task<string?> PickRecoveryFileAsync(string title)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        { Title = title, AllowMultiple = false, FileTypeFilter = [WorkspaceFileType] });
+        return LocalPath(files.FirstOrDefault());
+    }
+    private async Task<string?> PickRosterPathAsync()
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        { Title = "导入当前项目名单（不会自动抽签）", AllowMultiple = false, FileTypeFilter = [RosterFileType] });
+        return LocalPath(files.FirstOrDefault());
+    }
+    private async Task<string?> PickTemplatePathAsync(string name)
+    {
+        var safeName = string.Concat(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+        return LocalPath(await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        { Title = "导出名单模板", SuggestedFileName = safeName, DefaultExtension = "xlsx", FileTypeChoices = [RosterFileType], ShowOverwritePrompt = true }));
+    }
+    private async Task<string?> PickDrawOutputDirectoryAsync()
+    {
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        { Title = "选择抽签材料导出目录", AllowMultiple = false });
+        return LocalPath(folders.FirstOrDefault());
+    }
+    private async Task<IReadOnlyList<string>?> PickResultFilesAsync()
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        { Title = "选择 v5 赛果记录表（可多选，选择后需检查）", AllowMultiple = true, FileTypeFilter = [RosterFileType] });
+        return files.Count == 0 ? null : Array.AsReadOnly(files.Select(file => LocalPath(file)!).ToArray());
+    }
+    private async Task<string?> PickOperationalOutputAsync()
+    {
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        { Title = "选择现场材料输出目录", AllowMultiple = false });
+        return LocalPath(folders.FirstOrDefault());
+    }
+}

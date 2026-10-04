@@ -1,0 +1,36 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style Selector="Window">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontFamily" Value="Inter, PingFang SC, Microsoft YaHei UI, Noto Sans CJK SC" />
+  </Style>
+  <Style Selector="TextBlock.page-title"><Setter Property="FontSize" Value="28" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="{DynamicResource AppTitleBrush}" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
+  <Style Selector="TextBlock.page-subtitle"><Setter Property="FontSize" Value="14" /><Setter Property="Foreground" Value="{DynamicResource AppMutedTextBrush}" /><Setter Property="TextWrapping" Value="Wrap" /><Setter Property="LineHeight" Value="23" /></Style>
+  <Style Selector="TextBlock.eyebrow"><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="2" /><Setter Property="Foreground" Value="{DynamicResource AppAccentBrush}" /></Style>
+  <Style Selector="TextBlock.section-title"><Setter Property="FontSize" Value="18" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
+  <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource AppMutedTextBrush}" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
+  <Style Selector="TextBlock.metric"><Setter Property="FontSize" Value="30" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="{DynamicResource AppTitleBrush}" /></Style>
+  <Style Selector="Border.card"><Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppSoftBorderBrush}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="18" /><Setter Property="Padding" Value="24" /></Style>
+  <Style Selector="Border.inset"><Setter Property="Background" Value="{DynamicResource AppSurfaceMutedBrush}" /><Setter Property="CornerRadius" Value="12" /><Setter Property="Padding" Value="16" /></Style>
+  <Style Selector="Border.callout"><Setter Property="Background" Value="{DynamicResource AppPurpleCardBackgroundBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppPurpleCardBorderBrush}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="14" /><Setter Property="Padding" Value="18" /></Style>
+  <Style Selector="Border.action-bar"><Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}" /><Setter Property="BorderThickness" Value="0,1,0,0" /><Setter Property="Padding" Value="24,16" /></Style>
+  <Style Selector="Button"><Setter Property="MinHeight" Value="38" /><Setter Property="Padding" Value="16,10" /><Setter Property="CornerRadius" Value="9" /><Setter Property="FontWeight" Value="Medium" /><Setter Property="Cursor" Value="Hand" /></Style>
+  <Style Selector="Button.primary"><Setter Property="Background" Value="{DynamicResource AppAccentBrush}" /><Setter Property="Foreground" Value="{DynamicResource AppAccentTextBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" /><Setter Property="Padding" Value="22,12" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}" /><Setter Property="Foreground" Value="{DynamicResource AppAccentTextBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppAccentHoverBrush}" /></Style>
+  <Style Selector="Button.primary:pressed /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource AppAccentBrush}" /><Setter Property="Foreground" Value="{DynamicResource AppAccentTextBrush}" /></Style>
+  <Style Selector="Button.primary:disabled"><Setter Property="Background" Value="{DynamicResource AppDisabledBackgroundBrush}" /><Setter Property="Foreground" Value="{DynamicResource AppDisabledTextBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppDisabledBorderBrush}" /></Style>
+  <Style Selector="Button.secondary"><Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" /></Style>
+  <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource AppMutedTextBrush}" /></Style>
+  <Style Selector="Button.danger"><Setter Property="Foreground" Value="{DynamicResource AppErrorTextBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppErrorCardBorderBrush}" /><Setter Property="Background" Value="{DynamicResource AppErrorCardBackgroundBrush}" /></Style>
+  <Style Selector="Button.primary TextBlock"><Setter Property="Foreground" Value="{DynamicResource AppAccentTextBrush}" /></Style>
+  <Style Selector="TextBox"><Setter Property="MinHeight" Value="40" /><Setter Property="Padding" Value="12,9" /><Setter Property="CornerRadius" Value="8" /></Style>
+  <Style Selector="ComboBox"><Setter Property="MinHeight" Value="40" /><Setter Property="CornerRadius" Value="8" /></Style>
+  <Style Selector="NumericUpDown"><Setter Property="MinHeight" Value="40" /><Setter Property="CornerRadius" Value="8" /></Style>
+  <Style Selector="Expander"><Setter Property="HorizontalAlignment" Value="Stretch" /><Setter Property="CornerRadius" Value="12" /></Style>
+  <Style Selector="TabItem"><Setter Property="FontSize" Value="14" /><Setter Property="Padding" Value="16,12" /></Style>
+  <Style Selector="ToggleButton.board-disclosure:checked /template/ ContentPresenter#PART_ContentPresenter, ToggleButton.board-disclosure:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource AppSurfaceMutedBrush}" /><Setter Property="Foreground" Value="{DynamicResource AppTitleBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" /></Style>
+  <Style Selector="Button.nav"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="HorizontalAlignment" Value="Stretch" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="12,10" /><Setter Property="CornerRadius" Value="12" /></Style>
+  <Style Selector="Button.nav:pointerover /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="#214C44" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+  <Style Selector="Button.nav.current"><Setter Property="Background" Value="#2B5F52" /><Setter Property="BorderBrush" Value="#4A806B" /></Style>
+  <Style Selector="Button.nav:disabled"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="Opacity" Value="0.6" /></Style>
+  <Style Selector="Button.nav:disabled /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+</Styles>

@@ -1,0 +1,13 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" xmlns:views="using:BadmintonDraw.Desktop.Views"
+        x:Class="BadmintonDraw.Desktop.Views.ScheduleBoardWindow" x:DataType="vm:ScheduleBoardPageViewModel"
+        Title="{Binding WindowTitle}" Width="1440" Height="900" MinWidth="960" MinHeight="620"
+        WindowState="Maximized" CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource AppTextBrush}">
+  <Grid RowDefinitions="*,Auto">
+    <views:ScheduleBoardPage />
+    <Border Grid.Row="1" Padding="16,8" Background="{DynamicResource AppStatusBarBackgroundBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,1,0,0">
+      <TextBlock Text="{Binding StatusSummary}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding StatusDetails}" FontSize="12" />
+    </Border>
+  </Grid>
+</Window>

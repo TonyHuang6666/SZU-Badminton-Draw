@@ -1,0 +1,115 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BadmintonDraw.Desktop.ViewModels"
+        xmlns:views="using:BadmintonDraw.Desktop.Views"
+        x:Class="BadmintonDraw.Desktop.AppShellWindow"
+        x:DataType="vm:AppShellViewModel"
+        Title="{Binding Title}" Width="1280" Height="880" MinWidth="960" MinHeight="680"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource AppTextBrush}">
+  <Window.DataTemplates>
+    <DataTemplate DataType="{x:Type vm:StartPageViewModel}"><views:StartPage /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:NewWorkspaceWizardViewModel}"><views:NewWorkspaceWizardPage /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:WorkspaceOverviewPageViewModel}"><views:WorkspaceOverviewPage /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:RostersPageViewModel}"><views:RostersPage /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:PublicDrawPageViewModel}"><views:PublicDrawPage /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ScheduleSetupPageViewModel}"><views:ScheduleSetupPage /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ScheduleBoardPageViewModel}"><views:ScheduleBoardSummaryPage /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:OperationsPageViewModel}"><views:OperationsPage /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:WorkspaceArchivePageViewModel}"><views:WorkspaceArchivePage /></DataTemplate>
+  </Window.DataTemplates>
+  <Grid RowDefinitions="Auto,*,Auto">
+    <Border Background="{DynamicResource AppHeaderBackgroundBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,0,0,1" Padding="26,16">
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+        <Border Width="44" Height="44" CornerRadius="12" Background="#F7F4EF" Padding="5">
+          <Image Source="/Assets/szuba-red-logo.png" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Title}" FontSize="19" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding StageText}" Classes="muted" FontSize="12" />
+        </StackPanel>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+          <Button Content="明暗切换" Classes="quiet" Command="{Binding ToggleThemeCommand}" AutomationProperties.Name="切换浅色或深色外观" />
+          <Button x:Name="HeaderRecoveryButton" Content="备份与恢复" Classes="quiet" Command="{Binding OpenRecoveryCommand}" />
+          <Button Content="更多 ···" Classes="secondary" AutomationProperties.Name="更多赛事操作">
+            <Button.Flyout>
+              <MenuFlyout>
+                <MenuItem Header="返回首页" Command="{Binding HomeCommand}" />
+                <MenuItem Header="创建新比赛" Command="{Binding NewCommand}" />
+                <MenuItem Header="打开已有比赛" Command="{Binding OpenCommand}" />
+                <Separator />
+                <MenuItem Header="重新读取赛事文件" Command="{Binding ReloadCommand}" />
+              </MenuFlyout>
+            </Button.Flyout>
+          </Button>
+        </StackPanel>
+      </Grid>
+    </Border>
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,*">
+      <Border x:Name="TournamentNavigation" IsVisible="{Binding ShowWorkspaceContext}" Width="222" Background="#153C35" Padding="16,28,16,20">
+        <Grid RowDefinitions="Auto,*,Auto" RowSpacing="20">
+          <StackPanel Margin="12,0" Spacing="6">
+            <TextBlock Text="办好一场比赛" Foreground="#F1FAF5" FontSize="17" FontWeight="SemiBold" />
+            <TextBlock Text="跟着步骤，安心筹备" Foreground="#A9C9BC" FontSize="12" />
+          </StackPanel>
+          <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding NavigationItems}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:WorkspaceNavigationItemViewModel">
+                  <StackPanel>
+                    <Button Classes="nav" Classes.current="{Binding IsCurrent}" Command="{Binding Command}" Margin="0,0,0,5"
+                            ToolTip.Tip="{Binding Hint}" AutomationProperties.Name="{Binding AccessibleLabel}">
+                      <Grid ColumnDefinitions="30,*" ColumnSpacing="10">
+                        <Border Width="28" Height="28" CornerRadius="14" Background="#31594D" VerticalAlignment="Top">
+                          <TextBlock Text="{Binding Marker}" Foreground="#E3F4E8" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Spacing="5">
+                          <TextBlock Text="{Binding Label}" Foreground="#F2FAF5" FontWeight="SemiBold" FontSize="14" />
+                          <TextBlock Text="{Binding Hint}" Foreground="#B8D2C6" FontSize="11" TextWrapping="Wrap" LineHeight="16" />
+                        </StackPanel>
+                      </Grid>
+                    </Button>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+          <Border Grid.Row="2" Background="#214C41" CornerRadius="12" Padding="14">
+            <StackPanel Spacing="6">
+              <TextBlock Text="{Binding SaveStateText}" Foreground="#D0EBD9" FontWeight="SemiBold" FontSize="12" />
+              <TextBlock Text="成功的操作会自动保存。重要节点记得额外备份。" Foreground="#AACBBB" FontSize="11" TextWrapping="Wrap" LineHeight="18" />
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Border>
+      <Grid Grid.Column="1" RowDefinitions="*,Auto">
+        <ContentControl Content="{Binding CurrentPage}" IsEnabled="{Binding !IsBusy}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+        <Border Grid.Row="1" Classes="action-bar" IsVisible="{Binding HasNextAction}" Padding="28,12">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+            <TextBlock Text="{Binding NextActionHint}" Classes="muted" VerticalAlignment="Center" FontSize="12" />
+            <Button Grid.Column="1" Content="{Binding NextActionLabel}" Classes="primary" Command="{Binding NextActionCommand}" />
+          </Grid>
+        </Border>
+      </Grid>
+      <views:WorkspaceRecoveryPanel x:Name="RecoveryPanel" Grid.ColumnSpan="2" IsVisible="{Binding IsOpen}" DataContext="{Binding Recovery}" />
+    </Grid>
+    <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,1,0,0" Padding="24,8">
+      <StackPanel Spacing="4">
+        <ProgressBar IsVisible="{Binding IsBusy}" IsIndeterminate="True" Height="3" Margin="0,0,0,4" />
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+          <TextBlock Text="{Binding StatusSymbol}" Foreground="{DynamicResource AppAccentBrush}" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Text="{Binding StatusSummary}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+          <Button Grid.Column="2" Content="重新读取" Classes="quiet" Command="{Binding ReloadCommand}" IsVisible="{Binding NeedsReload}" Padding="12,4" MinHeight="28" />
+        </Grid>
+        <StackPanel IsVisible="{Binding ShowDetails}">
+          <ToggleButton x:Name="DetailsToggle" Content="操作详情与赛事文件 ▾" FontSize="11" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource AppMutedTextBrush}" Padding="0,2" MinHeight="22" HorizontalAlignment="Left" AutomationProperties.Name="展开或收起操作详情与赛事文件" />
+          <ScrollViewer MaxHeight="140" IsVisible="{Binding #DetailsToggle.IsChecked}">
+            <StackPanel Spacing="6" Margin="10">
+              <SelectableTextBlock Text="{Binding Status}" FontSize="12" TextWrapping="Wrap" />
+              <SelectableTextBlock Text="{Binding WorkspacePath}" IsVisible="{Binding ShowWorkspaceContext}" FontSize="11" TextWrapping="Wrap" />
+            </StackPanel>
+          </ScrollViewer>
+        </StackPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

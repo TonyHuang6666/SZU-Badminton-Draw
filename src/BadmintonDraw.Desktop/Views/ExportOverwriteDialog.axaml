@@ -1,0 +1,36 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="BadmintonDraw.Desktop.Views.ExportOverwriteDialog"
+        Title="这些文件已存在" Width="640" Height="480" MinWidth="460" MinHeight="360"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource AppTextBrush}">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="24" RowSpacing="16">
+    <StackPanel Spacing="8">
+      <TextBlock Classes="section-title" Text="这些文件已存在" />
+      <TextBlock x:Name="FileCount" Classes="muted" />
+      <TextBlock Classes="muted" Text="继续导出将只替换下方列出的文件。" />
+    </StackPanel>
+    <Border Grid.Row="1" Classes="inset" Padding="12">
+      <ScrollViewer x:Name="ExistingFilesScroll" HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Auto">
+        <ItemsControl x:Name="ExistingFiles">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <SelectableTextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,12"
+                                   Foreground="{DynamicResource AppTextBrush}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Border>
+    <StackPanel Grid.Row="2" Spacing="16">
+      <TextBlock Classes="muted" Text="取消会保留原文件，你可以选择其他文件夹后再导出。" />
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12">
+        <Button x:Name="CancelButton" Classes="secondary" Content="取消" IsDefault="True"
+                IsCancel="True" Click="CancelClicked" />
+        <Button x:Name="ReplaceButton" Classes="danger" Content="替换这些文件" Click="ReplaceClicked" />
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+</Window>
