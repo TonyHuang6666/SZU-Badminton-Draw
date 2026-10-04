@@ -42,7 +42,7 @@
                       <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:OperationalProjectChoice"><TextBlock Text="{Binding Label}" TextWrapping="Wrap" /></DataTemplate></ComboBox.ItemTemplate>
                     </ComboBox>
                     <CheckBox x:Name="IncludePendingCarryover" IsChecked="{Binding IncludePendingCarryover}">
-                      <TextBlock Text="把较早日期尚未填写的记录，一并放入本次材料" TextWrapping="Wrap" />
+                      <TextBlock Text="将此前未录入赛果的比赛补入本次材料" TextWrapping="Wrap" />
                     </CheckBox>
                     <StackPanel Spacing="8" IsVisible="{Binding IncludePendingCarryover}">
                       <TextBlock Text="将待填记录放在哪一天？" />
