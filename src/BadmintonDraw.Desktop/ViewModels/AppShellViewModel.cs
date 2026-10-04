@@ -24,9 +24,11 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
     private WorkspaceCommandResult? lastCommandResult;
     // The board may outlive the main page, but never the tournament it belongs to.
     private ScheduleBoardPageViewModel? scheduleBoardPage;
+    private PlayerEntriesViewModel? playerEntries;
     public event Action<ScheduleBoardPageViewModel>? BoardWindowRequested;
     public event Action<PlayerEntriesViewModel>? PlayerEntriesWindowRequested;
     public event Action? BoardWindowInvalidated;
+    public event Action? PlayerEntriesWindowInvalidated;
     public WorkspaceNavigator Navigator { get; } = new();
     public StartPageViewModel StartPage { get; }
     public IReadOnlyList<WorkspaceNavigationItemViewModel> NavigationItems { get; }
@@ -140,17 +142,20 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         if (!disposed && ReferenceEquals(board, scheduleBoardPage) && CanNavigate(WorkspaceRoute.ScheduleBoard))
             BoardWindowRequested?.Invoke(board);
     }
-    internal bool CanOpenPlayerEntries => !disposed && CurrentSession is { RequiresReload: false } && CanNavigate(WorkspaceRoute.ScheduleBoard);
+    internal bool CanOpenPlayerEntries => !disposed && !IsBusy && CurrentSession is { RequiresReload: false } session &&
+        session.Workspace.Projects.Count > 0 && session.Workspace.Projects.All(project => project.Roster is not null);
     internal void OpenPlayerEntries()
     {
         if (!CanOpenPlayerEntries) return;
-        // Viewing saved matches must not navigate away from, or discard, a settings draft.
-        var board = (ScheduleBoardPageViewModel)CreatePage(WorkspaceRoute.ScheduleBoard, CurrentSession!);
-        board.ShowPlayerEntriesCommand.Execute(null);
-    }
-    internal void RequestPlayerEntriesWindow(ScheduleBoardPageViewModel board, PlayerEntriesViewModel entries)
-    {
-        if (CanOpenPlayerEntries && ReferenceEquals(board, scheduleBoardPage)) PlayerEntriesWindowRequested?.Invoke(entries);
+        // Registrations exist before the draw or schedule. Viewing never leaves an unfinished editor.
+        playerEntries ??= new PlayerEntriesViewModel(CurrentSession!, key =>
+        {
+            if (!CanOpenPlayerEntries || !CanNavigate(WorkspaceRoute.ScheduleBoard)) return;
+            var board = (ScheduleBoardPageViewModel)CreatePage(WorkspaceRoute.ScheduleBoard, CurrentSession!);
+            // Attach the board view before requesting focus so a newly opened window receives it.
+            board.SelectMatch(key); RequestBoardWindow(board); board.FocusSelectedCommand.Execute(null);
+        });
+        PlayerEntriesWindowRequested?.Invoke(playerEntries);
     }
     private WorkspacePageViewModel CreatePage(WorkspaceRoute route, WorkspaceSession session)
     {
@@ -169,6 +174,11 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         scheduleBoardPage = null;
         previous?.Dispose();
         BoardWindowInvalidated?.Invoke();
+    }
+    private void InvalidatePlayerEntriesWindow()
+    {
+        playerEntries?.Dispose(); playerEntries = null;
+        PlayerEntriesWindowInvalidated?.Invoke();
     }
     internal void ClearPageLeaveWarning(string message)
     {
@@ -332,6 +342,8 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         CurrentSession = session;
         Recovery.RefreshContext();
         Navigator.UpdateWorkspace(session.Workspace.Stage, session.Workspace.Purpose);
+        if (!sameWorkspace) InvalidatePlayerEntriesWindow();
+        else playerEntries?.RefreshSession(session);
         if (!sameWorkspace || !Navigator.CanNavigate(WorkspaceRoute.ScheduleBoard)) InvalidateBoardWindow();
         else if (scheduleBoardPage is { } board && !ReferenceEquals(board, CurrentPage)) board.RefreshSession(session);
         if (sameWorkspace && CurrentPage is WorkspacePageViewModel page && Navigator.CanNavigate(Navigator.CurrentRoute)) page.RefreshSession(session);
@@ -370,7 +382,8 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         Recovery.Dispose();
         DisposeCurrentPage();
         InvalidateBoardWindow();
-        BoardWindowRequested = null; PlayerEntriesWindowRequested = null; BoardWindowInvalidated = null;
+        InvalidatePlayerEntriesWindow();
+        BoardWindowRequested = null; PlayerEntriesWindowRequested = null; BoardWindowInvalidated = null; PlayerEntriesWindowInvalidated = null;
     }
 }
 

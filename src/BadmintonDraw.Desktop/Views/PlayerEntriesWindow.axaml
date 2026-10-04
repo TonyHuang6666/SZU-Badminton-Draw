@@ -1,34 +1,39 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:BadmintonDraw.Desktop.ViewModels"
+        xmlns:scheduling="using:BadmintonDraw.Desktop.Scheduling"
         x:Class="BadmintonDraw.Desktop.Views.PlayerEntriesWindow" x:DataType="vm:PlayerEntriesViewModel"
         Title="{Binding WindowTitle}" Width="1240" Height="780" MinWidth="940" MinHeight="560"
         CanResize="True" WindowStartupLocation="CenterOwner"
         Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource AppTextBrush}">
-  <Grid Margin="20" RowDefinitions="Auto,Auto,*" RowSpacing="12">
+  <Grid Margin="20" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="12">
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
       <StackPanel Spacing="5" VerticalAlignment="Center">
         <TextBlock Text="{Binding Header}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
-        <TextBlock Classes="muted" Text="移动、撤销和导入赛果后自动更新。点击场次可回到赛程板。" FontSize="13" />
+        <TextBlock Classes="muted" Text="移动、撤销和导入赛果后自动更新。点击场次可回到赛程板。" FontSize="13" IsVisible="{Binding HasSchedule}" TextWrapping="Wrap" />
       </StackPanel>
       <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-        <TextBlock Text="排序" VerticalAlignment="Center" />
+        <TextBox x:Name="PlayerEntriesSearch" Text="{Binding SearchText}" PlaceholderText="搜索姓名或学号"
+                 Width="190" AutomationProperties.Name="搜索兼项选手姓名或学号" />
+        <TextBlock Text="排序" VerticalAlignment="Center" IsVisible="{Binding CanSortByRest}" />
         <ComboBox x:Name="PlayerEntriesSort" ItemsSource="{Binding SortOptions}" SelectedIndex="{Binding SelectedSortIndex}"
-                  Width="200" AutomationProperties.Name="兼项选手排序" />
+                  Width="200" IsVisible="{Binding CanSortByRest}" IsEnabled="{Binding CanSortByRest}" AutomationProperties.Name="兼项选手排序" />
       </StackPanel>
     </Grid>
     <Border Grid.Row="1" Classes="callout" IsVisible="{Binding IsStale}" Padding="12">
       <TextBlock Text="此为最后已知内容，尚未重新读取赛事。请先回到主窗口重新载入，再查看或定位场次。" TextWrapping="Wrap" />
     </Border>
-    <Border Grid.Row="2" Classes="card" IsVisible="{Binding HasNoPlayers}">
+    <TextBlock Grid.Row="2" x:Name="PlayerNoScheduleGuidance" Classes="muted" Text="{Binding NoScheduleGuidance}"
+               IsVisible="{Binding HasNoSchedule}" TextWrapping="Wrap" />
+    <Border Grid.Row="3" Classes="card" IsVisible="{Binding HasNoPlayers}">
       <StackPanel Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Center">
-        <TextBlock Classes="section-title" Text="当前没有跨项目报名的选手" />
-        <TextBlock Classes="muted" Text="选手按报名身份匹配；只报名一个项目的选手不会列在这里。" />
+        <TextBlock Classes="section-title" Text="{Binding EmptyTitle}" TextWrapping="Wrap" />
+        <TextBlock Classes="muted" Text="{Binding EmptyGuidance}" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
-    <Grid Grid.Row="2" ColumnDefinitions="320,12,*" IsVisible="{Binding HasPlayers}">
+    <Grid Grid.Row="3" ColumnDefinitions="320,12,*" IsVisible="{Binding HasPlayers}">
       <Border Classes="card" Padding="12">
         <Grid RowDefinitions="Auto,*" RowSpacing="12">
-          <TextBlock Classes="section-title" Text="选手兼项汇总" Margin="4,0" />
+          <TextBlock Classes="section-title" Text="兼项报名汇总" Margin="4,0" />
           <ListBox x:Name="PlayerEntriesList" Grid.Row="1" ItemsSource="{Binding Players}" SelectedItem="{Binding SelectedPlayer}"
                    ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="兼项选手">
             <ListBox.ItemTemplate>
@@ -37,19 +42,45 @@
                   <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextWrapping="Wrap" />
                   <TextBlock Text="{Binding ShortSummary}" TextWrapping="Wrap" />
                   <TextBlock Text="{Binding ProjectText}" FontSize="13" TextWrapping="Wrap" />
-                  <TextBlock Text="{Binding RiskCounts}" FontSize="12" TextWrapping="Wrap" />
-                  <TextBlock Text="{Binding RestSummary}" FontSize="12" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding RiskCounts}" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding HasSchedule}" />
+                  <TextBlock Text="{Binding RestSummary}" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding HasSchedule}" />
                 </StackPanel>
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
+          <TextBlock Grid.Row="1" x:Name="PlayerSearchEmpty" Text="没有匹配的姓名或学号，请调整搜索。"
+                     Classes="muted" TextWrapping="Wrap" Margin="8" IsVisible="{Binding HasNoSearchResults}" />
         </Grid>
       </Border>
       <Border Grid.Column="2" Classes="card" Padding="18">
+        <Grid>
+        <TextBlock Classes="muted" Text="调整搜索后选择一位选手或队伍，查看报名项目。" TextWrapping="Wrap"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding HasNoSearchResults}" />
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="14" IsVisible="{Binding HasSelection}">
             <TextBlock Text="{Binding DetailTitle}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
             <TextBlock Text="{Binding ProjectText}" TextWrapping="Wrap" />
+            <Border Classes="callout" Padding="12" IsVisible="{Binding HasIdentityWarnings}">
+              <TextBlock Text="{Binding IdentityWarningText}" TextWrapping="Wrap" />
+            </Border>
+            <TextBlock Classes="muted" Text="{Binding RegistrationScopeText}" TextWrapping="Wrap" IsVisible="{Binding HasRegistrationScopeText}" />
+            <Expander x:Name="PlayerRegistrationsExpander" Header="报名项目"
+                      IsExpanded="{Binding HasNoSchedule, Mode=OneWay}">
+            <ItemsControl x:Name="PlayerRegistrations" ItemsSource="{Binding Registrations}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="scheduling:PlayerEntryRegistration">
+                  <Border Classes="inset" Margin="0,0,0,10" Padding="12">
+                    <StackPanel Spacing="6">
+                      <TextBlock Text="{Binding ProjectName}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding IdentityText}" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding PartnerText}" TextWrapping="Wrap" IsVisible="{Binding HasPartner}" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            </Expander>
+            <StackPanel x:Name="PlayerScheduleDetails" Spacing="14" IsVisible="{Binding HasSchedule}">
             <TextBlock Classes="muted" Text="{Binding SelectedSummary}" />
             <TextBlock Text="{Binding RestSummary}" TextWrapping="Wrap" />
             <TextBlock Classes="muted" Text="{Binding RiskSummary}" />
@@ -89,8 +120,10 @@
                 </ItemsControl>
               </StackPanel>
             </Expander>
+            </StackPanel>
           </StackPanel>
         </ScrollViewer>
+        </Grid>
       </Border>
     </Grid>
   </Grid>

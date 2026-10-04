@@ -13,13 +13,15 @@ public partial class AppShellWindow
     {
         shell.BoardWindowRequested += ShowScheduleBoard;
         shell.PlayerEntriesWindowRequested += ShowPlayerEntries;
-        shell.BoardWindowInvalidated += CloseScheduleWindows;
+        shell.BoardWindowInvalidated += CloseScheduleBoard;
+        shell.PlayerEntriesWindowInvalidated += ClosePlayerEntries;
         Closed += (_, _) =>
         {
             shell.BoardWindowRequested -= ShowScheduleBoard;
             shell.PlayerEntriesWindowRequested -= ShowPlayerEntries;
-            shell.BoardWindowInvalidated -= CloseScheduleWindows;
-            CloseScheduleWindows();
+            shell.BoardWindowInvalidated -= CloseScheduleBoard;
+            shell.PlayerEntriesWindowInvalidated -= ClosePlayerEntries;
+            CloseScheduleBoard(); ClosePlayerEntries();
         };
     }
     private void ShowScheduleBoard(ScheduleBoardPageViewModel model)
@@ -56,8 +58,6 @@ public partial class AppShellWindow
         };
         window.Show(this);
     }
-    private void CloseScheduleWindows()
-    {
-        entriesWindow?.Close(); boardWindow?.Close();
-    }
+    private void CloseScheduleBoard() => boardWindow?.Close();
+    private void ClosePlayerEntries() => entriesWindow?.Close();
 }

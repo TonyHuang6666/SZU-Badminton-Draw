@@ -8,6 +8,119 @@ namespace BadmintonDraw.Desktop.Tests;
 
 public sealed class PlayerEntriesViewModelTests
 {
+    // Before a draw, opening entries must expose imported registrations without a schedule.
+    [Fact]
+    public void ImportedRosterCanOpenBeforeDrawAndSchedule()
+    {
+        using var fixture = new ScheduleUiFixture(3, deterministicPlayerIds: true, confirmDraws: false);
+        using var model = new PlayerEntriesViewModel(fixture.Workflow.CurrentSession!, _ => throw new Exception("No schedule to focus"));
+
+        Assert.Equal(2, model.Players.Count);
+        Assert.Equal(3, model.SelectedPlayer!.Entry.ProjectCount);
+        Assert.Empty(model.ConfirmedMatches);
+        Assert.Empty(model.PotentialMatches);
+    }
+
+    // A failed reload must not replace last-known display data with a partial incoming snapshot.
+    [Fact]
+    public void RequiresReloadKeepsLastKnownPlayersAndPlacements()
+    {
+        using var fixture = CreateFixture();
+        using var model = new PlayerEntriesViewModel(fixture.Workflow.CurrentSession!, _ => { });
+        var originalPlayer = model.SelectedPlayer!.IdentityKey;
+        var originalPosition = model.ConfirmedMatches[0].Appearance.Position;
+        var session = fixture.Workflow.CurrentSession!;
+        model.RefreshSession(session with { RequiresReload = true, Workspace = session.Workspace with { Projects = [], Schedule = null } });
+
+        Assert.True(model.IsStale);
+        Assert.Equal(originalPlayer, model.SelectedPlayer!.IdentityKey);
+        Assert.Equal(originalPosition, model.ConfirmedMatches[0].Appearance.Position);
+        Assert.False(model.ConfirmedMatches[0].FocusCommand.CanExecute(null));
+    }
+
+    // Roster mode must not claim zero schedule risk or show rest-based sorting.
+    [Fact]
+    public void RosterModeShowsRegistrationsAndSuppressesScheduleMetrics()
+    {
+        using var fixture = new ScheduleUiFixture(3, deterministicPlayerIds: true, confirmDraws: false);
+        using var model = new PlayerEntriesViewModel(fixture.Workflow.CurrentSession!, _ => { });
+
+        Assert.True(model.HasNoSchedule);
+        Assert.False(model.CanSortByRest);
+        model.SelectedSortIndex = 2;
+        Assert.Equal(0, model.SelectedSortIndex);
+        Assert.Single(model.SortOptions);
+        Assert.Equal(3, model.Registrations.Count);
+        Assert.DoesNotContain("场", model.SelectedPlayer!.ShortSummary);
+        Assert.Empty(model.SelectedPlayer.RiskCounts);
+        Assert.Empty(model.SelectedPlayer.RestSummary);
+        Assert.Empty(model.SelectedSummary);
+        Assert.Empty(model.RiskSummary);
+        Assert.Empty(model.RestSummary);
+        Assert.False(model.HasNoConfirmedMatches);
+    }
+
+    // Filtering must include names and student IDs, and no results must differ from no registrations.
+    [Fact]
+    public void SearchByNameOrStudentIdHasASeparateNoResultsState()
+    {
+        using var fixture = new ScheduleUiFixture(3, deterministicPlayerIds: true, confirmDraws: false);
+        using var model = new PlayerEntriesViewModel(fixture.Workflow.CurrentSession!, _ => { });
+        model.SearchText = "男子单打1";
+        Assert.Equal("ui-player-1", Assert.Single(model.Players).Entry.StudentId);
+        model.SearchText = "ui-player-2";
+        Assert.Equal("ui-player-2", Assert.Single(model.Players).Entry.StudentId);
+        model.SearchText = "不存在";
+        Assert.Empty(model.Players);
+        Assert.True(model.HasNoSearchResults);
+        Assert.False(model.HasNoPlayers);
+        Assert.False(model.HasSelection);
+        model.SearchText = "";
+        Assert.Equal(2, model.Players.Count);
+        Assert.False(model.HasNoSearchResults);
+    }
+
+    // Schedule removal must restore the roster view and revoke a command retained by the old view.
+    [Fact]
+    public void ScheduleClearingRestoresRosterViewAndDisablesRetainedFocus()
+    {
+        using var fixture = CreateFixture();
+        using var model = new PlayerEntriesViewModel(fixture.Workflow.CurrentSession!, _ => throw new Exception("Old schedule must not focus"));
+        model.SelectedPlayer = model.Players.Last();
+        model.SelectedSortIndex = 2;
+        var identity = model.SelectedPlayer!.IdentityKey;
+        var command = model.ConfirmedMatches[0].FocusCommand;
+        var session = fixture.Workflow.CurrentSession!;
+        model.RefreshSession(session with { Workspace = session.Workspace with { Schedule = null } });
+
+        Assert.Equal(identity, model.SelectedPlayer!.IdentityKey);
+        Assert.Equal(3, model.Registrations.Count);
+        Assert.True(model.HasNoSchedule);
+        Assert.Equal(0, model.SelectedSortIndex);
+        Assert.Empty(model.ConfirmedMatches);
+        Assert.False(command.CanExecute(null));
+        command.Execute(null);
+    }
+
+    // A roster replacement must refresh partner data while maintaining the current identity.
+    [Fact]
+    public void RosterReplacementKeepsSelectedIdentityAndRefreshesRegistrationDetails()
+    {
+        using var fixture = new ScheduleUiFixture(3, deterministicPlayerIds: true, confirmDraws: false);
+        using var model = new PlayerEntriesViewModel(fixture.Workflow.CurrentSession!, _ => { });
+        model.SelectedPlayer = model.Players.Last();
+        var identity = model.SelectedPlayer!.IdentityKey;
+        var session = fixture.Workflow.CurrentSession!;
+        model.RefreshSession(session with { Workspace = session.Workspace with
+        {
+            Projects = session.Workspace.Projects.Select(project => project.Discipline == EventDiscipline.MenDoubles ? project with
+            { Roster = project.Roster! with { Participants = project.Roster.Participants.Select(r => r with { PartnerName = "新搭档" }).ToArray() } } : project).ToArray()
+        } });
+
+        Assert.Equal(identity, model.SelectedPlayer!.IdentityKey);
+        Assert.Equal("新搭档", model.Registrations.Single(r => r.ProjectName == "男子双打").PartnerName);
+    }
+
     [Fact]
     public void NegativeGapIsNotClaimedAsTheActualOverlapDuration()
     {

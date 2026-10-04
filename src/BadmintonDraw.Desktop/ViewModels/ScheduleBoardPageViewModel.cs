@@ -22,7 +22,6 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     private long editorEpoch;
     private ScheduleEditPreview? preview;
     private WorkspaceSession? previewSession;
-    private PlayerEntriesViewModel? playerEntries;
     public WorkspaceScheduleBoard Board { get => board; private set => SetProperty(ref board, value); }
     public string WindowTitle => Session.Workspace.Name + " · 赛程板";
     public string Summary => $"{Board.Days.Count} 个比赛日 · {Board.Cards.Count} 场比赛 · {Board.Cards.Select(c => c.Key.ProjectId).Distinct().Count()} 个项目";
@@ -100,16 +99,7 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
         OperationsCommand = new(() => shell.Navigate(WorkspaceRoute.Operations), () => !disposed && shell.CanNavigate(WorkspaceRoute.Operations));
         ShowDetailsCommand = new(() => IsMoveEditorExpanded = true, () => !disposed && SelectedMatch is not null);
         EditSelectedCommand = new(() => { IsMoveEditorExpanded = true; IsAdjusting = true; }, CanPreview);
-        ShowPlayerEntriesCommand = new(() =>
-        {
-            playerEntries ??= new PlayerEntriesViewModel(Session, key =>
-            {
-                if (!shell.CanNavigate(WorkspaceRoute.ScheduleBoard)) return;
-                // Select before attaching the view so its initial editor load captures the right match.
-                SelectMatch(key); shell.RequestBoardWindow(this); FocusRequested?.Invoke(key);
-            });
-            shell.RequestPlayerEntriesWindow(this, playerEntries);
-        }, () => !disposed && shell.CanOpenPlayerEntries);
+        ShowPlayerEntriesCommand = new(shell.OpenPlayerEntries, () => !disposed && shell.CanOpenPlayerEntries);
         shell.PropertyChanged += ShellPropertyChanged;
         LoadTarget();
     }
@@ -213,7 +203,6 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
         var changed = sourceIdentity != Source(next); var selectedKey = SelectedMatch?.Key;
         if (changed) { conflict = true; canUndo = false; }
         base.RefreshSession(next); Board = WorkspaceScheduleBoard.Build(next);
-        playerEntries?.RefreshSession(next);
         selectedMatch = Matches.FirstOrDefault(c => c.Key == selectedKey) ?? Matches.FirstOrDefault();
         if (!edited && !changed) LoadTarget();
         ClearPreview();
@@ -233,7 +222,7 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
         // Native attachment can occur inside Open's busy ApplySession. Retry once when that operation releases busy.
         if (initializePending && !disposed && !shell.IsBusy) _ = InitializeAsync();
     }
-    public void Dispose() { disposed = true; shell.PropertyChanged -= ShellPropertyChanged; baseline = null; ClearPreview(); playerEntries?.Dispose(); FocusRequested = null; RefreshAvailability(); }
+    public void Dispose() { disposed = true; shell.PropertyChanged -= ShellPropertyChanged; baseline = null; ClearPreview(); FocusRequested = null; RefreshAvailability(); }
     private sealed record EditorContext(ScheduleEditBaseline Baseline, bool CanUndo);
 }
 

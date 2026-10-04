@@ -3,6 +3,9 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Media;
+using Avalonia.Interactivity;
+using Avalonia.Input;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using BadmintonDraw.Core;
@@ -156,43 +159,182 @@ public sealed class ScheduleBoardDensityTests : IDisposable
         });
     }, CancellationToken.None);
 
-    // Repeated locate actions must not permanently replace the project's border with the focus accent.
+    // A timeout, border-only highlight, or measuring the badge only after location breaks this contract.
     [Fact]
-    public Task RepeatedLocateRestoresProjectBorderAfterHighlight() => session.Dispatch(async () =>
+    public Task LocatedCardKeepsNoticeableHighlightUntilExplicitlyClearedWithoutChangingGeometry() => session.Dispatch(async () =>
     {
         var item = Card(new(9, 0), new(9, 30));
-        var control = new ScheduleBoardControl { Board = Board(item) };
+        var sibling = Card(new(9, 30), new(10, 0), item.Key.ProjectId);
+        var control = new ScheduleBoardControl { Board = Board(item, sibling), SelectedDay = "2026-10-04" };
         var window = new Window { Width = 600, Height = 450, Content = control };
         try
         {
             window.Show(); window.UpdateLayout();
-            // Select the current day before keeping a reference, because locate also selects its date.
-            control.SelectedDay = "2026-10-04"; window.UpdateLayout();
             var card = FindCard(control, item.Key);
-            var original = ((ISolidColorBrush)card.BorderBrush!).Color;
-            var restored = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            void BorderChanged(object? sender, AvaloniaPropertyChangedEventArgs change)
-            {
-                if (change.Property == Border.BorderBrushProperty && card.BorderBrush is ISolidColorBrush brush && brush.Color == original)
-                    restored.TrySetResult();
-            }
-            card.PropertyChanged += BorderChanged;
-            try
-            {
-                control.FocusMatch(item.Key); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
-                Assert.NotEqual(original, ((ISolidColorBrush)card.BorderBrush!).Color);
-                control.FocusMatch(item.Key); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
-                Assert.NotEqual(original, ((ISolidColorBrush)card.BorderBrush!).Color);
-                // UI timer callbacks can be delayed by other work. Observe restoration, not elapsed wall time.
-                await restored.Task.WaitAsync(TimeSpan.FromSeconds(10));
-                Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
-                Assert.Equal(original, ((ISolidColorBrush)card.BorderBrush!).Color);
-            }
-            finally { card.PropertyChanged -= BorderChanged; }
+            var originalBorder = ((ISolidColorBrush)card.BorderBrush!).Color;
+            var originalBackground = ((ISolidColorBrush)card.Background!).Color;
+            var originalSize = card.Bounds.Size;
+            var originalViewport = control.FindControl<ScrollViewer>("BoardScroll")!.Viewport;
+            control.FocusMatch(item.Key); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.NotEqual(originalBorder, ((ISolidColorBrush)card.BorderBrush!).Color);
+            Assert.NotEqual(originalBackground, ((ISolidColorBrush)card.Background!).Color);
+            AssertLocated(control, item.Key);
+            AssertNotLocated(control, sibling.Key);
+            Assert.Equal(originalSize, card.Bounds.Size);
+            Assert.Equal(originalViewport, control.FindControl<ScrollViewer>("BoardScroll")!.Viewport);
+            Assert.True(card.BoxShadow.Count > 0);
+            AssertReadable(card);
+            var info = control.FindControl<TextBlock>("LocationInfo")!;
+            Assert.Contains("男子单打", info.Text);
+            Assert.Contains("2026-10-04", info.Text);
+            Assert.Contains("09:00–09:30", info.Text);
+            Assert.Contains("B1", info.Text);
+
+            await Task.Delay(1700); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            AssertLocated(control, item.Key);
+            Assert.NotEqual(originalBorder, ((ISolidColorBrush)card.BorderBrush!).Color);
+            control.FindControl<Button>("CancelLocation")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.UpdateLayout();
+            AssertNotLocated(control, item.Key);
+            Assert.Equal(originalBorder, ((ISolidColorBrush)card.BorderBrush!).Color);
+            Assert.Equal(originalBackground, ((ISolidColorBrush)card.Background!).Color);
+            Assert.Equal(originalSize, card.Bounds.Size);
+            Assert.Equal(originalViewport, control.FindControl<ScrollViewer>("BoardScroll")!.Viewport);
+            Assert.False(control.FindControl<Border>("LocationSummary")!.IsVisible);
         }
         finally { window.Close(); }
         return 0;
     }, CancellationToken.None);
+
+    // Selecting a different card must transfer the location, including within the same project.
+    [Fact]
+    public Task LocatingOrSelectingAnotherMatchTransfersTheOnlyLocationBadge() => session.Dispatch(() =>
+    {
+        var first = Card(new(9, 0), new(9, 30));
+        var second = Card(new(9, 30), new(10, 0), first.Key.ProjectId);
+        WithBoard(Board(first, second), (control, window) =>
+        {
+            control.FocusMatch(first.Key); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            AssertLocated(control, first.Key);
+            control.FocusMatch(second.Key); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            AssertNotLocated(control, first.Key);
+            AssertLocated(control, second.Key);
+            control.CanEdit = false;
+            FindCard(control, first.Key).RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            window.UpdateLayout();
+            AssertLocated(control, first.Key);
+            AssertNotLocated(control, second.Key);
+        });
+    }, CancellationToken.None);
+
+    // The minimum font size must not be clipped by scaled badge space; comma decimals must not create extra columns.
+    [Theory]
+    [InlineData(.65)]
+    [InlineData(1.13)]
+    public Task LocationBadgeAndLockedSubMinuteTimeRemainReadableAtZoomInCommaDecimalCulture(double zoom) => session.Dispatch(() =>
+    {
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+            var item = Card(new(9, 0, 30, 125), new(9, 30, 30, 125)) with { IsLocked = true };
+            WithBoard(Board(item), (control, window) =>
+            {
+                control.Zoom = zoom;
+                control.FocusMatch(item.Key); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+                var card = FindCard(control, item.Key);
+                var badge = card.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "当前定位");
+                Assert.True(badge.Bounds.Width >= badge.TextLayout.WidthIncludingTrailingWhitespace,
+                    $"Badge width {badge.Bounds.Width} must fit rendered text width {badge.TextLayout.WidthIncludingTrailingWhitespace} at {zoom} zoom.");
+                var badgeBorder = (Border)badge.Parent!;
+                var position = badgeBorder.TranslatePoint(default, card)!.Value;
+                Assert.InRange(card.Bounds.Width - position.X - badgeBorder.Bounds.Width,
+                    card.Padding.Right + card.BorderThickness.Right - .51, card.Padding.Right + card.BorderThickness.Right + .51);
+                Assert.Contains("09:00:30.125–09:30:30.125 · 已锁定", CardText(card));
+                var time = card.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text!.Contains("已锁定", StringComparison.Ordinal));
+                Assert.True(time.Bounds.Width > 0);
+                Assert.True(time.Bounds.Height >= time.TextLayout.Height);
+                AssertReadable(card);
+            });
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = previous; }
+    }, CancellationToken.None);
+
+    // Rebuilding render elements or refreshing the same workspace must retain the logical match key.
+    [Fact]
+    public Task LocationSurvivesDayZoomDensityThemeAndBoardRefreshWithUpdatedPosition() => session.Dispatch(() =>
+    {
+        var item = Card(new(9, 0), new(9, 30));
+        var original = Board(item);
+        var otherResources = new ScheduleDaySettings(new(2026, 10, 5), new(9, 0), new(18, 0), ["B1"]);
+        original = original with { Days = [.. original.Days, new(otherResources, [new(9, 0)])] };
+        WithBoard(original, (control, window) =>
+        {
+            control.FocusMatch(item.Key); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            control.SelectedDay = "2026-10-05"; window.UpdateLayout();
+            var info = control.FindControl<TextBlock>("LocationInfo");
+            Assert.NotNull(info);
+            Assert.Contains("2026-10-04", info.Text);
+            control.SelectedDay = "2026-10-04";
+            control.Zoom = .7; control.IsCompact = false; window.UpdateLayout();
+            AssertLocated(control, item.Key);
+            var lightBackground = ((ISolidColorBrush)FindCard(control, item.Key).Background!).Color;
+            window.RequestedThemeVariant = ThemeVariant.Dark; Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            var card = FindCard(control, item.Key);
+            AssertLocated(control, item.Key);
+            Assert.NotEqual(lightBackground, ((ISolidColorBrush)card.Background!).Color);
+            AssertReadable(card);
+
+            var moved = item with { Placement = item.Placement with { StartTime = new(10, 0), EndTime = new(10, 30), Court = "B2" } };
+            control.Board = original with { WorkspaceRevision = 2, ScheduleRevision = 2, Cards = [moved] }; window.UpdateLayout();
+            AssertLocated(control, item.Key);
+            Assert.Contains("10:00–10:30", control.FindControl<TextBlock>("LocationInfo")!.Text);
+            Assert.Contains("B2", control.FindControl<TextBlock>("LocationInfo")!.Text);
+        });
+    }, CancellationToken.None);
+
+    // Removed targets and new workspaces must not resurrect stale match location state.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task RemovingLocatedMatchOrChangingWorkspaceClearsTheLocation(bool newWorkspace) => session.Dispatch(() =>
+    {
+        var item = Card(new(9, 0), new(9, 30));
+        var original = Board(item);
+        WithBoard(original, (control, window) =>
+        {
+            control.FocusMatch(item.Key); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            AssertLocated(control, item.Key);
+            control.Board = newWorkspace ? original with { WorkspaceId = Guid.NewGuid() } : original with { Cards = [] };
+            window.UpdateLayout();
+            Assert.False(control.FindControl<Border>("LocationSummary")!.IsVisible);
+            control.Board = original; window.UpdateLayout();
+            AssertNotLocated(control, item.Key);
+        });
+    }, CancellationToken.None);
+
+    private static void AssertLocated(ScheduleBoardControl control, WorkspaceMatchKey key) =>
+        Assert.Contains(FindCard(control, key).GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "当前定位" && t.IsVisible && t.Opacity > 0);
+    private static void AssertNotLocated(ScheduleBoardControl control, WorkspaceMatchKey key) =>
+        Assert.DoesNotContain(FindCard(control, key).GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "当前定位" && t.IsVisible && t.Opacity > 0);
+    private static void AssertReadable(Border card)
+    {
+        foreach (var text in card.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsVisible))
+        {
+            var background = text.Text == "当前定位" ? ((ISolidColorBrush)((Border)text.Parent!).Background!).Color : ((ISolidColorBrush)card.Background!).Color;
+            Assert.True(Contrast(((ISolidColorBrush)text.Foreground!).Color, background) >= 4.5, $"Located text '{text.Text}' must remain readable on its background.");
+        }
+    }
+    private static double Contrast(Color first, Color second)
+    {
+        static double Luminance(Color color)
+        {
+            static double Channel(byte value) { var channel = value / 255d; return channel <= .04045 ? channel / 12.92 : Math.Pow((channel + .055) / 1.055, 2.4); }
+            return .2126 * Channel(color.R) + .7152 * Channel(color.G) + .0722 * Channel(color.B);
+        }
+        var a = Luminance(first); var b = Luminance(second);
+        return (Math.Max(a, b) + .05) / (Math.Min(a, b) + .05);
+    }
 
     private static WorkspaceBoardCard Card(TimeOnly start, TimeOnly end, Guid? projectId = null)
     {

@@ -34,7 +34,7 @@ public partial class ScheduleBoardControl
         card.Focus();
         if (!CanEdit || item.IsLocked || Board is not { } source || !e.GetCurrentPoint(card).Properties.IsLeftButtonPressed)
         {
-            MatchSelected?.Invoke(item.Key);
+            SelectMatch(item.Key);
             return;
         }
         hoverCache.Clear(); ClearHover(); dragSource = card; card.Opacity = .45;
@@ -44,7 +44,7 @@ public partial class ScheduleBoardControl
         {
             ClearDragState();
             // Reveal inspection only after release/drop so an overlay cannot appear under an active drag.
-            if (Board?.Cards.Any(c => c.Key == item.Key) == true) MatchSelected?.Invoke(item.Key);
+            if (Board?.Cards.Any(c => c.Key == item.Key) == true) SelectMatch(item.Key);
         }
     }
     private bool TryKey(DragEventArgs e, out WorkspaceMatchKey key)

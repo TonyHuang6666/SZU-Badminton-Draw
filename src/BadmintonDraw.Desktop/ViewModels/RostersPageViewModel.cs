@@ -21,18 +21,22 @@ public sealed class RostersPageViewModel : WorkspacePageViewModel
     public string NextLabel => EditingProject is not null ? "先处理种子编辑" : AllRostersImported && Session.Workspace.Projects.All(p => p.Draw?.ConfirmedAt is not null)
         ? "查看公开抽签" : AllRostersImported ? "名单检查无误，开始公开抽签" : "下一步：公开抽签";
     public DelegateCommand NextCommand { get; }
+    public DelegateCommand PlayerEntriesCommand { get; }
+    public string PlayerEntriesHint => AllRostersImported ? "核对选手报名的项目与双打搭档，无需先抽签。" : "请先导入全部项目名单。";
 
     public RostersPageViewModel(AppShellViewModel shell, WorkspaceSession session,
         Func<Task<string?>> importPicker, Func<string, Task<string?>> templatePicker) : base(session)
     {
         Shell = shell; ImportPicker = importPicker; TemplatePicker = templatePicker;
         NextCommand = new(() => shell.Navigate(WorkspaceRoute.PublicDraw), () => shell.CanNavigate(WorkspaceRoute.PublicDraw));
+        PlayerEntriesCommand = new(shell.OpenPlayerEntries, () => shell.CanOpenPlayerEntries &&
+            shell.CurrentSession?.Workspace.Id == Session.Workspace.Id && shell.CurrentSession.WorkspacePath == Session.WorkspacePath);
         RefreshProjects();
     }
     public override void RefreshSession(WorkspaceSession next)
     {
         base.RefreshSession(next); RefreshProjects();
-        foreach (var property in new[] { nameof(Readiness), nameof(AllRostersImported), nameof(NextHint), nameof(NextLabel) }) OnPropertyChanged(property);
+        foreach (var property in new[] { nameof(Readiness), nameof(AllRostersImported), nameof(NextHint), nameof(NextLabel), nameof(PlayerEntriesHint) }) OnPropertyChanged(property);
     }
     public override bool TryLeave()
     {
@@ -65,5 +69,6 @@ public sealed class RostersPageViewModel : WorkspacePageViewModel
     {
         foreach (var project in Projects) project.RefreshAvailability();
         NextCommand?.NotifyCanExecuteChanged();
+        PlayerEntriesCommand?.NotifyCanExecuteChanged();
     }
 }

@@ -14,19 +14,34 @@ public sealed record PlayerEntryAppearance(WorkspaceMatchKey Key, string Project
     public string Status => IsPotential ? "后续可能参加（结果未定）" : IsCompleted ? "已完成" : "待比赛";
 }
 
+public sealed record PlayerEntryRegistration(Guid ProjectId, string ProjectName, string Name, string StudentId,
+    string Unit, string PartnerName, string PartnerStudentId, string PartnerUnit, bool IsTeam)
+{
+    public string IdentityText => IsTeam ? "队伍：" + Name : new CrossEventPlayerIdentity(Name, StudentId).DisplayName +
+        (Unit.Length > 0 ? " · 单位：" + Unit : "");
+    public bool HasPartner => PartnerName.Length > 0;
+    public string PartnerText => HasPartner ? "搭档：" + new CrossEventPlayerIdentity(PartnerName, PartnerStudentId).DisplayName +
+        (PartnerUnit.Length > 0 ? " · 单位：" + PartnerUnit : "") : "";
+}
+
 public sealed record PlayerEntrySummary(string IdentityKey, string Name, string StudentId, string DisplayName,
     IReadOnlyList<string> ProjectNames, IReadOnlyList<PlayerEntryAppearance> ConfirmedMatches,
     IReadOnlyList<PlayerEntryAppearance> PotentialMatches, int ConflictCount, int RestWarningCount,
     double? MinimumRestMinutes)
 {
+    public IReadOnlyList<PlayerEntryRegistration> Registrations { get; init; } = [];
+    public IReadOnlyList<string> IdentityWarnings { get; init; } = [];
+    public bool HasSchedule { get; init; } = true;
+    public string RegistrationScopeText => IdentityKey.StartsWith("team:", StringComparison.Ordinal)
+        ? "团体按队伍身份展示，未包含队员个人兼项信息。" : "";
     public int ProjectCount => ProjectNames.Count;
     public int CompletedCount => ConfirmedMatches.Count(match => match.IsCompleted);
     public int PendingCount => ConfirmedMatches.Count(match => !match.IsCompleted);
     public bool HasPotentialMatches => PotentialMatches.Count > 0;
-    public string Summary => $"{ProjectCount} 项 · 确定 {ConfirmedMatches.Count} 场 · 已完成 {CompletedCount} 场 · 待比赛 {PendingCount} 场 · 潜在 {PotentialMatches.Count} 场";
-    public string RiskSummary => $"确定比赛：冲突 {ConflictCount} 对 · 休息不足 {RestWarningCount} 对" +
+    public string Summary => HasSchedule ? $"{ProjectCount} 项 · 确定 {ConfirmedMatches.Count} 场 · 已完成 {CompletedCount} 场 · 待比赛 {PendingCount} 场 · 潜在 {PotentialMatches.Count} 场" : "";
+    public string RiskSummary => !HasSchedule ? "" : $"确定比赛：冲突 {ConflictCount} 对 · 休息不足 {RestWarningCount} 对" +
         (HasPotentialMatches ? "；潜在比赛须待赛果确定后核验冲突与休息，尚不能判定无风险。" : "") +
-        (IdentityKey.StartsWith("team:", StringComparison.Ordinal) ? "；团体按队伍身份展示，未包含队员个人兼项信息。" : "");
+        (RegistrationScopeText.Length > 0 ? "；" + RegistrationScopeText : "");
 }
 
 /// <summary>A read-only roster and current graph-outcome projection, separate from scheduling decisions.</summary>
@@ -36,17 +51,35 @@ public static class WorkspacePlayerEntries
     {
         ArgumentNullException.ThrowIfNull(session);
         var workspace = session.Workspace;
-        var schedule = workspace.Schedule ?? throw new WorkspaceCommandException(new("schedule.missing", "尚未生成赛程。"));
+        var schedule = workspace.Schedule;
         var projects = workspace.Projects.OrderBy(p => p.SortOrder).ToArray();
         var registrations = new Dictionary<string, Registration>(StringComparer.Ordinal);
         foreach (var project in projects)
         foreach (var participant in project.Roster?.Participants ?? [])
-        foreach (var player in ProjectEntrantIdentity.Create(project.Discipline, participant).Players)
         {
-            if (!registrations.TryGetValue(player.IdentityKey, out var registration))
-                registrations.Add(player.IdentityKey, registration = new(player));
-            registration.Projects.TryAdd(project.Id, project.DisplayName);
+            var entrant = ProjectEntrantIdentity.Create(project.Discipline, participant);
+            for (var index = 0; index < entrant.Players.Count; index++)
+            {
+                var player = entrant.Players[index];
+                if (!registrations.TryGetValue(player.IdentityKey, out var registration))
+                    registrations.Add(player.IdentityKey, registration = new(player));
+                registration.Names.Add(player.Name);
+                if (!registration.Projects.TryAdd(project.Id, project.DisplayName)) continue;
+                var partner = entrant.Players.Count > 1 ? entrant.Players[1 - index] : null;
+                registration.Details.Add(new(project.Id, project.DisplayName, player.Name, player.StudentId,
+                    (index == 0 ? participant.TeamName : participant.PartnerTeamName)?.Trim() ?? "",
+                    partner?.Name ?? "", partner?.StudentId ?? "",
+                    partner is null ? "" : (index == 0 ? participant.PartnerTeamName : participant.TeamName)?.Trim() ?? "", player.IsTeam));
+            }
         }
+
+        if (schedule is null)
+            return Array.AsReadOnly(registrations.Values.Where(r => r.Projects.Count >= 2)
+                .Select(r => new PlayerEntrySummary(r.Player.IdentityKey, r.Player.Name.Trim(), r.Player.StudentId.Trim(),
+                    r.Player.DisplayName, Array.AsReadOnly(r.Projects.Values.ToArray()), [], [], 0, 0, null)
+                { HasSchedule = false, Registrations = r.Details.AsReadOnly(), IdentityWarnings = r.IdentityWarnings() })
+                .OrderByDescending(p => p.ProjectCount).ThenBy(p => p.Name, StringComparer.Ordinal)
+                .ThenBy(p => p.IdentityKey, StringComparer.Ordinal).ToArray());
 
         var graphs = projects.Select(p => p.MatchGraph ?? throw new WorkspaceValidationException("graph.missing", "比赛关系图尚未生成。")).ToArray();
         // Reuse display/validation only. Projection player collections contain unresolved candidates.
@@ -146,7 +179,8 @@ public static class WorkspacePlayerEntries
             var player = registration.Player;
             summaries.Add(new(player.IdentityKey, player.Name.Trim(), player.StudentId.Trim(), player.DisplayName,
                 Array.AsReadOnly(registration.Projects.Values.ToArray()), Array.AsReadOnly(confirmed),
-                Array.AsReadOnly(Ordered(registration.Potential)), conflictCount, restWarningCount, minimumRest));
+                Array.AsReadOnly(Ordered(registration.Potential)), conflictCount, restWarningCount, minimumRest)
+            { Registrations = registration.Details.AsReadOnly(), IdentityWarnings = registration.IdentityWarnings() });
         }
         return Array.AsReadOnly(summaries.OrderByDescending(p => p.ProjectCount).ThenBy(p => p.Name, StringComparer.Ordinal)
             .ThenBy(p => p.IdentityKey, StringComparer.Ordinal).ToArray());
@@ -157,7 +191,18 @@ public static class WorkspacePlayerEntries
     {
         public CrossEventPlayerIdentity Player { get; } = player;
         public Dictionary<Guid, string> Projects { get; } = [];
+        public List<PlayerEntryRegistration> Details { get; } = [];
+        public HashSet<string> Names { get; } = new(StringComparer.Ordinal);
         public List<PlayerEntryAppearance> Confirmed { get; } = [];
         public List<PlayerEntryAppearance> Potential { get; } = [];
+        public IReadOnlyList<string> IdentityWarnings()
+        {
+            if (Player.IsTeam) return [];
+            if (string.IsNullOrWhiteSpace(Player.StudentId))
+                return ["缺少学号，当前按姓名匹配；同名选手可能被合并，同一选手在其他项目有学号时可能被分开。请核对原始名单。"];
+            if (Names.Select(name => CrossEventPlayerIdentity.FromName(name).IdentityKey).Distinct(StringComparer.Ordinal).Count() > 1)
+                return [$"同一学号对应不同姓名：{string.Join("、", Names)}。当前仍按学号汇总，请核对原始名单。"];
+            return [];
+        }
     }
 }

@@ -12,14 +12,15 @@ internal sealed class ScheduleUiFixture : IDisposable
     public TournamentWorkspaceWorkflow Workflow { get; }
     public AppShellViewModel Shell { get; }
     public ScheduleUiFixture(int count = 1, TournamentWorkspaceWorkflow? workflow = null,
-        TournamentPurpose purpose = TournamentPurpose.FullTournament, bool roundRobin = false, bool deterministicPlayerIds = false)
+        TournamentPurpose purpose = TournamentPurpose.FullTournament, bool roundRobin = false, bool deterministicPlayerIds = false,
+        bool confirmDraws = true, int? importCount = null)
     {
         Workflow = workflow ?? new();
         var disciplines = new[] { EventDiscipline.MenSingles, EventDiscipline.WomenSingles, EventDiscipline.MenDoubles };
         Workflow.CreateWorkspace(new("统一赛程测试", TournamentKind.Individual, purpose,
             disciplines.Take(count).Select(d => new WorkspaceProjectRequest(d, roundRobin ? CompetitionMode.SinglesRoundRobin : CompetitionMode.SinglesKnockout)).ToArray(),
             Path.Combine(DirectoryPath, "比赛.szbd")));
-        foreach (var project in Workflow.CurrentSession!.Workspace.Projects)
+        foreach (var project in Workflow.CurrentSession!.Workspace.Projects.Take(importCount ?? count))
         {
             var path = Path.Combine(DirectoryPath, project.Id + ".xlsx");
             using (var book = new XLWorkbook())
@@ -36,7 +37,7 @@ internal sealed class ScheduleUiFixture : IDisposable
             }
             Workflow.ImportRoster(project.Id, path, Workflow.CurrentSession!.Workspace.Revision);
         }
-        foreach (var project in Workflow.CurrentSession!.Workspace.Projects)
+        foreach (var project in confirmDraws ? Workflow.CurrentSession!.Workspace.Projects : [])
         {
             Workflow.PreviewDraw(project.Id, new(project.CompetitionMode, project.Discipline == EventDiscipline.MenDoubles ? EventKind.Doubles : EventKind.Singles, 1, "ui-test"), Workflow.CurrentSession.Workspace.Revision);
             Workflow.ConfirmDraw(project.Id, Workflow.CurrentSession.Workspace.Revision);

@@ -10,6 +10,98 @@ namespace BadmintonDraw.Desktop.Tests;
 
 public sealed class WorkspacePlayerEntriesTests
 {
+    // Registration must be available before graph construction and scheduling.
+    [Fact]
+    public void ImportedRostersBuildWithoutScheduleOrMatchGraphs()
+    {
+        var fixture = new EntryFixture();
+        fixture.Project("单打", EventDiscipline.MenSingles, fixture.A, fixture.B);
+        fixture.Project("双打", EventDiscipline.MenDoubles, fixture.Pair(fixture.C, fixture.A), fixture.Pair(fixture.D, fixture.B));
+
+        var row = WorkspacePlayerEntries.Build(fixture.Session(withSchedule: false)).Single(p => p.StudentId == "A");
+
+        Assert.Equal(new[] { "单打", "双打" }, row.ProjectNames);
+        Assert.Empty(row.ConfirmedMatches);
+        Assert.Empty(row.PotentialMatches);
+        Assert.Null(row.MinimumRestMinutes);
+    }
+
+    // A partner in the primary column and a partner in the secondary column need symmetric details.
+    [Fact]
+    public void RegistrationDetailsKeepOwnAndPartnerIdentityAndAvailableUnits()
+    {
+        var fixture = new EntryFixture();
+        fixture.Project("单打", EventDiscipline.MenSingles, fixture.A, fixture.B);
+        fixture.Project("双打", EventDiscipline.MenDoubles, fixture.Pair(fixture.C, fixture.A), fixture.Pair(fixture.D, fixture.B));
+        var session = fixture.Session(withSchedule: false);
+        session = session with { Workspace = session.Workspace with
+        {
+            Projects = session.Workspace.Projects.Select(p => p.DisplayName == "双打" ? p with
+            { Roster = p.Roster! with { Participants = p.Roster.Participants.Select(r => r with { TeamName = "C单位", PartnerTeamName = "A单位" }).ToArray() } } : p).ToArray()
+        } };
+
+        var row = WorkspacePlayerEntries.Build(session).Single(p => p.StudentId == "A");
+        var registration = row.Registrations.Single(r => r.ProjectName == "双打");
+
+        Assert.Equal("A", registration.Name);
+        Assert.Equal("A", registration.StudentId);
+        Assert.Equal("A单位", registration.Unit);
+        Assert.Equal("C", registration.PartnerName);
+        Assert.Equal("C", registration.PartnerStudentId);
+        Assert.Equal("C单位", registration.PartnerUnit);
+        Assert.False(row.HasSchedule);
+    }
+
+    // Missing IDs must warn about name-based identity instead of implying reliable matching.
+    [Fact]
+    public void MissingStudentIdWarnsWithoutChangingNameIdentity()
+    {
+        var fixture = new EntryFixture();
+        var person = fixture.Person("无学号", "");
+        fixture.Project("一", EventDiscipline.MenSingles, person, fixture.B);
+        fixture.Project("二", EventDiscipline.MenSingles, person, fixture.C);
+
+        var row = Assert.Single(WorkspacePlayerEntries.Build(fixture.Session(withSchedule: false)));
+
+        Assert.Equal("name:无学号", row.IdentityKey);
+        Assert.Contains(row.IdentityWarnings, warning => warning.Contains("缺少学号") && warning.Contains("姓名"));
+    }
+
+    // Identity still follows IDs, while inconsistent roster names remain visible and flagged.
+    [Theory]
+    [InlineData("A 甲", false)]
+    [InlineData("另一个姓名", true)]
+    public void SameStudentIdWarnsOnlyForDifferentNormalizedNames(string otherName, bool expectedWarning)
+    {
+        var fixture = new EntryFixture();
+        fixture.Project("一", EventDiscipline.MenSingles, fixture.Person("A甲", "same"), fixture.B);
+        fixture.Project("二", EventDiscipline.MenSingles, fixture.Person(otherName, "same"), fixture.C);
+
+        var row = Assert.Single(WorkspacePlayerEntries.Build(fixture.Session(withSchedule: false)));
+
+        Assert.Equal("student:same", row.IdentityKey);
+        Assert.Equal(expectedWarning, row.IdentityWarnings.Count > 0);
+        Assert.Equal(new[] { "A甲", otherName }, row.Registrations.Select(r => r.Name));
+    }
+
+    // Team registrations cannot promise member-level compatibility or missing-student-ID warnings.
+    [Fact]
+    public void TeamRegistrationsRemainTeamIdentitiesWithAnExplicitMemberScope()
+    {
+        var fixture = new EntryFixture();
+        fixture.Project("团体一", EventDiscipline.Team, fixture.A, fixture.B);
+        fixture.Project("团体二", EventDiscipline.Team, fixture.A, fixture.C);
+
+        var row = Assert.Single(WorkspacePlayerEntries.Build(fixture.Session(withSchedule: false)));
+
+        Assert.Equal("team:A", row.IdentityKey);
+        Assert.Equal(2, row.Registrations.Count);
+        Assert.All(row.Registrations, registration => Assert.True(registration.IsTeam));
+        Assert.Empty(row.IdentityWarnings);
+        Assert.Contains("队伍", row.RegistrationScopeText);
+        Assert.Contains("未包含队员个人", row.RegistrationScopeText);
+    }
+
     // A roster is the registration record: elimination must not remove a registered second project.
     [Fact]
     public void RegisteredProjectsRemainAfterEliminationAndIncludeDoublesPartners()
@@ -311,7 +403,7 @@ public sealed class WorkspacePlayerEntriesTests
             var key = new WorkspaceMatchKey(match.ProjectId, match.Id);
             results.Add(key, new(key, winner, loser, "21:10", 20, DateTimeOffset.UtcNow));
         }
-        public WorkspaceSession Session()
+        public WorkspaceSession Session(bool withSchedule = true)
         {
             var resources = new TournamentResourcePlan([new(FirstDay, new(0, 0), new(23, 59), ["B1"]),
                 new(FirstDay.AddDays(1), new(0, 0), new(23, 59), ["B1"])], 1, 20, 8);
@@ -319,7 +411,8 @@ public sealed class WorkspacePlayerEntriesTests
             var schedule = new TournamentSchedule(placements, resources, new(ScheduleAutoSchedulingStrategy.Compact, [], false, [], []),
                 graphs.ToDictionary(p => p.Id, _ => "fixture"), 4);
             return new(new(Guid.NewGuid(), "fixture", TournamentKind.Individual, TournamentPurpose.FullTournament,
-                TournamentStage.ScheduleReady, graphs, resources, schedule, results, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 7), "fixture.szbd");
+                TournamentStage.ScheduleReady, withSchedule ? graphs : projects.ToArray(), resources, withSchedule ? schedule : null,
+                results, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 7), "fixture.szbd");
         }
     }
 }

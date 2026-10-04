@@ -33,7 +33,9 @@ public partial class ScheduleBoardControl : UserControl
     public event Action<WorkspaceBoardMoveIntent>? MoveRequested;
     public Func<WorkspaceBoardMoveIntent, Task<BoardHoverFeedback>>? PreviewHoverAsync { get; set; }
     private readonly Dictionary<WorkspaceMatchKey, Border> cards = [];
-    private readonly Dictionary<WorkspaceMatchKey, IBrush?> cardBorders = [];
+    private readonly Dictionary<WorkspaceMatchKey, CardAppearance> cardAppearances = [];
+    private WorkspaceMatchKey? locatedMatch;
+    private Guid? locatedWorkspace;
     private readonly Dictionary<WorkspaceBoardMoveIntent, BoardHoverFeedback> hoverCache = [];
     private WorkspaceBoardMoveIntent? hoverIntent;
     private Border? hoverCell, dragSource;
@@ -49,14 +51,20 @@ public partial class ScheduleBoardControl : UserControl
             if (change.Property == ScrollViewer.OffsetProperty || change.Property == ScrollViewer.ViewportProperty) SyncFrozenPanes();
         };
         AttachedToVisualTree += (_, _) => Render();
-        DetachedFromVisualTree += (_, _) => { ++epoch; ClearDragState(); cards.Clear(); cardBorders.Clear(); PreviewHoverAsync = null; };
+        DetachedFromVisualTree += (_, _) => { ++epoch; ClearDragState(); cards.Clear(); cardAppearances.Clear(); PreviewHoverAsync = null; };
         ActualThemeVariantChanged += (_, _) => Render();
     }
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
         if (!ready) return;
-        if (change.Property == BoardProperty) { ++epoch; hoverCache.Clear(); ClearDragState(); Render(); }
+        if (change.Property == BoardProperty)
+        {
+            ++epoch; hoverCache.Clear(); ClearDragState();
+            if (Board is not { } board || board.WorkspaceId != locatedWorkspace || !board.Cards.Any(c => c.Key == locatedMatch))
+                locatedMatch = null;
+            Render();
+        }
         else if (change.Property == SelectedDayProperty || change.Property == ZoomProperty || change.Property == CanEditProperty || change.Property == IsCompactProperty) Render();
     }
     private void ZoomOut(object? sender, RoutedEventArgs e) => SetCurrentValue(ZoomProperty, WorkspaceBoardInteraction.ClampZoom(Zoom - .15));
@@ -69,10 +77,11 @@ public partial class ScheduleBoardControl : UserControl
     private void Render()
     {
         if (!ready) return;
-        ClearHover(); cards.Clear(); cardBorders.Clear(); DayTabs.Children.Clear();
+        ClearHover(); cards.Clear(); cardAppearances.Clear(); DayTabs.Children.Clear();
         foreach (var grid in new[] { BoardGrid, CourtHeaderGrid, TimeAxisGrid }) { grid.Children.Clear(); grid.ColumnDefinitions.Clear(); grid.RowDefinitions.Clear(); }
         ZoomLabel.Content = $"{WorkspaceBoardInteraction.ClampZoom(Zoom):P0}";
         CompactToggle.Content = IsCompact ? "紧凑" : "详细";
+        UpdateLocationSummary();
         if (Board is not { } board) return;
         var day = board.Days.FirstOrDefault(d => d.DayLabel == SelectedDay) ?? board.Days.FirstOrDefault();
         if (day is null) return;
@@ -123,33 +132,85 @@ public partial class ScheduleBoardControl : UserControl
         var stack = new StackPanel { Spacing = Scale(IsCompact ? 2 : 4) };
         var title = Text(item.Title, true); title.Foreground = Brush($"App{palette}TextBrush"); stack.Children.Add(title);
         if (!IsCompact && !string.IsNullOrWhiteSpace(item.Phase) && !item.MatchName.Contains(item.Phase, StringComparison.Ordinal)) stack.Children.Add(Text(item.Phase));
-        stack.Children.Add(Text($"{WorkspaceBoardTime.Format(item.Placement.StartTime)}–{WorkspaceBoardTime.Format(item.Placement.EndTime)}" + (item.IsLocked ? " · 已锁定" : "")));
+        var timeRow = new Grid { MinHeight = Scale(18) };
+        timeRow.ColumnDefinitions.Add(new() { Width = GridLength.Star });
+        timeRow.ColumnDefinitions.Add(new() { Width = new GridLength(Math.Max(50, Scale(60))) });
+        timeRow.Children.Add(Text($"{WorkspaceBoardTime.Format(item.Placement.StartTime)}–{WorkspaceBoardTime.Format(item.Placement.EndTime)}" + (item.IsLocked ? " · 已锁定" : "")));
+        var badgeText = new TextBlock { Text = "当前定位", FontSize = Math.Max(10, Scale(10)), FontWeight = FontWeight.SemiBold, Foreground = Brush("AppAccentTextBrush"), IsVisible = false };
+        var badge = new Border { Child = badgeText, Background = Brush("AppAccentBrush"), CornerRadius = new CornerRadius(3), Padding = new Thickness(3, 1),
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, IsVisible = false };
+        Grid.SetColumn(badge, 1); timeRow.Children.Add(badge); stack.Children.Add(timeRow);
         stack.Children.Add(Text(IsCompact ? item.Sides.Replace("\nVS\n", "  vs  ", StringComparison.Ordinal) : item.Sides));
         var card = new Border { Child = stack, Tag = item, Focusable = true, CornerRadius = new CornerRadius(5), Padding = new Thickness(Scale(IsCompact ? 6 : 8)), BorderThickness = new Thickness(3, 1, 1, 1),
             Background = Brush($"App{palette}CardBackgroundBrush"), BorderBrush = Brush($"App{palette}CardBorderBrush") };
-        cardBorders[item.Key] = card.BorderBrush;
+        cardAppearances[item.Key] = new(card.Background, card.BorderBrush, badge);
+        ApplyLocationAppearance(item.Key, card);
         AutomationProperties.SetName(card, item.Title + " " + item.Position + (item.IsLocked ? " 已完成，不能移动" : " 按回车手动移动"));
         ToolTip.SetTip(card, $"{item.Title}\n{item.Phase}\n{item.Position}\n{item.Sides}\n" + (item.IsLocked ? "已有赛果，位置锁定。" : "拖动到目标格，或按回车 / 右键手动移动。"));
         card.PointerPressed += CardPointerPressed;
-        card.KeyDown += (_, e) => { if (e.Key == Key.Enter) { MatchSelected?.Invoke(item.Key); if (CanEdit && !item.IsLocked) ManualMoveRequested?.Invoke(item.Key); e.Handled = true; } };
+        card.KeyDown += (_, e) => { if (e.Key == Key.Enter) { SelectMatch(item.Key); if (CanEdit && !item.IsLocked) ManualMoveRequested?.Invoke(item.Key); e.Handled = true; } };
         var menu = new MenuItem { Header = "移动到指定时间 / 场地", IsEnabled = CanEdit && !item.IsLocked };
-        menu.Click += (_, _) => { MatchSelected?.Invoke(item.Key); ManualMoveRequested?.Invoke(item.Key); };
+        menu.Click += (_, _) => { SelectMatch(item.Key); ManualMoveRequested?.Invoke(item.Key); };
         card.ContextMenu = new() { Items = { menu } };
         return card;
     }
     public void FocusMatch(WorkspaceMatchKey key)
     {
         if (Board?.Cards.FirstOrDefault(c => c.Key == key) is not { } item) return;
+        SetLocatedMatch(key);
         SetCurrentValue(SelectedDayProperty, item.Placement.DayLabel); var source = Board; var token = epoch;
         Dispatcher.UIThread.Post(() =>
         {
-            if (token != epoch || !ReferenceEquals(source, Board) || !cards.TryGetValue(key, out var card)) return;
+            if (token != epoch || !ReferenceEquals(source, Board) || locatedMatch != key || !cards.TryGetValue(key, out var card)) return;
             // Focus already requests scrolling; doing both before arrange applies the same offset twice.
             if (card.IsFocused || !card.Focus()) card.BringIntoView();
-            // Highlight color only: enlarging the border after scrolling would resize the card beyond the viewport.
-            var previousBrush = cardBorders.GetValueOrDefault(key); card.BorderBrush = Brush("AppAccentBrush");
-            DispatcherTimer.RunOnce(() => { if (token == epoch && ReferenceEquals(source, Board) && cards.GetValueOrDefault(key) == card) card.BorderBrush = previousBrush; }, TimeSpan.FromSeconds(1.5));
         }, DispatcherPriority.Loaded);
     }
+    public void ClearMatchLocation()
+    {
+        locatedMatch = null; locatedWorkspace = null;
+        foreach (var (key, card) in cards) ApplyLocationAppearance(key, card);
+        UpdateLocationSummary();
+    }
+    private void CancelMatchLocation(object? sender, RoutedEventArgs e) => ClearMatchLocation();
+    private void SelectMatch(WorkspaceMatchKey key)
+    {
+        SetLocatedMatch(key); MatchSelected?.Invoke(key);
+    }
+    private void SetLocatedMatch(WorkspaceMatchKey key)
+    {
+        if (Board is not { } board || !board.Cards.Any(c => c.Key == key)) return;
+        locatedMatch = key; locatedWorkspace = board.WorkspaceId;
+        foreach (var (cardKey, card) in cards) ApplyLocationAppearance(cardKey, card);
+        UpdateLocationSummary();
+    }
+    private void UpdateLocationSummary()
+    {
+        var item = Board?.Cards.FirstOrDefault(c => c.Key == locatedMatch);
+        LocationSummary.IsVisible = item is not null;
+        LocationInfo.Text = item is null ? "" : $"当前定位 · {item.Title} · {item.Position}";
+        ToolTip.SetTip(LocationInfo, LocationInfo.Text);
+        Grid.SetRow(FeedbackScroll, item is null ? 0 : 1);
+        Grid.SetRowSpan(FeedbackScroll, item is null ? 2 : 1);
+    }
+    private void ApplyLocationAppearance(WorkspaceMatchKey key, Border card)
+    {
+        var appearance = cardAppearances[key]; var located = key == locatedMatch;
+        appearance.Badge.IsVisible = located;
+        ((TextBlock)appearance.Badge.Child!).IsVisible = located;
+        card.BorderBrush = located ? Brush("AppAccentBrush") : appearance.Border;
+        card.Background = located ? LocationBackground() : appearance.Background;
+        // An inset shadow strengthens the outline without changing measure or scroll geometry.
+        card.BoxShadow = located && Brush("AppAccentBrush") is ISolidColorBrush accent
+            ? new BoxShadows(new BoxShadow { Color = accent.Color, Spread = 2, IsInset = true }) : default;
+    }
+    private IBrush LocationBackground()
+    {
+        if (Brush("AppAccentBrush") is not ISolidColorBrush accent || Brush("AppSurfaceBrush") is not ISolidColorBrush surface)
+            return Brush("AppSurfaceMutedBrush");
+        static byte Blend(byte accent, byte surface) => (byte)Math.Round(accent * .18 + surface * .82);
+        return new SolidColorBrush(Color.FromRgb(Blend(accent.Color.R, surface.Color.R), Blend(accent.Color.G, surface.Color.G), Blend(accent.Color.B, surface.Color.B)));
+    }
+    private sealed record CardAppearance(IBrush? Background, IBrush? Border, Border Badge);
     private sealed record BoardCell(string DayLabel, TimeOnly Time, string Court);
 }
