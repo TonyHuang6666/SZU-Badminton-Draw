@@ -28,6 +28,7 @@
     <ScrollViewer x:Name="SettingsScroll" Grid.Row="1"
                   HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
       <StackPanel Spacing="16" Margin="0,0,8,0">
+        <TextBlock Text="{Binding ReuseSummary}" IsVisible="{Binding HasReuseSummary}" TextWrapping="Wrap" />
         <StackPanel Spacing="8">
           <TextBlock Text="场馆" FontWeight="SemiBold" />
           <ComboBox x:Name="VenueSelector" ItemsSource="{Binding Venues}" SelectedIndex="{Binding VenueIndex}"
@@ -126,8 +127,8 @@
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12">
         <Button x:Name="CancelButton" Classes="secondary" Content="取消" IsDefault="True" IsCancel="True"
                 Click="CancelClicked" AutomationProperties.Name="取消场馆与场地选择" />
-        <Button x:Name="AcceptButton" Classes="primary" Content="使用所选场地" IsEnabled="{Binding CanAccept}"
-                Click="AcceptClicked" AutomationProperties.Name="使用所选场地" />
+        <Button x:Name="AcceptButton" Classes="primary" Content="{Binding AcceptLabel}" IsEnabled="{Binding CanAccept}"
+                Click="AcceptClicked" AutomationProperties.Name="{Binding AcceptLabel}" />
       </StackPanel>
     </StackPanel>
   </Grid>

@@ -32,6 +32,7 @@ public sealed class ScheduleVenuePageTests : IDisposable
             var view = Assert.Single(window.GetVisualDescendants().OfType<ScheduleSetupPage>());
             var choose = Assert.Single(view.GetVisualDescendants().OfType<Button>(), b => b.Name == "ChooseVenueCourtsButton");
             Assert.Same(page.Days[0].ChooseCourtsCommand, choose.Command);
+            Assert.Equal("选择场馆与场地", choose.Content);
             var pending = page.Days[0].ChooseCourtsCommand.ExecuteAsync(); Dispatcher.UIThread.RunJobs();
             var dialog = Assert.Single(window.OwnedWindows.OfType<VenueCourtSelectionDialog>());
             var options = Assert.IsType<VenueCourtSelectionViewModel>(dialog.DataContext);
@@ -57,6 +58,42 @@ public sealed class ScheduleVenuePageTests : IDisposable
             blockDialog.FindControl<Button>("AcceptButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await blockPending;
             Assert.Equal("粤海东馆 · A1", unavailable.CourtsText);
+        }
+        finally { foreach (var owned in window.OwnedWindows.ToArray()) owned.Close(); window.Close(); }
+        return 0;
+    }, CancellationToken.None);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task ReuseButtonConfirmsPreviousDaysCourtsAndTimeTogether(bool dark) => ui.Dispatch(async () =>
+    {
+        using var fixture = new ScheduleUiFixture();
+        var window = new AppShellWindow(fixture.Workflow, new RecentWorkspaceStore(Path.Combine(fixture.DirectoryPath, "copy-recent.json")))
+            { Width = 960, Height = 680, RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light };
+        try
+        {
+            window.Show(); var shell = Assert.IsType<AppShellViewModel>(window.DataContext);
+            shell.Navigate(WorkspaceRoute.ScheduleSetup); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            var page = Assert.IsType<ScheduleSetupPageViewModel>(shell.CurrentPage);
+            var source = page.Days[0]; source.DateText = "2026-10-03";
+            source.CourtsText = "粤海东馆 · A1"; source.StartText = "14:00"; source.EndText = "18:00";
+            page.AddDayCommand.Execute(null); var target = page.Days[0];
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            var view = Assert.Single(window.GetVisualDescendants().OfType<ScheduleSetupPage>());
+            var reuse = Assert.Single(view.GetVisualDescendants().OfType<Button>(), b => ReferenceEquals(b.Command, target.CopyPreviousCourtsCommand));
+            Assert.Equal("沿用上一个比赛日的场地和时间", reuse.Content);
+            var pending = ((AsyncCommand)reuse.Command!).ExecuteAsync(); Dispatcher.UIThread.RunJobs();
+            var dialog = Assert.Single(window.OwnedWindows.OfType<VenueCourtSelectionDialog>());
+            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), text => text.IsVisible &&
+                text.Text != null && text.Text.Contains("2026-10-03") && text.Text.Contains("14:00–18:00"));
+            Assert.Equal("使用所选场地和时间", dialog.FindControl<Button>("AcceptButton")!.Content);
+            Assert.Equal("09:00", target.StartText);
+            dialog.FindControl<Button>("AcceptButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await pending; Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.Equal("粤海东馆 · A1", target.CourtsText);
+            Assert.Equal("14:00", target.StartText); Assert.Equal("18:00", target.EndText);
+            Assert.Equal("2026-10-04", target.DateText);
         }
         finally { foreach (var owned in window.OwnedWindows.ToArray()) owned.Close(); window.Close(); }
         return 0;

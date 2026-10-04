@@ -205,8 +205,8 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
     {
         var editor = new ScheduleDayEditorViewModel(day,
             Edited, item => { Days.Remove(item); Edited(); }, day => SelectCourtsAsync(day, ScheduleEditorInput.Courts(day.CourtsText)),
-            SelectUnavailableCourtsAsync, day => SelectCourtsAsync(day, PreviousCourts(day)), () => CanSelectCourts,
-            day => PreviousCourts(day).Count > 0, shell.ReportError);
+            SelectUnavailableCourtsAsync, CopyPreviousDayAsync, () => CanSelectCourts,
+            day => PreviousDay(day) is { } previous && ScheduleEditorInput.Courts(previous.CourtsText).Length > 0, shell.ReportError);
         // Keep new drafts within reach; BuildSetup still submits dates in chronological order.
         Days.Insert(0, editor);
         return editor;

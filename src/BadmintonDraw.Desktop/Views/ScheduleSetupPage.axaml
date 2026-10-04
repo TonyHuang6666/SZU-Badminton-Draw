@@ -128,8 +128,8 @@
                     <TextBlock Text="{Binding VenueSummary}" FontWeight="SemiBold" TextWrapping="Wrap" />
                     <TextBlock Text="{Binding CourtsSummary}" Classes="muted" TextWrapping="Wrap" ToolTip.Tip="{Binding CourtsText}" />
                     <WrapPanel>
-                      <Button x:Name="ChooseVenueCourtsButton" Content="选择场馆与场地…" Command="{Binding ChooseCourtsCommand}" Classes="secondary" Margin="0,0,8,0" AutomationProperties.Name="选择比赛日的场馆与场地" />
-                      <Button Content="沿用上一比赛日的场地…" Command="{Binding CopyPreviousCourtsCommand}" Classes="quiet" AutomationProperties.Name="沿用上一比赛日的场地" />
+                      <Button x:Name="ChooseVenueCourtsButton" Content="选择场馆与场地" Command="{Binding ChooseCourtsCommand}" Classes="secondary" Margin="0,0,8,0" AutomationProperties.Name="选择比赛日的场馆与场地" />
+                      <Button Content="沿用上一个比赛日的场地和时间" Command="{Binding CopyPreviousCourtsCommand}" Classes="quiet" AutomationProperties.Name="沿用上一个比赛日的场地和时间" />
                     </WrapPanel>
                   </StackPanel>
                 </StackPanel>

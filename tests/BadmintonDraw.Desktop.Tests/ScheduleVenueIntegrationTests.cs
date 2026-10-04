@@ -118,19 +118,123 @@ public sealed class ScheduleVenueIntegrationTests
     }
 
     [Fact]
-    public async Task CopyPreviousDayUsesNearestEarlierDateAndCopiesOnlyCourtsAfterConfirmation()
+    public async Task CopyPreviousDayUsesNearestEarlierDateAndCopiesCourtsAndTimesOnlyAfterConfirmation()
     {
         using var fixture = new ScheduleUiFixture();
-        var page = Page(fixture, model => Task.FromResult(true));
+        var completion = new TaskCompletionSource<bool>();
+        var page = Page(fixture, model => completion.Task);
+        var path = fixture.Workflow.CurrentSession!.WorkspacePath;
+        var bytes = SHA256.HashData(File.ReadAllBytes(path));
         page.Days[0].DateText = "2026-10-05"; page.Days[0].CourtsText = "丽湖至畅 · 2号场";
         page.AddDayCommand.Execute(null); page.Days[0].DateText = "2026-10-03";
-        page.Days[0].CourtsText = "粤海东馆 · C2";
+        var source = page.Days[0]; source.CourtsText = "粤海东馆 · C2";
+        source.StartText = "14:15"; source.EndText = "18:45";
+        source.AddUnavailableCommand.Execute(null); source.AddRefereeWindowCommand.Execute(null);
         page.AddDayCommand.Execute(null); var target = page.Days[0]; target.DateText = "2026-10-04";
-        target.StartText = "14:00"; target.EndText = "18:00";
-        await target.CopyPreviousCourtsCommand.ExecuteAsync();
+        target.StartText = "09:00"; target.EndText = "12:00";
+        var pending = target.CopyPreviousCourtsCommand.ExecuteAsync();
+        Assert.Empty(target.Build().Courts);
+        Assert.Equal("09:00", target.StartText); Assert.Equal("12:00", target.EndText);
+        completion.SetResult(true); await pending;
         Assert.Equal(["粤海东馆 · C2"], target.Build().Courts);
-        Assert.Equal("14:00", target.StartText); Assert.Equal("18:00", target.EndText);
+        Assert.Equal("14:15", target.StartText); Assert.Equal("18:45", target.EndText);
+        Assert.Equal("2026-10-04", target.DateText);
         Assert.Empty(target.Unavailable);
+        Assert.Empty(target.RefereeWindows);
+        Assert.Equal(bytes, SHA256.HashData(File.ReadAllBytes(path)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancelOrUnconfirmedCourtAdjustmentCopiesNeitherCourtsNorTimes(bool accept)
+    {
+        using var fixture = new ScheduleUiFixture();
+        var page = Page(fixture, _ => Task.FromResult(accept));
+        var source = page.Days[0]; source.DateText = "2026-10-03";
+        source.CourtsText = "粤海东馆 · C2"; source.StartText = "14:00"; source.EndText = "18:00";
+        page.AddDayCommand.Execute(null); var target = page.Days[0];
+        target.CourtsText = "粤海东馆 · A1"; target.StartText = "09:00"; target.EndText = "12:00";
+        target.AddUnavailableCommand.Execute(null); target.Unavailable[0].CourtsText = target.CourtsText;
+        await target.CopyPreviousCourtsCommand.ExecuteAsync();
+        Assert.Equal("粤海东馆 · A1", target.CourtsText);
+        Assert.Equal("09:00", target.StartText); Assert.Equal("12:00", target.EndText);
+        Assert.Equal("粤海东馆 · A1", Assert.Single(target.Unavailable).CourtsText);
+    }
+
+    [Fact]
+    public async Task CopyDoesNotReplaceTargetsOwnUnavailableAndRefereeWindows()
+    {
+        using var fixture = new ScheduleUiFixture();
+        var page = Page(fixture, _ => Task.FromResult(true));
+        var source = page.Days[0]; source.DateText = "2026-10-03";
+        source.CourtsText = "粤海东馆 · C2"; source.StartText = "14:00"; source.EndText = "18:00";
+        source.AddUnavailableCommand.Execute(null); source.AddRefereeWindowCommand.Execute(null);
+        page.AddDayCommand.Execute(null); var target = page.Days[0];
+        target.StartText = "15:00"; target.EndText = "17:00"; target.CourtsText = source.CourtsText;
+        target.AddUnavailableCommand.Execute(null); var block = target.Unavailable[0]; block.CourtsText = target.CourtsText;
+        target.AddRefereeWindowCommand.Execute(null); var referees = target.RefereeWindows[0]; referees.CountText = "2";
+        await target.CopyPreviousCourtsCommand.ExecuteAsync();
+        Assert.Equal("14:00", target.StartText); Assert.Equal("18:00", target.EndText);
+        Assert.Same(block, Assert.Single(target.Unavailable));
+        Assert.Equal("15:00", block.StartText); Assert.Equal("17:00", block.EndText);
+        Assert.Same(referees, Assert.Single(target.RefereeWindows));
+        Assert.Equal("15:00", referees.StartText); Assert.Equal("17:00", referees.EndText); Assert.Equal("2", referees.CountText);
+    }
+
+    [Theory]
+    [InlineData("source-edit")]
+    [InlineData("target-edit")]
+    [InlineData("remove")]
+    [InlineData("reset")]
+    [InlineData("session")]
+    [InlineData("leave")]
+    [InlineData("dispose")]
+    public async Task PendingCopyCannotOverwriteNewerDraftOrSession(string change)
+    {
+        using var fixture = new ScheduleUiFixture();
+        var completion = new TaskCompletionSource<bool>();
+        var page = Page(fixture, _ => completion.Task);
+        var source = page.Days[0]; source.DateText = "2026-10-03";
+        source.CourtsText = "粤海东馆 · C2"; source.StartText = "14:00"; source.EndText = "18:00";
+        page.AddDayCommand.Execute(null); var target = page.Days[0];
+        target.CourtsText = "粤海东馆 · A1"; target.StartText = "09:00"; target.EndText = "12:00";
+        var pending = target.CopyPreviousCourtsCommand.ExecuteAsync();
+        Assert.Equal("粤海东馆 · A1", target.CourtsText);
+        Assert.Equal("09:00", target.StartText); Assert.Equal("12:00", target.EndText);
+        switch (change)
+        {
+            case "source-edit": source.StartText = "15:00"; break;
+            case "target-edit": target.EndText = "13:00"; break;
+            case "remove": source.RemoveCommand.Execute(null); break;
+            case "reset": await page.ResetCommand.ExecuteAsync(); break;
+            case "session": page.RefreshSession(page.Session with { }); break;
+            case "leave": fixture.Shell.Navigate(WorkspaceRoute.Overview); break;
+            case "dispose": page.Dispose(); break;
+        }
+        completion.SetResult(true); await pending;
+        Assert.Equal("粤海东馆 · A1", target.CourtsText);
+        Assert.Equal("09:00", target.StartText);
+        Assert.Equal(change == "target-edit" ? "13:00" : "12:00", target.EndText);
+        Assert.Null(fixture.Workflow.CurrentSession!.Workspace.Resources);
+    }
+
+    [Theory]
+    [InlineData("", "18:00")]
+    [InlineData("18:00", "14:00")]
+    public async Task InvalidSourceTimesAreReportedWithoutOpeningPickerOrChangingTarget(string start, string end)
+    {
+        using var fixture = new ScheduleUiFixture();
+        var opened = false;
+        var page = Page(fixture, _ => { opened = true; return Task.FromResult(true); });
+        var source = page.Days[0]; source.DateText = "2026-10-03";
+        source.CourtsText = "粤海东馆 · C2"; source.StartText = start; source.EndText = end;
+        page.AddDayCommand.Execute(null); var target = page.Days[0]; target.CourtsText = "粤海东馆 · A1";
+        await target.CopyPreviousCourtsCommand.ExecuteAsync();
+        Assert.False(opened);
+        Assert.NotNull(fixture.Shell.LastError);
+        Assert.Equal("粤海东馆 · A1", target.CourtsText);
+        Assert.Equal("09:00", target.StartText); Assert.Equal("18:00", target.EndText);
     }
 
     [Theory]

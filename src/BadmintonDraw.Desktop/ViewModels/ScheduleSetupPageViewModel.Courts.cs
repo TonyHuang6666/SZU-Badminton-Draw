@@ -10,23 +10,38 @@ public sealed partial class ScheduleSetupPageViewModel
     private int selectionGeneration;
     private bool CanSelectCourts => CanEdit && !selectingCourts;
 
-    private IReadOnlyList<string> PreviousCourts(ScheduleDayEditorViewModel day)
+    private sealed record DayTimeCopy(string DateText, TimeOnly Start, TimeOnly End);
+
+    private ScheduleDayEditorViewModel? PreviousDay(ScheduleDayEditorViewModel day)
     {
-        if (!DateOnly.TryParse(day.DateText, out var date)) return [];
-        var previous = Days.Where(d => d != day && DateOnly.TryParse(d.DateText, out var prior) && prior < date)
+        if (!DateOnly.TryParse(day.DateText, out var date)) return null;
+        return Days.Where(d => d != day && DateOnly.TryParse(d.DateText, out var prior) && prior < date)
             .OrderByDescending(d => DateOnly.Parse(d.DateText)).FirstOrDefault();
-        return previous is null ? [] : ScheduleEditorInput.Courts(previous.CourtsText);
+    }
+
+    private Task CopyPreviousDayAsync(ScheduleDayEditorViewModel day)
+    {
+        if (!CanSelectCourts || !Days.Contains(day) || PreviousDay(day) is not { } previous) return Task.CompletedTask;
+        var courts = ScheduleEditorInput.Courts(previous.CourtsText);
+        if (courts.Length == 0) return Task.CompletedTask;
+        var start = ScheduleEditorInput.Time(previous.StartText, "上一个比赛日的开始时间");
+        var end = ScheduleEditorInput.Time(previous.EndText, "上一个比赛日的结束时间");
+        if (end <= start) throw ScheduleEditorInput.Error("请先调整上一个比赛日的时间：结束时间必须晚于开始时间。");
+        return SelectCourtsAsync(day, courts, new(previous.DateText, start, end));
     }
 
     private bool SelectionIsCurrent(ScheduleDayEditorViewModel day, WorkspaceSession session, int generation) =>
         CanEdit && ReferenceEquals(Session, session) && selectionGeneration == generation && Days.Contains(day);
 
-    private async Task SelectCourtsAsync(ScheduleDayEditorViewModel day, IReadOnlyList<string> initialCourts)
+    private async Task SelectCourtsAsync(ScheduleDayEditorViewModel day, IReadOnlyList<string> initialCourts, DayTimeCopy? timeCopy = null)
     {
         if (!CanSelectCourts || !Days.Contains(day)) return;
         var session = Session; var generation = selectionGeneration;
         var constraints = day.Unavailable.Select(w => new CourtSelectionConstraint($"{w.StartText}–{w.EndText}", ScheduleEditorInput.Courts(w.CourtsText))).ToArray();
-        var options = new VenueCourtSelectionViewModel(initialCourts, constraints);
+        var options = new VenueCourtSelectionViewModel(initialCourts, constraints)
+        {
+            ReuseSummary = timeCopy is null ? "" : $"沿用 {timeCopy.DateText} 的场地和时间：{ScheduleEditorInput.TimeText(timeCopy.Start)}–{ScheduleEditorInput.TimeText(timeCopy.End)}。当前比赛日期不变。"
+        };
         selectingCourts = true; RefreshAvailability();
         try
         {
@@ -43,6 +58,11 @@ public sealed partial class ScheduleSetupPageViewModel
                 else window.CourtsText = string.Join(", ", remaining);
             }
             day.CourtsText = string.Join(", ", courts);
+            if (timeCopy is not null)
+            {
+                day.StartText = ScheduleEditorInput.TimeText(timeCopy.Start);
+                day.EndText = ScheduleEditorInput.TimeText(timeCopy.End);
+            }
             Edited();
         }
         catch (Exception) when (!SelectionIsCurrent(day, session, generation))

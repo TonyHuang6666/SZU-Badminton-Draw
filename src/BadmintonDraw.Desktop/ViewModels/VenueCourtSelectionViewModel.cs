@@ -70,6 +70,9 @@ public sealed class VenueCourtSelectionViewModel : ViewModelBase
         }
     }
 
+    public string ReuseSummary { get; init; } = "";
+    public bool HasReuseSummary => ReuseSummary.Length > 0;
+    public string AcceptLabel => HasReuseSummary ? "使用所选场地和时间" : "使用所选场地";
     public IReadOnlyList<string> Venues { get; }
     public int VenueIndex
     {
