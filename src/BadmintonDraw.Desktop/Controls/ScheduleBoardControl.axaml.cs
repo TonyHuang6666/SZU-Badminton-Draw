@@ -22,15 +22,18 @@ public partial class ScheduleBoardControl : UserControl
     public static readonly StyledProperty<string?> SelectedDayProperty = AvaloniaProperty.Register<ScheduleBoardControl, string?>(nameof(SelectedDay), defaultBindingMode: BindingMode.TwoWay);
     public static readonly StyledProperty<double> ZoomProperty = AvaloniaProperty.Register<ScheduleBoardControl, double>(nameof(Zoom), 1, defaultBindingMode: BindingMode.TwoWay);
     public static readonly StyledProperty<bool> CanEditProperty = AvaloniaProperty.Register<ScheduleBoardControl, bool>(nameof(CanEdit));
+    public static readonly StyledProperty<bool> IsCompactProperty = AvaloniaProperty.Register<ScheduleBoardControl, bool>(nameof(IsCompact), true, defaultBindingMode: BindingMode.TwoWay);
     public WorkspaceScheduleBoard? Board { get => GetValue(BoardProperty); set => SetValue(BoardProperty, value); }
     public string? SelectedDay { get => GetValue(SelectedDayProperty); set => SetValue(SelectedDayProperty, value); }
     public double Zoom { get => GetValue(ZoomProperty); set => SetValue(ZoomProperty, value); }
     public bool CanEdit { get => GetValue(CanEditProperty); set => SetValue(CanEditProperty, value); }
+    public bool IsCompact { get => GetValue(IsCompactProperty); set => SetValue(IsCompactProperty, value); }
     public event Action<WorkspaceMatchKey>? MatchSelected;
     public event Action<WorkspaceMatchKey>? ManualMoveRequested;
     public event Action<WorkspaceBoardMoveIntent>? MoveRequested;
     public Func<WorkspaceBoardMoveIntent, Task<BoardHoverFeedback>>? PreviewHoverAsync { get; set; }
     private readonly Dictionary<WorkspaceMatchKey, Border> cards = [];
+    private readonly Dictionary<WorkspaceMatchKey, IBrush?> cardBorders = [];
     private readonly Dictionary<WorkspaceBoardMoveIntent, BoardHoverFeedback> hoverCache = [];
     private WorkspaceBoardMoveIntent? hoverIntent;
     private Border? hoverCell, dragSource;
@@ -41,8 +44,12 @@ public partial class ScheduleBoardControl : UserControl
     public ScheduleBoardControl()
     {
         InitializeComponent(); ready = true; Feedback.Text = DragInstructions;
+        BoardScroll.PropertyChanged += (_, change) =>
+        {
+            if (change.Property == ScrollViewer.OffsetProperty || change.Property == ScrollViewer.ViewportProperty) SyncFrozenPanes();
+        };
         AttachedToVisualTree += (_, _) => Render();
-        DetachedFromVisualTree += (_, _) => { ++epoch; ClearDragState(); cards.Clear(); PreviewHoverAsync = null; };
+        DetachedFromVisualTree += (_, _) => { ++epoch; ClearDragState(); cards.Clear(); cardBorders.Clear(); PreviewHoverAsync = null; };
         ActualThemeVariantChanged += (_, _) => Render();
     }
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -50,7 +57,7 @@ public partial class ScheduleBoardControl : UserControl
         base.OnPropertyChanged(change);
         if (!ready) return;
         if (change.Property == BoardProperty) { ++epoch; hoverCache.Clear(); ClearDragState(); Render(); }
-        else if (change.Property == SelectedDayProperty || change.Property == ZoomProperty || change.Property == CanEditProperty) Render();
+        else if (change.Property == SelectedDayProperty || change.Property == ZoomProperty || change.Property == CanEditProperty || change.Property == IsCompactProperty) Render();
     }
     private void ZoomOut(object? sender, RoutedEventArgs e) => SetCurrentValue(ZoomProperty, WorkspaceBoardInteraction.ClampZoom(Zoom - .15));
     private void ZoomIn(object? sender, RoutedEventArgs e) => SetCurrentValue(ZoomProperty, WorkspaceBoardInteraction.ClampZoom(Zoom + .15));
@@ -62,51 +69,67 @@ public partial class ScheduleBoardControl : UserControl
     private void Render()
     {
         if (!ready) return;
-        ClearHover(); cards.Clear(); DayTabs.Children.Clear(); BoardGrid.Children.Clear(); BoardGrid.ColumnDefinitions.Clear(); BoardGrid.RowDefinitions.Clear();
+        ClearHover(); cards.Clear(); cardBorders.Clear(); DayTabs.Children.Clear();
+        foreach (var grid in new[] { BoardGrid, CourtHeaderGrid, TimeAxisGrid }) { grid.Children.Clear(); grid.ColumnDefinitions.Clear(); grid.RowDefinitions.Clear(); }
         ZoomLabel.Content = $"{WorkspaceBoardInteraction.ClampZoom(Zoom):P0}";
+        CompactToggle.Content = IsCompact ? "紧凑" : "详细";
         if (Board is not { } board) return;
         var day = board.Days.FirstOrDefault(d => d.DayLabel == SelectedDay) ?? board.Days.FirstOrDefault();
         if (day is null) return;
         foreach (var entry in board.Days)
         {
-            var tab = new Button { Content = entry.DayLabel, Tag = entry.DayLabel, FontWeight = day.DayLabel == entry.DayLabel ? FontWeight.Bold : FontWeight.Normal };
+            var tab = new Button { Content = entry.DayLabel, Tag = entry.DayLabel, Padding = new Thickness(10, 5), FontWeight = day.DayLabel == entry.DayLabel ? FontWeight.Bold : FontWeight.Normal };
+            if (day.DayLabel == entry.DayLabel) { tab.Background = Brush("AppSurfaceMutedBrush"); tab.BorderBrush = Brush("AppAccentBrush"); }
             tab.Click += (_, _) => SetCurrentValue(SelectedDayProperty, entry.DayLabel);
             DragDrop.SetAllowDrop(tab, true); DragDrop.AddDragOverHandler(tab, DayDragOver); DragDrop.AddDropHandler(tab, DayDrop); DayTabs.Children.Add(tab);
         }
-        BoardGrid.ColumnDefinitions.Add(new() { Width = new GridLength(Scale(98)) });
-        foreach (var _ in day.Courts) BoardGrid.ColumnDefinitions.Add(new() { Width = new GridLength(Scale(215)) });
-        BoardGrid.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        Header("开始时间", 0, 0);
-        for (var c = 0; c < day.Courts.Count; c++) Header(day.Courts[c], 0, c + 1);
+        var timeWidth = Scale(day.TimeSlots.Any(t => t.Ticks % TimeSpan.TicksPerSecond != 0) ? 110 : day.TimeSlots.Any(t => t.Second != 0) ? 80 : 62);
+        TimeAxisCorner.Width = TimeAxisGrid.Width = timeWidth;
+        var courtWidth = new GridLength(Scale(IsCompact ? 204 : 250));
+        foreach (var _ in day.Courts)
+        {
+            BoardGrid.ColumnDefinitions.Add(new() { Width = courtWidth });
+            CourtHeaderGrid.ColumnDefinitions.Add(new() { Width = courtWidth });
+        }
+        for (var c = 0; c < day.Courts.Count; c++) Header(CourtHeaderGrid, day.Courts[c], 0, c);
         var lookup = board.Cards.Where(c => c.Placement.DayLabel == day.DayLabel).ToLookup(c => (c.Placement.Court, c.Placement.StartTime));
+        var projects = board.Cards.GroupBy(c => c.Key.ProjectId).OrderBy(g => g.First().ProjectName, StringComparer.Ordinal).ThenBy(g => g.Key)
+            .Select((group, index) => (group.Key, Palette: new[] { "Info", "Success", "Warning", "Purple" }[index % 4])).ToDictionary(p => p.Key, p => p.Palette);
         for (var i = 0; i < day.TimeSlots.Count; i++)
         {
-            var time = day.TimeSlots[i]; BoardGrid.RowDefinitions.Add(new() { Height = GridLength.Auto });
-            Header(time.Second == 0 && time.Millisecond == 0 ? time.ToString("HH:mm") : time.ToString("HH:mm:ss.fff"), i + 1, 0);
+            var time = day.TimeSlots[i];
+            BoardGrid.RowDefinitions.Add(new() { Height = GridLength.Auto, SharedSizeGroup = "TimeSlot" + i });
+            TimeAxisGrid.RowDefinitions.Add(new() { Height = GridLength.Auto, SharedSizeGroup = "TimeSlot" + i });
+            Header(TimeAxisGrid, WorkspaceBoardTime.Format(time), i, 0);
             for (var c = 0; c < day.Courts.Count; c++)
             {
-                var court = day.Courts[c]; var stack = new StackPanel { Spacing = 4 };
-                foreach (var item in lookup[(court, time)]) { var card = Card(item); cards[item.Key] = card; stack.Children.Add(card); }
-                var cell = new Border { Child = stack, Tag = new BoardCell(day.DayLabel, time, court), MinHeight = Scale(64), Padding = new Thickness(Scale(5)),
+                var court = day.Courts[c]; var stack = new StackPanel { Spacing = Scale(3) };
+                foreach (var item in lookup[(court, time)]) { var card = Card(item, projects[item.Key.ProjectId]); cards[item.Key] = card; stack.Children.Add(card); }
+                var cell = new Border { Child = stack, Tag = new BoardCell(day.DayLabel, time, court), MinHeight = Scale(IsCompact ? 32 : 48), Padding = new Thickness(Scale(IsCompact ? 3 : 5)),
                     Background = Brush("AppSurfaceBrush"), BorderBrush = Brush("AppSoftBorderBrush"), BorderThickness = new Thickness(0, 0, 1, 1) };
                 DragDrop.SetAllowDrop(cell, true); DragDrop.AddDragOverHandler(cell, CellDragOver); DragDrop.AddDragLeaveHandler(cell, CellDragLeave); DragDrop.AddDropHandler(cell, CellDrop);
-                Grid.SetRow(cell, i + 1); Grid.SetColumn(cell, c + 1); BoardGrid.Children.Add(cell);
+                Grid.SetRow(cell, i); Grid.SetColumn(cell, c); BoardGrid.Children.Add(cell);
             }
         }
     }
-    private void Header(string label, int row, int column)
+    private void Header(Grid grid, string label, int row, int column)
     {
-        var cell = new Border { Child = Text(label, true), Padding = new Thickness(Scale(8)), Background = Brush("AppSurfaceMutedBrush"), BorderBrush = Brush("AppSoftBorderBrush"), BorderThickness = new Thickness(0, 0, 1, 1) };
-        Grid.SetRow(cell, row); Grid.SetColumn(cell, column); BoardGrid.Children.Add(cell);
+        var text = Text(label, true); text.VerticalAlignment = VerticalAlignment.Center;
+        var cell = new Border { Child = text, Padding = new Thickness(Scale(6)), Background = Brush("AppSurfaceMutedBrush"), BorderBrush = Brush("AppSoftBorderBrush"), BorderThickness = new Thickness(0, 0, 1, 1) };
+        Grid.SetRow(cell, row); Grid.SetColumn(cell, column); grid.Children.Add(cell);
     }
-    private Border Card(WorkspaceBoardCard item)
+    private Border Card(WorkspaceBoardCard item, string palette)
     {
-        var stack = new StackPanel { Spacing = 4 }; stack.Children.Add(Text(item.Title, true)); stack.Children.Add(Text(item.Phase + (item.IsLocked ? " · 已完成 / 锁定" : "")));
-        stack.Children.Add(Text($"{item.Placement.StartTime:HH:mm:ss}–{item.Placement.EndTime:HH:mm:ss}")); stack.Children.Add(Text(item.Sides));
-        var card = new Border { Child = stack, Tag = item, Focusable = true, CornerRadius = new CornerRadius(7), Padding = new Thickness(Scale(8)), BorderThickness = new Thickness(1),
-            Background = Brush(item.IsLocked ? "AppSurfaceMutedBrush" : "AppInfoCardBackgroundBrush"), BorderBrush = Brush("AppButtonBorderBrush") };
+        var stack = new StackPanel { Spacing = Scale(IsCompact ? 2 : 4) };
+        var title = Text(item.Title, true); title.Foreground = Brush($"App{palette}TextBrush"); stack.Children.Add(title);
+        if (!IsCompact && !string.IsNullOrWhiteSpace(item.Phase) && !item.MatchName.Contains(item.Phase, StringComparison.Ordinal)) stack.Children.Add(Text(item.Phase));
+        stack.Children.Add(Text($"{WorkspaceBoardTime.Format(item.Placement.StartTime)}–{WorkspaceBoardTime.Format(item.Placement.EndTime)}" + (item.IsLocked ? " · 已锁定" : "")));
+        stack.Children.Add(Text(IsCompact ? item.Sides.Replace("\nVS\n", "  vs  ", StringComparison.Ordinal) : item.Sides));
+        var card = new Border { Child = stack, Tag = item, Focusable = true, CornerRadius = new CornerRadius(5), Padding = new Thickness(Scale(IsCompact ? 6 : 8)), BorderThickness = new Thickness(3, 1, 1, 1),
+            Background = Brush($"App{palette}CardBackgroundBrush"), BorderBrush = Brush($"App{palette}CardBorderBrush") };
+        cardBorders[item.Key] = card.BorderBrush;
         AutomationProperties.SetName(card, item.Title + " " + item.Position + (item.IsLocked ? " 已完成，不能移动" : " 按回车手动移动"));
-        ToolTip.SetTip(card, item.IsLocked ? "已有赛果，位置锁定。" : "拖动到目标格，或按回车 / 右键手动移动。");
+        ToolTip.SetTip(card, $"{item.Title}\n{item.Phase}\n{item.Position}\n{item.Sides}\n" + (item.IsLocked ? "已有赛果，位置锁定。" : "拖动到目标格，或按回车 / 右键手动移动。"));
         card.PointerPressed += CardPointerPressed;
         card.KeyDown += (_, e) => { if (e.Key == Key.Enter) { MatchSelected?.Invoke(item.Key); if (CanEdit && !item.IsLocked) ManualMoveRequested?.Invoke(item.Key); e.Handled = true; } };
         var menu = new MenuItem { Header = "移动到指定时间 / 场地", IsEnabled = CanEdit && !item.IsLocked };
@@ -124,8 +147,8 @@ public partial class ScheduleBoardControl : UserControl
             // Focus already requests scrolling; doing both before arrange applies the same offset twice.
             if (card.IsFocused || !card.Focus()) card.BringIntoView();
             // Highlight color only: enlarging the border after scrolling would resize the card beyond the viewport.
-            card.BorderBrush = Brush("AppAccentBrush");
-            DispatcherTimer.RunOnce(() => { if (token == epoch && ReferenceEquals(source, Board) && cards.GetValueOrDefault(key) == card) card.BorderBrush = Brush("AppButtonBorderBrush"); }, TimeSpan.FromSeconds(1.5));
+            var previousBrush = cardBorders.GetValueOrDefault(key); card.BorderBrush = Brush("AppAccentBrush");
+            DispatcherTimer.RunOnce(() => { if (token == epoch && ReferenceEquals(source, Board) && cards.GetValueOrDefault(key) == card) card.BorderBrush = previousBrush; }, TimeSpan.FromSeconds(1.5));
         }, DispatcherPriority.Loaded);
     }
     private sealed record BoardCell(string DayLabel, TimeOnly Time, string Court);

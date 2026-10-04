@@ -18,15 +18,13 @@ public sealed record ScheduleCapacityEstimate(int MatchCount, long AvailableMinu
 public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel, IDisposable
 {
     private readonly AppShellViewModel shell;
-    private string baseline = "", refereeCountText = "", minimumRestText = "30", dailyMaximumText = "4";
-    private bool edited, conflict, synchronizeStageWaves;
-    private int strategyIndex;
+    private string baseline = "", editorBaseline = "", refereeCountText = "", minimumRestText = "30", dailyMaximumText = "4";
+    private bool edited, conflict, requireChampionshipFinalsOnLastDay;
     private SchedulingFailure? failure;
     private string successSummary = "";
     public ObservableCollection<ScheduleDayEditorViewModel> Days { get; } = [];
     public event Action<ScheduleDayEditorViewModel>? DayAdded;
     public ObservableCollection<ScheduleProjectTimingViewModel> ProjectTimings { get; } = [];
-    public IReadOnlyList<string> Strategies { get; } = ["尽快完成", "时间安排均衡", "重要比赛集中在最后一天", "自定义安排"];
     public bool IsSingleProject => Session.Workspace.Projects.Count == 1;
     public bool IsMultiProject => !IsSingleProject;
     public string ScheduleSummary => $"{Session.Workspace.Projects.Count} 个项目 · 共 {Session.Workspace.Projects.Sum(p => p.MatchGraph?.Matches.Count ?? 0)} 场比赛";
@@ -53,23 +51,17 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         : $"按场地与裁判计算，可用时间共 {estimate.AvailableMinutes} 分钟；{estimate.MatchCount} 场比赛预计需要 {estimate.RequiredMinutes} 分钟。折合约 {estimate.EquivalentMatches} 场（按平均时长估算）。" +
             (estimate.IsInsufficient ? " 当前总容量不足，请增加日期、时间或资源。" : " 总量可容纳；仍需检查选手冲突、休息和比赛先后顺序。") +
             " 容量估算不保证能排下全部比赛。";
-    public string StrategyDescription => StrategyIndex switch
-    {
-        0 => "尽可能使用较早的可用时段，让比赛更早结束；仍会为选手保留休息时间。",
-        1 => "尽量把比赛分散到各个比赛日，减轻单日比赛压力。",
-        2 => "尽量把决赛等重要比赛留到最后一天，具体安排仍取决于场地和选手的可用时间。",
-        _ => "使用高级设置中的每日负载、阶段进度和决赛日偏好。所有项目仍共用同一份赛程。"
-    };
-    public string PolicyLabel => Session.Workspace.Projects.Count == 1 ? "项目完成节奏" : "全赛事编排策略";
+    public string FinalDayHint => Days.Select(d => d.SelectedDate).Max() is { } last
+        ? $"最后一个比赛日：{last:yyyy-MM-dd}。仅限定冠亚军决赛；半决赛、季军赛和排位赛仍尽早安排。没有冠亚军决赛的项目不受此项影响。"
+        : "请先选择比赛日期；最后一天按日期确定，与添加顺序无关。";
     public string RefereeCountText { get => refereeCountText; set { if (SetProperty(ref refereeCountText, value)) Edited(); } }
     public string MinimumRestText { get => minimumRestText; set { if (SetProperty(ref minimumRestText, value)) Edited(); } }
     public string DailyMaximumText { get => dailyMaximumText; set { if (SetProperty(ref dailyMaximumText, value)) Edited(); } }
-    public int StrategyIndex { get => strategyIndex; set { if (SetProperty(ref strategyIndex, value)) { OnPropertyChanged(nameof(StrategyDescription)); Edited(); } } }
-    public bool SynchronizeStageWaves { get => synchronizeStageWaves; set { if (SetProperty(ref synchronizeStageWaves, value)) Edited(); } }
+    public bool RequireChampionshipFinalsOnLastDay { get => requireChampionshipFinalsOnLastDay; set { if (SetProperty(ref requireChampionshipFinalsOnLastDay, value)) Edited(); } }
     public bool HasEditorConflict => conflict;
     public bool CanEdit => !disposed && shell.CanMutate && !conflict && Session.Workspace.Purpose == TournamentPurpose.FullTournament && Session.Workspace.Results.Count == 0 &&
         Session.Workspace.Stage is TournamentStage.DrawsConfirmed or TournamentStage.ScheduleReady;
-    public string EditHint => conflict ? "赛程、抽签或资源已被其他操作更改。输入仍保留；请载入最新设置后再编排。" : Session.Workspace.Results.Count > 0
+    public string EditHint => conflict ? "赛程、抽签或资源已被其他操作更改。输入仍保留；请点击“放弃未保存的修改”，确认恢复已保存的设置后再编排。" : Session.Workspace.Results.Count > 0
         ? "已有赛果，不能重新生成整场赛程；请到赛程板调整未完成场次。" : "修改设置不会自动重排。点击生成后才保存；失败时，已保存的数据保持不变。";
     public SchedulingFailure? Failure { get => failure; private set { if (SetProperty(ref failure, value)) { OnPropertyChanged(nameof(FailureDetails)); OnPropertyChanged(nameof(FailureSummary)); OnPropertyChanged(nameof(FailureAdvice)); OnPropertyChanged(nameof(FailureTechnicalDetails)); OnPropertyChanged(nameof(HasFailure)); } } }
     public bool HasFailure => Failure is not null;
@@ -98,6 +90,8 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         SchedulingFailureKind.ProvenInfeasible when Failure.CapacityEvidence?.Kind == "PlayerDailyCap" => "请增加比赛日，或由赛事组织者复核每位选手的每日场次上限。场地和裁判数量不会改变该上限。",
         SchedulingFailureKind.ProvenInfeasible when Failure.CapacityEvidence?.Kind == "PlayerTime" => "请增加比赛日或延长每日可用时段，并复核比赛时长、最短休息和每日上限；场地和裁判数量不会增加同一选手的可用时间。",
         SchedulingFailureKind.ProvenInfeasible => "请增加比赛日、延长可用时段或增加可用场地与裁判，并检查不可用时段。",
+        _ when Failure?.Diagnostics is { Policy.RequireChampionshipFinalsOnLastDay: true } details && details.Resources.Days.Count > 0 =>
+            $"本次要求冠亚军决赛必须在 {details.Resources.Days.Max(d => d.Date):yyyy-MM-dd} 进行。请检查最后一天的时段、场地和裁判，以及前序比赛与休息时间。程序不会自动提前决赛或取消勾选；如不需要固定日期，可自行取消勾选后重新生成。",
         _ when Failure is not null => "可以检查设置后重试，或请赛事组织者复核比赛时长、休息和每日上限。本次没有自动修改任何参数。",
         _ => ""
     };
@@ -133,12 +127,12 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         .Concat(Failure.Suggestions.Select(s => "建议：" + s)));
     public AsyncCommand GenerateCommand { get; }
     public DelegateCommand AddDayCommand { get; }
-    public DelegateCommand ResetCommand { get; }
+    public AsyncCommand ResetCommand { get; }
     public DelegateCommand BoardCommand { get; }
-    public DelegateCommand UseStrategyDefaultsCommand { get; }
     public ScheduleSetupPageViewModel(AppShellViewModel shell, WorkspaceSession session,
         Func<VenueCourtSelectionViewModel, Task<bool>>? chooseCourts = null,
-        Func<UnavailableCourtSelectionViewModel, Task<bool>>? chooseUnavailable = null) : base(session)
+        Func<UnavailableCourtSelectionViewModel, Task<bool>>? chooseUnavailable = null,
+        Func<Task<bool>>? confirmDiscard = null) : base(session)
     {
         this.shell = shell;
         this.chooseCourts = chooseCourts ?? (_ => Task.FromResult(false));
@@ -159,38 +153,36 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
                 Failure = shell.LastError?.SchedulingFailure;
         }, () => CanSelectCourts, shell.ReportError);
         AddDayCommand = new(AddNewDay, () => CanSelectCourts);
-        ResetCommand = new(Load, () => !shell.IsBusy);
-        BoardCommand = new(() => shell.Navigate(WorkspaceRoute.ScheduleBoard), () => shell.CanNavigate(WorkspaceRoute.ScheduleBoard));
-        UseStrategyDefaultsCommand = new(() =>
+        ResetCommand = new(async () =>
         {
-            foreach (var day in Days) { day.TargetLoadText = ""; day.WarningLoadText = ""; day.StageProgressText = ""; }
-            foreach (var project in ProjectTimings) { project.FinalPreferenceIndex = 0; project.SemifinalPreferenceIndex = 0; project.BronzePreferenceIndex = 0; project.PlacementPreferenceIndex = 0; }
-            SynchronizeStageWaves = false; Edited();
-        }, () => CanEdit);
+            var expected = Session; var generation = selectionGeneration;
+            bool IsCurrent() => !disposed && !shell.IsBusy && ReferenceEquals(Session, expected) && selectionGeneration == generation;
+            try
+            {
+                if (await (confirmDiscard?.Invoke() ?? Task.FromResult(false)) && IsCurrent()) Load();
+            }
+            catch (Exception) when (!IsCurrent())
+            {
+                // A stale/closed confirmation must not discard newer input or replace its feedback.
+            }
+        }, () => !disposed && !shell.IsBusy && (edited || conflict), shell.ReportError);
+        BoardCommand = new(() => shell.Navigate(WorkspaceRoute.ScheduleBoard), () => shell.CanNavigate(WorkspaceRoute.ScheduleBoard));
         Load();
     }
     public ScheduleSetupRequest BuildSetup()
     {
-        if (conflict) throw ScheduleEditorInput.Error("请先载入最新设置，不能提交旧设置。");
+        if (conflict) throw ScheduleEditorInput.Error("请先点击“放弃未保存的修改”并确认恢复已保存的设置，不能提交旧设置。");
         if (Days.Count == 0) throw ScheduleEditorInput.Error("请至少添加一个比赛日。");
         var days = Days.Select(d => d.Build()).OrderBy(d => d.Date).ToArray();
-        var targets = new List<TournamentDayLoadTarget>(); var stages = new List<TournamentStageWaveTarget>();
-        foreach (var day in Days)
-        {
-            var label = ScheduleEditorInput.Date(day.DateText).ToString("yyyy-MM-dd");
-            var target = ScheduleEditorInput.Percent(day.TargetLoadText, "每日目标负载"); var warning = ScheduleEditorInput.Percent(day.WarningLoadText, "警戒负载");
-            if (target.HasValue || warning.HasValue)
-            {
-                if (!target.HasValue) throw ScheduleEditorInput.Error("填写警戒负载时，也请填写对应的目标负载。");
-                targets.Add(new(label, target.Value, warning ?? Math.Min(1, target.Value + .15)));
-            }
-            if (ScheduleEditorInput.Percent(day.StageProgressText, "累计阶段进度") is { } progress) stages.Add(new(label, progress));
-        }
         var resources = new TournamentResourcePlan(days, string.IsNullOrWhiteSpace(RefereeCountText) ? null : ScheduleEditorInput.Integer(RefereeCountText, "裁判人数"),
             ScheduleEditorInput.Integer(MinimumRestText, "最小休息", 0), ScheduleEditorInput.Integer(DailyMaximumText, "每日场次上限"));
-        if (StrategyIndex is < 0 or > 3) throw ScheduleEditorInput.Error("请选择全局编排策略。");
-        var policy = new TournamentSchedulingPolicy((ScheduleAutoSchedulingStrategy)StrategyIndex, targets, SynchronizeStageWaves, stages, ProjectTimings.SelectMany(p => p.BuildFinalRules()).ToArray())
-        { ProjectTimings = ProjectTimings.ToDictionary(p => p.ProjectId, p => p.BuildTiming()) };
+        // Rebuild the policy explicitly: retired soft targets from older schedules must not
+        // silently affect the simple editor. The saved schedule changes only after success.
+        var policy = new TournamentSchedulingPolicy(ScheduleAutoSchedulingStrategy.Compact, [], false, [], [])
+        {
+            RequireChampionshipFinalsOnLastDay = RequireChampionshipFinalsOnLastDay,
+            ProjectTimings = ProjectTimings.ToDictionary(p => p.ProjectId, p => p.BuildTiming())
+        };
         return new(resources, policy);
     }
     private void AddNewDay()
@@ -202,14 +194,13 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
             return;
         }
         var date = DateOnly.FromDateTime(latest?.AddDays(1) ?? DateTime.Today);
-        var day = AddDay(new(date, new(9, 0), new(18, 0), []), null);
+        var day = AddDay(new(date, new(9, 0), new(18, 0), []));
         Edited();
         DayAdded?.Invoke(day);
     }
-    private ScheduleDayEditorViewModel AddDay(ScheduleDaySettings day, TournamentSchedulingPolicy? policy)
+    private ScheduleDayEditorViewModel AddDay(ScheduleDaySettings day)
     {
-        var target = policy?.DayLoadTargets.FirstOrDefault(t => t.DayLabel == day.DayLabel);
-        var editor = new ScheduleDayEditorViewModel(day, target?.TargetUtilization, target?.WarningUtilization, policy?.StageWaveTargets.FirstOrDefault(t => t.DayLabel == day.DayLabel)?.CumulativeProgress,
+        var editor = new ScheduleDayEditorViewModel(day,
             Edited, item => { Days.Remove(item); Edited(); }, day => SelectCourtsAsync(day, ScheduleEditorInput.Courts(day.CourtsText)),
             SelectUnavailableCourtsAsync, day => SelectCourtsAsync(day, PreviousCourts(day)), () => CanSelectCourts,
             day => PreviousCourts(day).Count > 0, shell.ReportError);
@@ -224,10 +215,11 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         baseline = Source(workspace); conflict = false; edited = false;
         Failure = null; SuccessSummary = BuildSuccessSummary(workspace.Schedule);
         refereeCountText = resources?.RefereeCount?.ToString() ?? ""; minimumRestText = (resources?.MinimumRestMinutes ?? 30).ToString(); dailyMaximumText = (resources?.MaxPlayerMatchesPerDay ?? 4).ToString();
-        strategyIndex = (int)(policy?.Strategy ?? ScheduleAutoSchedulingStrategy.Compact); synchronizeStageWaves = policy?.SynchronizeStageWaves ?? false;
-        Days.Clear(); foreach (var day in resources?.Days.OrderBy(d => d.Date).ToArray() ?? [new ScheduleDaySettings(DateOnly.FromDateTime(DateTime.Today), new(9, 0), new(18, 0), [])]) AddDay(day, policy);
+        requireChampionshipFinalsOnLastDay = policy?.RequireChampionshipFinalsOnLastDay ?? false;
+        Days.Clear(); foreach (var day in resources?.Days.OrderBy(d => d.Date).ToArray() ?? [new ScheduleDaySettings(DateOnly.FromDateTime(DateTime.Today), new(9, 0), new(18, 0), [])]) AddDay(day);
         ProjectTimings.Clear(); foreach (var project in workspace.Projects.OrderBy(p => p.SortOrder)) ProjectTimings.Add(new(project, policy, Edited));
-        foreach (var property in new[] { nameof(RefereeCountText), nameof(MinimumRestText), nameof(DailyMaximumText), nameof(StrategyIndex), nameof(SynchronizeStageWaves), nameof(PolicyLabel), nameof(IsSingleProject), nameof(IsMultiProject), nameof(ScheduleSummary), nameof(StrategyDescription) }) OnPropertyChanged(property);
+        editorBaseline = EditorSnapshot();
+        foreach (var property in new[] { nameof(RefereeCountText), nameof(MinimumRestText), nameof(DailyMaximumText), nameof(RequireChampionshipFinalsOnLastDay), nameof(IsSingleProject), nameof(IsMultiProject), nameof(ScheduleSummary) }) OnPropertyChanged(property);
         RefreshAvailability();
     }
     private static string BuildSuccessSummary(TournamentSchedule? schedule, TournamentScheduleQuality? quality = null,
@@ -239,6 +231,8 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
             schedule.Placements.Values.Where(p => p.DayLabel == d.DayLabel).Sum(p => (int)(p.EndTime - p.StartTime).TotalMinutes))).ToArray();
         var lines = new List<string> { diagnostics is null ? "已保存赛程的每日负荷：" : "本次赛程已生成并保存。每日负荷：",
             $"策略：{StrategyName(schedule.Policy.Strategy)}" };
+        if (schedule.Policy.RequireChampionshipFinalsOnLastDay)
+            lines.Add($"冠亚军决赛固定在最后比赛日：{schedule.Resources.Days.Max(d => d.Date):yyyy-MM-dd}。");
         foreach (var day in schedule.Resources.Days.OrderBy(d => d.Date))
         {
             var load = loads.FirstOrDefault(d => d.DayLabel == day.DayLabel);
@@ -258,7 +252,19 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         return string.Join(Environment.NewLine, lines);
     }
     private static string Source(TournamentWorkspace workspace) => JsonSerializer.Serialize(new { workspace.Projects, workspace.Resources, workspace.Schedule, Results = workspace.Results.Values.OrderBy(r => r.Key.ProjectId).ThenBy(r => r.Key.MatchId).ToArray() });
-    private void Edited() { selectionGeneration++; edited = true; RefreshAvailability(); }
+    // Compare raw fields, not BuildSetup(): even unfinished or invalid input must be discardable.
+    private string EditorSnapshot() => JsonSerializer.Serialize(new
+    {
+        RefereeCountText, MinimumRestText, DailyMaximumText, RequireChampionshipFinalsOnLastDay,
+        Days = Days.Select(d => new
+        {
+            d.DateText, d.StartText, d.EndText, d.CourtsText,
+            Unavailable = d.Unavailable.Select(w => new { w.StartText, w.EndText, w.CourtsText }),
+            Referees = d.RefereeWindows.Select(w => new { w.StartText, w.EndText, w.CountText })
+        }),
+        Timings = ProjectTimings.Select(p => new { p.ProjectId, p.MinutesText, p.UseTimingSplit, p.BoundaryText, p.BeforeMinutesText })
+    });
+    private void Edited() { selectionGeneration++; edited = EditorSnapshot() != editorBaseline; RefreshAvailability(); }
     public override void RefreshSession(WorkspaceSession next)
     {
         if (!ReferenceEquals(Session, next)) selectionGeneration++;
@@ -271,8 +277,8 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
     public override void RefreshAvailability()
     {
         OnPropertyChanged(nameof(CanEdit)); OnPropertyChanged(nameof(HasEditorConflict)); OnPropertyChanged(nameof(EditHint));
-        OnPropertyChanged(nameof(CapacityEstimate)); OnPropertyChanged(nameof(CapacitySummary));
-        GenerateCommand?.NotifyCanExecuteChanged(); AddDayCommand?.NotifyCanExecuteChanged(); ResetCommand?.NotifyCanExecuteChanged(); BoardCommand?.NotifyCanExecuteChanged(); UseStrategyDefaultsCommand?.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(CapacityEstimate)); OnPropertyChanged(nameof(CapacitySummary)); OnPropertyChanged(nameof(FinalDayHint));
+        GenerateCommand?.NotifyCanExecuteChanged(); AddDayCommand?.NotifyCanExecuteChanged(); ResetCommand?.NotifyCanExecuteChanged(); BoardCommand?.NotifyCanExecuteChanged();
         foreach (var day in Days) day.RefreshCommands();
     }
 }

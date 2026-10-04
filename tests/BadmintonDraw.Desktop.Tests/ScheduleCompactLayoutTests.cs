@@ -24,7 +24,7 @@ public sealed class ScheduleCompactLayoutTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public Task CompactShellKeepsBoardUsableAndGeometryStableWhenSelectionRevealsEditor(bool dark) => ui.Dispatch(async () =>
+    public Task IndependentBoardKeepsGeometryStableWhenSelectionRevealsDetails(bool dark) => ui.Dispatch(async () =>
     {
         using var fixture = new ScheduleUiFixture();
         fixture.Workflow.GenerateSchedule(new([new(new(2026, 9, 19), new(9, 0), new(18, 0), ["B1", "B2"])], 2, 30, 4),
@@ -39,20 +39,25 @@ public sealed class ScheduleCompactLayoutTests : IDisposable
             Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var model = Assert.IsType<ScheduleBoardPageViewModel>(shell.CurrentPage);
             await model.InitializeAsync(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
-            var page = Assert.Single(window.GetVisualDescendants().OfType<ScheduleBoardPage>());
+            var boardWindow = Assert.Single(window.OwnedWindows);
+            boardWindow.WindowState = WindowState.Normal; boardWindow.Width = 960; boardWindow.Height = 680;
+            boardWindow.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
+            Dispatcher.UIThread.RunJobs(); boardWindow.UpdateLayout();
+            var page = Assert.Single(boardWindow.GetVisualDescendants().OfType<ScheduleBoardPage>());
             var board = page.FindControl<ScheduleBoardControl>("ScheduleBoard")!;
             var scroll = board.FindControl<ScrollViewer>("BoardScroll")!;
             var before = scroll.Bounds;
             var viewport = scroll.Viewport;
             model.SelectMatch(model.Matches[0].Key);
-            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
-            Assert.True(page.FindControl<ToggleButton>("MoveEditor")!.IsChecked);
+            Dispatcher.UIThread.RunJobs(); boardWindow.UpdateLayout();
+            Assert.True(page.FindControl<Border>("MoveEditorPanel")!.IsVisible);
+            Assert.False(page.FindControl<StackPanel>("AdjustmentFields")!.IsVisible);
             Assert.True(scroll.Viewport.Height >= 180, $"Board viewport must remain usable at 960x680, actual {scroll.Viewport}; page {page.Bounds}.");
             Assert.Equal(before, scroll.Bounds);
             Assert.Equal(viewport, scroll.Viewport);
             // Hover diagnostics must not change drag target coordinates either.
             board.FindControl<TextBlock>("Feedback")!.Text = string.Join("；", Enumerable.Repeat("目标位置与选手休息时间冲突，请选择其他场地或时间", 8));
-            window.UpdateLayout();
+            boardWindow.UpdateLayout();
             Assert.Equal(before, scroll.Bounds);
             Assert.Equal(viewport, scroll.Viewport);
         }
@@ -76,25 +81,27 @@ public sealed class ScheduleCompactLayoutTests : IDisposable
             shell.Navigate(WorkspaceRoute.ScheduleBoard); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var model = Assert.IsType<ScheduleBoardPageViewModel>(shell.CurrentPage);
             await model.InitializeAsync(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
-            var view = Assert.Single(window.GetVisualDescendants().OfType<ScheduleBoardPage>());
+            var boardWindow = Assert.Single(window.OwnedWindows);
+            var view = Assert.Single(boardWindow.GetVisualDescendants().OfType<ScheduleBoardPage>());
             var other = model.Matches.First(match => match.Key != model.SelectedMatch!.Key);
             model.TargetTimeText = related ? other.Placement.StartTime.ToString("HH:mm") : "12:00";
             model.TargetCourt = related ? other.Placement.Court : "C1";
-            await model.PreviewMoveCommand.ExecuteAsync(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            await model.PreviewMoveCommand.ExecuteAsync(); Dispatcher.UIThread.RunJobs(); boardWindow.UpdateLayout();
             var target = (model.TargetDay, model.TargetTimeText, model.TargetCourt);
             var changes = model.PreviewChanges.ToArray(); var violations = model.PreviewViolations.ToArray();
             var canConfirm = model.ConfirmMoveCommand.CanExecute(null);
             Assert.True(model.IsMoveEditorExpanded);
             if (related) model.Issues.First(issue => issue.FocusRelatedCommand.CanExecute(null)).FocusRelatedCommand.Execute(null);
             else model.FocusSelectedCommand.Execute(null);
-            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs(); boardWindow.UpdateLayout();
             Assert.False(view.FindControl<Border>("MoveEditorPanel")!.IsVisible);
             Assert.False(model.IsMoveEditorExpanded);
             Assert.Equal(target, (model.TargetDay, model.TargetTimeText, model.TargetCourt));
             Assert.Equal(changes, model.PreviewChanges); Assert.Equal(violations, model.PreviewViolations);
             Assert.Equal(canConfirm, model.ConfirmMoveCommand.CanExecute(null));
 
-            view.FindControl<ToggleButton>("MoveEditor")!.IsChecked = true;
+            view.FindControl<Button>("ShowMatchDetails")!.Command!.Execute(null);
+            Assert.True(model.IsMoveEditorExpanded);
             view.FindControl<Button>("CloseMoveEditorButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.False(model.IsMoveEditorExpanded);
             Assert.Equal(target, (model.TargetDay, model.TargetTimeText, model.TargetCourt));

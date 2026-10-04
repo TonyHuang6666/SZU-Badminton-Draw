@@ -10,6 +10,24 @@ namespace BadmintonDraw.Desktop.Controls;
 
 public partial class ScheduleBoardControl
 {
+    private void ToolbarSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (!ready) return;
+        var narrow = BoardToolbar.Bounds.Width < 620;
+        Grid.SetColumnSpan(DayTabScroll, narrow ? 2 : 1);
+        Grid.SetRow(DisplayOptions, narrow ? 1 : 0);
+        DisplayOptions.Margin = new Thickness(narrow ? 0 : 8, narrow ? 4 : 0, 0, 0);
+    }
+    private void BoardScrollChanged(object? sender, ScrollChangedEventArgs e) => SyncFrozenPanes();
+    private void SyncFrozenPanes()
+    {
+        if (!ready) return;
+        // Match the actual content viewport, including space occupied by non-overlay scrollbars.
+        CourtHeaderScroll.Width = BoardScroll.Viewport.Width;
+        TimeAxisScroll.Height = BoardScroll.Viewport.Height;
+        CourtHeaderScroll.Offset = new Vector(BoardScroll.Offset.X, 0);
+        TimeAxisScroll.Offset = new Vector(0, BoardScroll.Offset.Y);
+    }
     private async void CardPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (sender is not Border { Tag: WorkspaceBoardCard item } card) return;

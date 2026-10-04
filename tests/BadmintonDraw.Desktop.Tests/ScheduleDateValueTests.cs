@@ -14,7 +14,7 @@ public sealed class ScheduleDateValueTests
     {
         var changes = 0;
         var day = new ScheduleDayEditorViewModel(new(new(2026, 10, 3), new(14, 0), new(18, 0), ["B1"]),
-            null, null, null, () => changes++, _ => { });
+            () => changes++, _ => { });
         var properties = new List<string?>();
         day.PropertyChanged += (_, e) => properties.Add(e.PropertyName);
         day.SelectedDate = new DateTime(2028, 2, 29, 23, 59, 0, kind);
@@ -33,7 +33,7 @@ public sealed class ScheduleDateValueTests
     public void MissingOrInvalidDatesAreNotSilentlyChangedToToday(string text)
     {
         var day = new ScheduleDayEditorViewModel(new(new(2026, 10, 3), new(14, 0), new(18, 0), ["B1"]),
-            null, null, null, () => { }, _ => { }) { DateText = text };
+            () => { }, _ => { }) { DateText = text };
         Assert.Null(day.SelectedDate);
         Assert.Equal(text, day.DateText);
         Assert.Throws<WorkspaceCommandException>(() => day.Build());

@@ -18,13 +18,6 @@ internal static class ScheduleEditorInput
         : value.ToString("HH:mm:ss.fffffff", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.');
     internal static DateOnly Date(string text) => DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var value)
         ? value : throw Error("请选择有效的比赛日期。");
-    internal static double? Percent(string text, string label)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return null;
-        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && double.IsFinite(value) && value is >= 0 and <= 100
-            ? value / 100 : throw Error($"{label}应为 0–100 的百分比，留空表示不覆盖策略默认值。");
-    }
-    internal static string PercentText(double? value) => value?.ToString("G17", CultureInfo.InvariantCulture) is null ? "" : (value.Value * 100).ToString("G17", CultureInfo.InvariantCulture);
     internal static string[] Courts(string text) => text.Split([',', '，', ';', '；', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }
 
@@ -39,7 +32,7 @@ public sealed class ScheduleDayEditorViewModel : ScheduleEditorViewModel
     private readonly Func<ScheduleDayEditorViewModel, ScheduleUnavailableEditorViewModel, Task>? chooseUnavailable;
     private readonly Func<bool> canEdit;
     private readonly Action<Exception>? onError;
-    private string dateText, startText, endText, courtsText, targetLoadText, warningLoadText, stageProgressText;
+    private string dateText, startText, endText, courtsText;
     public string DateText
     {
         get => dateText;
@@ -84,9 +77,6 @@ public sealed class ScheduleDayEditorViewModel : ScheduleEditorViewModel
     }
     public string VenueSummary => ScheduleCourtPresentation.Venue(ScheduleEditorInput.Courts(CourtsText));
     public string CourtsSummary => ScheduleCourtPresentation.Summary(ScheduleEditorInput.Courts(CourtsText));
-    public string TargetLoadText { get => targetLoadText; set => Edit(ref targetLoadText, value, nameof(TargetLoadText)); }
-    public string WarningLoadText { get => warningLoadText; set => Edit(ref warningLoadText, value, nameof(WarningLoadText)); }
-    public string StageProgressText { get => stageProgressText; set => Edit(ref stageProgressText, value, nameof(StageProgressText)); }
     public ObservableCollection<ScheduleUnavailableEditorViewModel> Unavailable { get; } = [];
     public ObservableCollection<ScheduleRefereeEditorViewModel> RefereeWindows { get; } = [];
     public DelegateCommand AddUnavailableCommand { get; }
@@ -94,7 +84,7 @@ public sealed class ScheduleDayEditorViewModel : ScheduleEditorViewModel
     public DelegateCommand RemoveCommand { get; }
     public AsyncCommand ChooseCourtsCommand { get; }
     public AsyncCommand CopyPreviousCourtsCommand { get; }
-    public ScheduleDayEditorViewModel(ScheduleDaySettings day, double? target, double? warning, double? stage, Action changed, Action<ScheduleDayEditorViewModel> remove,
+    public ScheduleDayEditorViewModel(ScheduleDaySettings day, Action changed, Action<ScheduleDayEditorViewModel> remove,
         Func<ScheduleDayEditorViewModel, Task>? chooseCourts = null,
         Func<ScheduleDayEditorViewModel, ScheduleUnavailableEditorViewModel, Task>? chooseUnavailable = null,
         Func<ScheduleDayEditorViewModel, Task>? copyPrevious = null, Func<bool>? canEdit = null,
@@ -102,7 +92,6 @@ public sealed class ScheduleDayEditorViewModel : ScheduleEditorViewModel
     {
         this.chooseUnavailable = chooseUnavailable; this.canEdit = canEdit ?? (() => true); this.onError = onError;
         this.changed = changed; dateText = day.DayLabel; startText = ScheduleEditorInput.TimeText(day.DayStart); endText = ScheduleEditorInput.TimeText(day.DayEnd); courtsText = string.Join(", ", day.Courts);
-        targetLoadText = ScheduleEditorInput.PercentText(target); warningLoadText = ScheduleEditorInput.PercentText(warning); stageProgressText = ScheduleEditorInput.PercentText(stage);
         foreach (var item in day.UnavailableCourtWindows ?? []) AddUnavailable(item);
         foreach (var item in day.RefereeCapacityWindows ?? []) AddReferees(item);
         TimeOnly WindowStart() => TimeOnly.TryParse(StartText, CultureInfo.InvariantCulture, DateTimeStyles.None, out var time) ? time : day.DayStart;

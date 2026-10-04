@@ -84,6 +84,8 @@ public sealed partial class TournamentPlacementValidator
         var issues = new List<SchedulingViolation>();
         void Issue(SchedulingConstraintCode code, string message, Guid? related = null) =>
             issues.Add(new(code, node.ProjectId, node.Id, related, message));
+        if (Context.Request.Policy.RequireChampionshipFinalsOnLastDay && node.IsChampionshipFinal && day.Date != Context.Days[^1].Date)
+            Issue(SchedulingConstraintCode.ChampionshipFinalDay, $"冠亚军决赛必须安排在最后比赛日（{Context.Days[^1].DayLabel}）。");
         var validOthers = new List<MatchPlacement>();
         foreach (var pair in otherPlacements)
         {

@@ -8,6 +8,17 @@ namespace BadmintonDraw.Desktop.Tests;
 
 public sealed class ScheduleBoardPresentationTests
 {
+    [Theory]
+    [InlineData(0, 0, "2026-10-04 09:00–09:30 · B1")]
+    [InlineData(30, 125, "2026-10-04 09:00:30.125–09:30:30.125 · B1")]
+    public void MatchDetailsShowTheActualTimeWithoutUnnecessarySeconds(int seconds, int milliseconds, string expected)
+    {
+        var key = new WorkspaceMatchKey(Guid.NewGuid(), Guid.NewGuid());
+        var card = new WorkspaceBoardCard(key, "男单", "决赛", "决赛", "张三\nVS\n李四",
+            new(key.MatchId, "2026-10-04", new(9, 0, seconds, milliseconds), new(9, 30, seconds, milliseconds), "B1"), false);
+        Assert.Equal(expected, card.Position);
+    }
+
     [Fact]
     public void AllProjectCardsUseCompositeIdentityAndExactPlacedTimes()
     {

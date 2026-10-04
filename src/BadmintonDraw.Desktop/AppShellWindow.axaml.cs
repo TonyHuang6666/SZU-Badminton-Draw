@@ -28,11 +28,13 @@ public partial class AppShellWindow : Window
             drawOutputPicker ?? PickDrawOutputDirectoryAsync, options => new Views.DrawExportOptionsDialog(options).ShowDialog<bool>(this)));
         shell.RegisterPageFactory(WorkspaceRoute.ScheduleSetup, session => new ScheduleSetupPageViewModel(shell, session,
             options => new Views.VenueCourtSelectionDialog(options).ShowDialog<bool>(this),
-            options => new Views.UnavailableCourtSelectionDialog(options).ShowDialog<bool>(this)));
+            options => new Views.UnavailableCourtSelectionDialog(options).ShowDialog<bool>(this),
+            () => new Views.DiscardScheduleChangesDialog().ShowDialog<bool>(this)));
         shell.RegisterPageFactory(WorkspaceRoute.ScheduleBoard, session => new ScheduleBoardPageViewModel(shell, session));
         shell.RegisterPageFactory(WorkspaceRoute.Operations, session => new OperationsPageViewModel(shell, session,
             resultFilesPicker ?? PickResultFilesAsync, operationalOutputPicker ?? PickOperationalOutputAsync));
         DataContext = shell;
+        ConfigureScheduleBoardWindow(shell);
         Closed += (_, _) => shell.Dispose();
         try
         {

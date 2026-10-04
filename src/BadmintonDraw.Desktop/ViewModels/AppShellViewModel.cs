@@ -22,6 +22,10 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
     private WorkspaceSession? currentSession;
     private WorkspaceError? lastError;
     private WorkspaceCommandResult? lastCommandResult;
+    // The board may outlive the main page, but never the tournament it belongs to.
+    private ScheduleBoardPageViewModel? scheduleBoardPage;
+    public event Action<ScheduleBoardPageViewModel>? BoardWindowRequested;
+    public event Action? BoardWindowInvalidated;
     public WorkspaceNavigator Navigator { get; } = new();
     public StartPageViewModel StartPage { get; }
     public IReadOnlyList<WorkspaceNavigationItemViewModel> NavigationItems { get; }
@@ -108,9 +112,10 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         if (route == WorkspaceRoute.NewWorkspace) { StartNewWorkspace(); return true; }
         if (route == WorkspaceRoute.Start) LastError = null;
         Navigator.Navigate(route);
-        if (CurrentPage is IDisposable disposable) disposable.Dispose();
-        CurrentPage = route == WorkspaceRoute.Start ? StartPage : factories[route](CurrentSession!);
+        DisposeCurrentPage();
+        CurrentPage = route == WorkspaceRoute.Start ? StartPage : CreatePage(route, CurrentSession!);
         RefreshAvailability();
+        if (CurrentPage is ScheduleBoardPageViewModel board) RequestBoardWindow(board);
         return true;
     }
     public void StartNewWorkspace()
@@ -118,7 +123,7 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         if (IsBusy || !TryLeaveCurrentPage()) return;
         LastError = null;
         Navigator.Navigate(WorkspaceRoute.NewWorkspace);
-        if (CurrentPage is IDisposable disposable) disposable.Dispose();
+        DisposeCurrentPage();
         CurrentPage = new NewWorkspaceWizardViewModel(async request => await CreateWorkspaceAsync(request),
             savePicker, () => !IsBusy, ReportError);
         RefreshAvailability();
@@ -128,6 +133,30 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
     public Task<bool> OpenWorkspaceAsync(string path) => RunCommandAsync(
         async () => await OpenPathAsync(path), "已打开工作区。", remember: true, ensureWorkspacePage: true, requirePageLeave: true);
     private bool TryLeaveCurrentPage() => CurrentPage is not WorkspacePageViewModel page || page.TryLeave();
+
+    internal void RequestBoardWindow(ScheduleBoardPageViewModel board)
+    {
+        if (!disposed && ReferenceEquals(board, scheduleBoardPage) && CanNavigate(WorkspaceRoute.ScheduleBoard))
+            BoardWindowRequested?.Invoke(board);
+    }
+    private WorkspacePageViewModel CreatePage(WorkspaceRoute route, WorkspaceSession session)
+    {
+        if (route == WorkspaceRoute.ScheduleBoard && scheduleBoardPage is { } existing) return existing;
+        var page = factories[route](session);
+        if (page is ScheduleBoardPageViewModel board) scheduleBoardPage = board;
+        return page;
+    }
+    private void DisposeCurrentPage()
+    {
+        if (!ReferenceEquals(CurrentPage, scheduleBoardPage) && CurrentPage is IDisposable disposable) disposable.Dispose();
+    }
+    private void InvalidateBoardWindow()
+    {
+        var previous = scheduleBoardPage;
+        scheduleBoardPage = null;
+        previous?.Dispose();
+        BoardWindowInvalidated?.Invoke();
+    }
     internal void ClearPageLeaveWarning(string message)
     {
         if (LastError?.Code != PendingEditsErrorCode) return;
@@ -290,14 +319,16 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         CurrentSession = session;
         Recovery.RefreshContext();
         Navigator.UpdateWorkspace(session.Workspace.Stage, session.Workspace.Purpose);
+        if (!sameWorkspace || !Navigator.CanNavigate(WorkspaceRoute.ScheduleBoard)) InvalidateBoardWindow();
+        else if (scheduleBoardPage is { } board && !ReferenceEquals(board, CurrentPage)) board.RefreshSession(session);
         if (sameWorkspace && CurrentPage is WorkspacePageViewModel page && Navigator.CanNavigate(Navigator.CurrentRoute)) page.RefreshSession(session);
         else if (!sameWorkspace || !Navigator.CanNavigate(Navigator.CurrentRoute))
         {
             var target = WorkspaceNavigator.PreferredRoute(session.Workspace.Stage, session.Workspace.Purpose);
             if (!factories.ContainsKey(target)) target = WorkspaceRoute.Overview;
             Navigator.Navigate(target);
-            if (CurrentPage is IDisposable disposable) disposable.Dispose();
-            CurrentPage = factories[target](session);
+            DisposeCurrentPage();
+            CurrentPage = CreatePage(target, session);
         }
         OnPropertyChanged(nameof(Title)); OnPropertyChanged(nameof(StageText)); OnPropertyChanged(nameof(WorkspacePath));
         RefreshAvailability();
@@ -313,6 +344,7 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         StartPage.RefreshAvailability();
         if (CurrentPage is NewWorkspaceWizardViewModel wizard) wizard.RefreshCommands();
         if (CurrentPage is WorkspacePageViewModel page) page.RefreshAvailability();
+        if (scheduleBoardPage is { } board && !ReferenceEquals(board, CurrentPage)) board.RefreshAvailability();
     }
     public static string StageName(TournamentStage stage) => stage switch
     {
@@ -323,7 +355,9 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
     {
         disposed = true; workflow.SessionChanged -= OnSessionChanged;
         Recovery.Dispose();
-        if (CurrentPage is IDisposable disposable) disposable.Dispose();
+        DisposeCurrentPage();
+        InvalidateBoardWindow();
+        BoardWindowRequested = null; BoardWindowInvalidated = null;
     }
 }
 

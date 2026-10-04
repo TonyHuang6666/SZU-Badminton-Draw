@@ -13,7 +13,7 @@
     <DataTemplate DataType="{x:Type vm:RostersPageViewModel}"><views:RostersPage /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:PublicDrawPageViewModel}"><views:PublicDrawPage /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:ScheduleSetupPageViewModel}"><views:ScheduleSetupPage /></DataTemplate>
-    <DataTemplate DataType="{x:Type vm:ScheduleBoardPageViewModel}"><views:ScheduleBoardPage /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ScheduleBoardPageViewModel}"><views:ScheduleBoardSummaryPage /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:OperationsPageViewModel}"><views:OperationsPage /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:WorkspaceArchivePageViewModel}"><views:WorkspaceArchivePage /></DataTemplate>
   </Window.DataTemplates>

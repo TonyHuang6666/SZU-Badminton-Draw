@@ -12,6 +12,7 @@ public sealed record TournamentSchedulingPolicy(ScheduleAutoSchedulingStrategy S
     public IReadOnlyList<TournamentStageWaveTarget> StageWaveTargets { get => stageWaveTargets; init => stageWaveTargets = WorkspaceSnapshot.List(value); }
     public IReadOnlyList<TournamentFinalDayRule> FinalDayRules { get => finalDayRules; init => finalDayRules = WorkspaceSnapshot.List(value); }
     public IReadOnlyDictionary<Guid, ProjectMatchTiming> ProjectTimings { get => projectTimings; init => projectTimings = WorkspaceSnapshot.Dictionary(value); }
+    public bool RequireChampionshipFinalsOnLastDay { get; init; }
 }
 
 public sealed record TournamentDayLoadTarget(string DayLabel, double TargetUtilization, double WarningUtilization);

@@ -25,7 +25,7 @@ public sealed class ScheduleVenueIntegrationTests
     public void ExistingFreeTextNamesAreNotSilentlyAssignedToASzuVenue()
     {
         var day = new ScheduleDayEditorViewModel(new(new(2026, 10, 3), new(14, 0), new(18, 0), ["B1", "1号场", "中央场"]),
-            null, null, null, () => { }, _ => { });
+            () => { }, _ => { });
         Assert.Equal(["B1", "1号场", "中央场"], day.Build().Courts);
     }
 
@@ -46,7 +46,8 @@ public sealed class ScheduleVenueIntegrationTests
         var saved = new TournamentWorkspaceStore().Read(path);
         Assert.Equal(["丽湖至快 · 1号场", "丽湖至快 · 10号场"], saved.Schedule!.Resources.Days[0].Courts);
         Assert.All(saved.Schedule.Placements.Values, match => Assert.Contains(match.Court, saved.Schedule.Resources.Days[0].Courts));
-        page.ResetCommand.Execute(null);
+        page.Days[0].CourtsText = "其他场地";
+        await page.ResetCommand.ExecuteAsync();
         Assert.Contains("至快体育馆", page.Days[0].VenueSummary);
     }
 
@@ -105,7 +106,7 @@ public sealed class ScheduleVenueIntegrationTests
         Assert.False(page.GenerateCommand.CanExecute(null));
         switch (change)
         {
-            case "reset": page.ResetCommand.Execute(null); break;
+            case "reset": await page.ResetCommand.ExecuteAsync(); break;
             case "edit": day.CourtsText = "新输入的场地"; break;
             case "remove": day.RemoveCommand.Execute(null); break;
             case "session": page.RefreshSession(page.Session with { }); break;
@@ -175,7 +176,7 @@ public sealed class ScheduleVenueIntegrationTests
 
     private static ScheduleSetupPageViewModel Page(ScheduleUiFixture fixture, Func<VenueCourtSelectionViewModel, Task<bool>> choose)
     {
-        fixture.Shell.RegisterPageFactory(WorkspaceRoute.ScheduleSetup, session => new ScheduleSetupPageViewModel(fixture.Shell, session, choose));
+        fixture.Shell.RegisterPageFactory(WorkspaceRoute.ScheduleSetup, session => new ScheduleSetupPageViewModel(fixture.Shell, session, choose, confirmDiscard: () => Task.FromResult(true)));
         fixture.Shell.Navigate(WorkspaceRoute.ScheduleSetup);
         return Assert.IsType<ScheduleSetupPageViewModel>(fixture.Shell.CurrentPage);
     }

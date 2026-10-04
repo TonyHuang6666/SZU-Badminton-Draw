@@ -9,7 +9,12 @@ namespace BadmintonDraw.Desktop.Scheduling;
 public sealed record WorkspaceBoardCard(WorkspaceMatchKey Key, string ProjectName, string MatchName, string Phase, string Sides, MatchPlacement Placement, bool IsLocked)
 {
     public string Title => ProjectName + " · " + MatchName;
-    public string Position => $"{Placement.DayLabel} {Placement.StartTime:HH:mm:ss}–{Placement.EndTime:HH:mm:ss} · {Placement.Court}";
+    public string Position => $"{Placement.DayLabel} {WorkspaceBoardTime.Format(Placement.StartTime)}–{WorkspaceBoardTime.Format(Placement.EndTime)} · {Placement.Court}";
+}
+internal static class WorkspaceBoardTime
+{
+    internal static string Format(TimeOnly time) => time.ToString(time.Ticks % TimeSpan.TicksPerMinute == 0 ? "HH:mm" :
+        time.Ticks % TimeSpan.TicksPerSecond == 0 ? "HH:mm:ss" : "HH:mm:ss.FFFFFFF", CultureInfo.InvariantCulture);
 }
 public sealed record WorkspaceBoardDay(ScheduleDaySettings Resources, IReadOnlyList<TimeOnly> TimeSlots)
 {

@@ -1,0 +1,36 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:BadmintonDraw.Desktop.ViewModels"
+             x:Class="BadmintonDraw.Desktop.Views.ScheduleBoardSummaryPage" x:DataType="vm:ScheduleBoardPageViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="32" Spacing="22" MaxWidth="1100" HorizontalAlignment="Stretch">
+      <StackPanel Spacing="8">
+        <TextBlock Text="赛程已安排好" Classes="page-title" />
+        <TextBlock Text="{Binding Summary}" Classes="muted" />
+      </StackPanel>
+      <Border Classes="card">
+        <StackPanel Spacing="16">
+          <TextBlock Text="在大窗口里，一览全场比赛" Classes="section-title" />
+          <TextBlock Text="赛程板会单独打开，可以放大或移到另一块屏幕。这里仍可继续准备比赛材料，两个窗口使用同一份赛事数据。" TextWrapping="Wrap" Classes="muted" />
+          <WrapPanel>
+            <Button Content="打开独立赛程板 ↗" Command="{Binding OpenWindowCommand}" Classes="primary" Margin="0,0,12,8" />
+            <Button Content="修改排程设置" Command="{Binding SetupCommand}" Classes="secondary" Margin="0,0,12,8" />
+          </WrapPanel>
+        </StackPanel>
+      </Border>
+      <TextBlock Text="比赛日概览" Classes="section-title" />
+      <ItemsControl ItemsSource="{Binding DaySummaries}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:ScheduleBoardDaySummary">
+            <Border Classes="inset" Margin="0,0,0,10">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                <TextBlock Text="{Binding DayLabel}" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="1" Text="{Binding Details}" Classes="muted" />
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <TextBlock Text="关闭赛程板不会退出赛事。已保存的调整会保留，随时可以重新打开。" TextWrapping="Wrap" Classes="muted" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

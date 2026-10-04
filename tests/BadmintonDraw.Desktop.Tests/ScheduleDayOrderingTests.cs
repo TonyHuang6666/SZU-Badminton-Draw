@@ -20,14 +20,15 @@ public sealed class ScheduleDayOrderingTests
         using var fixture = new ScheduleUiFixture();
         using var page = new ScheduleSetupPageViewModel(fixture.Shell, fixture.Workflow.CurrentSession!);
         var original = page.Days[0]; original.DateText = "2026-10-03";
-        original.StartText = "14:00"; original.CourtsText = "粤海东馆 · B1"; original.TargetLoadText = "50";
+        original.StartText = "14:00"; original.CourtsText = "粤海东馆 · B1";
+        original.AddUnavailableCommand.Execute(null); original.Unavailable[0].StartText = "15:00";
         var path = fixture.Workflow.CurrentSession!.WorkspacePath;
         var bytes = File.ReadAllBytes(path);
         for (var i = 0; i < 4; i++) page.AddDayCommand.Execute(null);
         Assert.Equal(["2026-10-07", "2026-10-06", "2026-10-05", "2026-10-04", "2026-10-03"], page.Days.Select(d => d.DateText));
         Assert.Same(original, page.Days[^1]);
         Assert.Equal("14:00", original.StartText); Assert.Equal("粤海东馆 · B1", original.CourtsText);
-        Assert.Equal("50", original.TargetLoadText);
+        Assert.Equal("15:00", Assert.Single(original.Unavailable).StartText);
         Assert.All(page.Days.Take(4), d => Assert.Empty(d.Build().Courts));
         Assert.Equal(bytes, File.ReadAllBytes(path));
     }
@@ -96,18 +97,21 @@ public sealed class ScheduleDayOrderingTests
         page.Days[0].DateText = "2026-10-03";
         page.AddDayCommand.Execute(null); page.AddDayCommand.Execute(null);
         foreach (var day in page.Days) { day.CourtsText = "粤海东馆 · B1"; day.StartText = "14:00"; }
-        page.Days[0].TargetLoadText = "70"; page.Days[0].StageProgressText = "100";
+        page.Days[0].AddUnavailableCommand.Execute(null);
+        page.Days[0].Unavailable[0].StartText = "15:00";
+        page.Days[0].Unavailable[0].EndText = "16:00";
         Assert.Equal([3, 4, 5], page.BuildSetup().Resources.Days.Select(d => d.Date.Day));
         await page.GenerateCommand.ExecuteAsync();
         Assert.Null(fixture.Shell.LastError);
         var saved = new TournamentWorkspaceStore().Read(fixture.Workflow.CurrentSession!.WorkspacePath);
         Assert.Equal([3, 4, 5], saved.Schedule!.Resources.Days.Select(d => d.Date.Day));
         Assert.Equal("2026-10-03", Assert.Single(saved.Schedule.Placements.Values).DayLabel);
-        using var reopened = new ScheduleSetupPageViewModel(fixture.Shell, fixture.Workflow.CurrentSession!);
+        using var reopened = new ScheduleSetupPageViewModel(fixture.Shell, fixture.Workflow.CurrentSession!, confirmDiscard: () => Task.FromResult(true));
         Assert.Equal(["2026-10-05", "2026-10-04", "2026-10-03"], reopened.Days.Select(d => d.DateText));
-        Assert.Equal("70", reopened.Days[0].TargetLoadText); Assert.Equal("100", reopened.Days[0].StageProgressText);
+        Assert.Equal("15:00", Assert.Single(reopened.Days[0].Unavailable).StartText);
+        Assert.Equal("16:00", Assert.Single(reopened.Days[0].Unavailable).EndText);
         reopened.Days[0].DateText = "2026-11-01";
-        reopened.ResetCommand.Execute(null);
+        await reopened.ResetCommand.ExecuteAsync();
         Assert.Equal(["2026-10-05", "2026-10-04", "2026-10-03"], reopened.Days.Select(d => d.DateText));
     }
 }
@@ -157,7 +161,7 @@ public sealed class ScheduleDayOrderingViewTests : IDisposable
     public Task StaleAddDoesNotScrollAfterPageChanges(string change) => ui.Dispatch(() =>
     {
         using var fixture = new ScheduleUiFixture();
-        using var model = new ScheduleSetupPageViewModel(fixture.Shell, fixture.Workflow.CurrentSession!);
+        using var model = new ScheduleSetupPageViewModel(fixture.Shell, fixture.Workflow.CurrentSession!, confirmDiscard: () => Task.FromResult(true));
         using var other = new ScheduleSetupPageViewModel(fixture.Shell, fixture.Workflow.CurrentSession!);
         var page = new ScheduleSetupPage { DataContext = model };
         var window = new Window { Width = 960, Height = 680, Content = page };

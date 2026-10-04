@@ -26,22 +26,29 @@ public sealed class ScheduleBoardControlTests : IDisposable
     [Theory]
     [InlineData(1)]
     [InlineData(3)]
-    public Task SetupShowsTheApplicableSchedulingModeAndPreservesFoldedOverrides(int projects) => session.Dispatch(() =>
+    public Task SetupUsesOneFinalDayCheckboxAndKeepsResourceLimitsWhenFolded(int projects) => session.Dispatch(() =>
     {
         using var fixture = new ScheduleUiFixture(projects);
         var model = new ScheduleSetupPageViewModel(fixture.Shell, fixture.Workflow.CurrentSession!);
-        model.Days[0].TargetLoadText = "40";
-        model.ProjectTimings[0].FinalPreferenceIndex = 4;
+        model.MinimumRestText = "40";
         var page = new ScheduleSetupPage { DataContext = model };
-        Assert.Equal(projects == 1, page.FindControl<Border>("SingleProjectPreference")!.IsVisible);
+        var checkbox = page.FindControl<CheckBox>("FinalsOnLastDay");
+        Assert.NotNull(checkbox);
+        Assert.False(checkbox.IsChecked);
+        checkbox.IsChecked = true;
         Assert.Equal(projects > 1, page.FindControl<Border>("MultiProjectNotice")!.IsVisible);
         var advanced = page.FindControl<Expander>("AdvancedScheduleSettings")!;
         Assert.False(advanced.IsExpanded);
         advanced.IsExpanded = true;
         advanced.IsExpanded = false;
         var request = model.BuildSetup();
-        Assert.Equal(.4, Assert.Single(request.Policy.DayLoadTargets).TargetUtilization);
-        Assert.Equal(TournamentFinalDayPreference.StronglyPreferFinalDay, Assert.Single(request.Policy.FinalDayRules).Preference);
+        Assert.Equal(40, request.Resources.MinimumRestMinutes);
+        Assert.Equal(ScheduleAutoSchedulingStrategy.Compact, request.Policy.Strategy);
+        Assert.Empty(request.Policy.DayLoadTargets);
+        Assert.Empty(request.Policy.StageWaveTargets);
+        Assert.Empty(request.Policy.FinalDayRules);
+        using var policy = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(request.Policy));
+        Assert.True(policy.RootElement.GetProperty("RequireChampionshipFinalsOnLastDay").GetBoolean());
     }, CancellationToken.None);
 
     [Fact]
@@ -52,15 +59,16 @@ public sealed class ScheduleBoardControlTests : IDisposable
             new(ScheduleAutoSchedulingStrategy.Compact, [], false, [], []), fixture.Workflow.CurrentSession!.Workspace.Revision);
         using var model = new ScheduleBoardPageViewModel(fixture.Shell, fixture.Workflow.CurrentSession!);
         var page = new ScheduleBoardPage { DataContext = model };
-        var editor = page.FindControl<ToggleButton>("MoveEditor")!;
-        Assert.False(editor.IsChecked);
+        var editor = page.FindControl<Border>("MoveEditorPanel")!;
+        Assert.False(editor.IsVisible);
 
         model.SelectMatch(model.Matches[0].Key);
-        Assert.True(editor.IsChecked);
+        Assert.True(editor.IsVisible);
+        Assert.False(page.FindControl<StackPanel>("AdjustmentFields")!.IsVisible);
         model.TargetTimeText = "12:34";
-        editor.IsChecked = false;
+        model.IsMoveEditorExpanded = false;
         model.SelectMatch(model.Matches[0].Key);
-        Assert.True(editor.IsChecked);
+        Assert.True(editor.IsVisible);
         Assert.Equal("12:34", model.TargetTimeText);
     }, CancellationToken.None);
 

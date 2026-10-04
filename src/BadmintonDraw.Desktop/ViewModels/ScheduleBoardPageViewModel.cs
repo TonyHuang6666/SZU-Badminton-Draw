@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.ComponentModel;
 using BadmintonDraw.Core.Scheduling;
 using BadmintonDraw.Core.Tournaments;
 using BadmintonDraw.Desktop.Controls;
@@ -17,11 +18,19 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     private string sourceIdentity, targetDay = "", targetTimeText = "", targetCourt = "", previewMessage = "";
     private string? selectedDay;
     private double zoom = 1;
-    private bool edited, conflict, disposed, canUndo, initializePending, initializing, isMoveEditorExpanded;
+    private bool edited, conflict, disposed, canUndo, initializePending, initializing, isMoveEditorExpanded, isAdjusting, isCompact = true;
     private long editorEpoch;
     private ScheduleEditPreview? preview;
     private WorkspaceSession? previewSession;
     public WorkspaceScheduleBoard Board { get => board; private set => SetProperty(ref board, value); }
+    public string WindowTitle => Session.Workspace.Name + " · 赛程板";
+    public string Summary => $"{Board.Days.Count} 个比赛日 · {Board.Cards.Count} 场比赛 · {Board.Cards.Select(c => c.Key.ProjectId).Distinct().Count()} 个项目";
+    public IReadOnlyList<ScheduleBoardDaySummary> DaySummaries => Board.Days.Select(day => new ScheduleBoardDaySummary(
+        day.DayLabel, day.Courts.Count, Board.Cards.Count(card => card.Placement.DayLabel == day.DayLabel))).ToArray();
+    public string StatusSummary => shell.Status.Contains(" 备份：", StringComparison.Ordinal) ? shell.Status[..shell.Status.IndexOf(" 备份：", StringComparison.Ordinal)] : shell.Status;
+    public string StatusDetails => shell.Status;
+    public bool IsCompact { get => isCompact; set => SetProperty(ref isCompact, value); }
+    public bool IsAdjusting { get => isAdjusting; set => SetProperty(ref isAdjusting, value); }
     public IReadOnlyList<WorkspaceBoardCard> Matches => Board.Cards;
     public IReadOnlyList<string> DayLabels => Board.Days.Select(d => d.DayLabel).ToArray();
     public IReadOnlyList<string> TargetCourts => Board.Days.FirstOrDefault(d => d.DayLabel == TargetDay)?.Courts ?? [];
@@ -33,7 +42,7 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
             // A ComboBox may transiently clear SelectedItem while its immutable ItemsSource is replaced.
             // There is no user-facing empty selection; do not erase a retained manual editor in that transition.
             if (value is null && Matches.Count > 0) return;
-            if (SetProperty(ref selectedMatch, value)) { LoadTarget(); RefreshAvailability(); }
+            if (SetProperty(ref selectedMatch, value)) { IsAdjusting = false; LoadTarget(); RefreshAvailability(); }
         }
     }
     public string? SelectedDay { get => selectedDay; set => SetProperty(ref selectedDay, value); }
@@ -43,6 +52,7 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     public string TargetTimeText { get => targetTimeText; set { if (SetProperty(ref targetTimeText, value)) TargetEdited(); } }
     public string TargetCourt { get => targetCourt; set { if (SetProperty(ref targetCourt, value)) TargetEdited(); } }
     public bool HasEditorConflict => conflict;
+    public bool NeedsPositionRefresh => baseline is null || conflict;
     public bool CanEdit => !disposed && shell.CanMutate && baseline is not null && !conflict && Session.Workspace.Stage is TournamentStage.ScheduleReady or TournamentStage.InProgress;
     public string EditHint => conflict ? "赛程、资源或赛果已改变。目标输入仍保留，但必须载入最新位置后重新查看调整方案。" : baseline is null
         ? initializing || initializePending ? "正在载入移动基准，请稍候…" : "请点击载入最新位置以启用移动。"
@@ -63,6 +73,11 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     public AsyncCommand UndoCommand { get; }
     public DelegateCommand FocusSelectedCommand { get; }
     public DelegateCommand SetupCommand { get; }
+    public DelegateCommand OpenWindowCommand { get; }
+    public DelegateCommand OperationsCommand { get; }
+    public DelegateCommand ShowDetailsCommand { get; }
+    public DelegateCommand EditSelectedCommand { get; }
+    public DelegateCommand ToggleThemeCommand => shell.ToggleThemeCommand;
     public event Action<WorkspaceMatchKey>? FocusRequested;
     public ScheduleBoardPageViewModel(AppShellViewModel shell, WorkspaceSession session) : base(session)
     {
@@ -79,7 +94,17 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
         }, () => !disposed && shell.CanMutate && canUndo, shell.ReportError);
         FocusSelectedCommand = new(() => { if (SelectedMatch is { } match) FocusRequested?.Invoke(match.Key); }, () => !disposed && SelectedMatch is not null);
         SetupCommand = new(() => shell.Navigate(WorkspaceRoute.ScheduleSetup), () => !disposed && shell.CanNavigate(WorkspaceRoute.ScheduleSetup));
+        OpenWindowCommand = new(() => shell.RequestBoardWindow(this), () => !disposed && shell.CanNavigate(WorkspaceRoute.ScheduleBoard));
+        OperationsCommand = new(() => shell.Navigate(WorkspaceRoute.Operations), () => !disposed && shell.CanNavigate(WorkspaceRoute.Operations));
+        ShowDetailsCommand = new(() => IsMoveEditorExpanded = true, () => !disposed && SelectedMatch is not null);
+        EditSelectedCommand = new(() => { IsMoveEditorExpanded = true; IsAdjusting = true; }, CanPreview);
+        shell.PropertyChanged += ShellPropertyChanged;
         LoadTarget();
+    }
+    private void ShellPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is nameof(AppShellViewModel.Status) or nameof(AppShellViewModel.StatusSummary))
+        { OnPropertyChanged(nameof(StatusSummary)); OnPropertyChanged(nameof(StatusDetails)); }
     }
     public async Task InitializeAsync()
     {
@@ -108,6 +133,7 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
     private async Task PreviewAsync(bool cascade)
     {
         IsMoveEditorExpanded = true;
+        IsAdjusting = true;
         var request = BuildRequest(); var expected = Session; ClearPreview(); var requestEpoch = editorEpoch;
         var result = await shell.RunWorkspaceQueryAsync(expected, (workflow, revision) => cascade ? workflow.PreviewCascade(request, revision) : workflow.PreviewMove(request, revision));
         if (disposed || requestEpoch != editorEpoch || !ReferenceEquals(expected, Session)) return;
@@ -180,18 +206,26 @@ public sealed class ScheduleBoardPageViewModel : WorkspacePageViewModel, IDispos
         ClearPreview();
         if (!DayLabels.Contains(SelectedDay)) SelectedDay = DayLabels.FirstOrDefault();
         foreach (var property in new[] { nameof(Matches), nameof(SelectedMatch), nameof(DayLabels), nameof(TargetCourts) }) OnPropertyChanged(property);
+        foreach (var property in new[] { nameof(WindowTitle), nameof(Summary), nameof(DaySummaries) }) OnPropertyChanged(property);
         RefreshAvailability();
     }
     public override void RefreshAvailability()
     {
-        OnPropertyChanged(nameof(CanEdit)); OnPropertyChanged(nameof(HasEditorConflict)); OnPropertyChanged(nameof(EditHint));
+        OnPropertyChanged(nameof(CanEdit)); OnPropertyChanged(nameof(HasEditorConflict)); OnPropertyChanged(nameof(NeedsPositionRefresh)); OnPropertyChanged(nameof(EditHint));
         foreach (var command in new[] { ResetEditorCommand, PreviewMoveCommand, PreviewCascadeCommand, ConfirmMoveCommand, UndoCommand }) command?.NotifyCanExecuteChanged();
         CancelPreviewCommand?.NotifyCanExecuteChanged(); FocusSelectedCommand?.NotifyCanExecuteChanged(); SetupCommand?.NotifyCanExecuteChanged();
+        OpenWindowCommand?.NotifyCanExecuteChanged(); OperationsCommand?.NotifyCanExecuteChanged();
+        ShowDetailsCommand?.NotifyCanExecuteChanged(); EditSelectedCommand?.NotifyCanExecuteChanged();
         // Native attachment can occur inside Open's busy ApplySession. Retry once when that operation releases busy.
         if (initializePending && !disposed && !shell.IsBusy) _ = InitializeAsync();
     }
-    public void Dispose() { disposed = true; baseline = null; ClearPreview(); FocusRequested = null; RefreshAvailability(); }
+    public void Dispose() { disposed = true; shell.PropertyChanged -= ShellPropertyChanged; baseline = null; ClearPreview(); FocusRequested = null; RefreshAvailability(); }
     private sealed record EditorContext(ScheduleEditBaseline Baseline, bool CanUndo);
+}
+
+public sealed record ScheduleBoardDaySummary(string DayLabel, int CourtCount, int MatchCount)
+{
+    public string Details => $"{CourtCount} 片场地 · {MatchCount} 场比赛";
 }
 
 public sealed record ScheduleEditChangeDisplay(ScheduleEditChange Change)

@@ -7,7 +7,7 @@ public enum SchedulingConstraintCode
     InvalidGraph, MissingDependency, CyclicDependency, CrossProjectDependency, InvalidResources, InvalidPolicy,
     InvalidResult, UnknownMatch, MissingPlacement, PlacementIdentity, Duration, DayBounds, CourtUnavailable,
     CourtOverlap, RefereeCapacity, DependencyOrder, PlayerOverlap, MinimumRest, DailyMatchLimit,
-    LockedPlacement, ChampionshipOrder, SearchExhausted, PlayerOnBothSides
+    LockedPlacement, ChampionshipOrder, SearchExhausted, PlayerOnBothSides, ChampionshipFinalDay
 }
 
 public sealed record SchedulingViolation(SchedulingConstraintCode Code, Guid? ProjectId, Guid? MatchId,

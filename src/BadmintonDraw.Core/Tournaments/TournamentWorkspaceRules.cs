@@ -235,6 +235,12 @@ public static class TournamentWorkspaceRules
             p.MatchGraph is not null && schedule.GraphRevisions.TryGetValue(p.Id, out var revision) && revision == p.MatchGraph.Revision),
             "schedule.graph-revision", "赛程绑定的比赛关系图版本已失效。");
         Require(schedule.Placements.Count == nodes.Count && nodes.All(n => schedule.Placements.ContainsKey(n.Id)), "schedule.coverage", "每场比赛必须恰好安排一次。");
+        if (schedule.Policy.RequireChampionshipFinalsOnLastDay)
+        {
+            var lastDay = schedule.Resources.Days.MaxBy(day => day.Date)!;
+            Require(nodes.Where(node => node.IsChampionshipFinal).All(node => schedule.Placements[node.Id].DayLabel == lastDay.DayLabel),
+                "schedule.championship-final-day", $"冠亚军决赛必须安排在最后比赛日（{lastDay.DayLabel}）。");
+        }
         foreach (var (id, placement) in schedule.Placements)
         {
             var day = schedule.Resources.Days.SingleOrDefault(d => d.DayLabel == placement.DayLabel);

@@ -36,7 +36,7 @@ public sealed class ScheduleSetupPageViewModelTests
         var result = Assert.IsType<TournamentSchedulingResult.Failure>(new TournamentScheduler().Generate(new(
             fixture.Workflow.CurrentSession!.Workspace.Projects.Select(p => p.MatchGraph!).ToArray(), request.Resources, request.Policy), options));
         typeof(ScheduleSetupPageViewModel).GetProperty(nameof(page.Failure))!.SetValue(page, result.Detail);
-        page.MinimumRestText = "47"; page.DailyMaximumText = "12"; page.StrategyIndex = 1;
+        page.MinimumRestText = "47"; page.DailyMaximumText = "12"; page.RequireChampionshipFinalsOnLastDay = true;
         var details = page.FailureTechnicalDetails;
         Assert.Contains(contextFailure ? "Context" : "Search", details);
         Assert.Contains(contextFailure ? "NotRun" : "Unknown", details);
@@ -228,14 +228,14 @@ public sealed class ScheduleSetupPageViewModelTests
     public void NormalTimesAreReadableWhileSubMinuteTimesRoundTripExactly()
     {
         var date = new DateOnly(2026, 9, 13);
-        var editor = new ScheduleDayEditorViewModel(new(date, new(9, 0), new(12, 30, 0, 123), ["B1"]), null, null, null, () => { }, _ => { });
+        var editor = new ScheduleDayEditorViewModel(new(date, new(9, 0), new(12, 30, 0, 123), ["B1"]), () => { }, _ => { });
         Assert.Equal("09:00", editor.StartText);
         Assert.Equal(new TimeOnly(12, 30, 0, 123), editor.Build().DayEnd);
     }
 
     private static ScheduleSetupPageViewModel Page(ScheduleUiFixture fixture)
     {
-        fixture.Shell.RegisterPageFactory(WorkspaceRoute.ScheduleSetup, s => new ScheduleSetupPageViewModel(fixture.Shell, s));
+        fixture.Shell.RegisterPageFactory(WorkspaceRoute.ScheduleSetup, s => new ScheduleSetupPageViewModel(fixture.Shell, s, confirmDiscard: () => Task.FromResult(true)));
         fixture.Shell.Navigate(WorkspaceRoute.ScheduleSetup);
         var page = Assert.IsType<ScheduleSetupPageViewModel>(fixture.Shell.CurrentPage);
         // Resource tests explicitly choose courts; new days no longer imply an existing booking.
@@ -257,24 +257,25 @@ public sealed class ScheduleSetupPageViewModelTests
         Assert.Equal(45, (workspace.Schedule.Placements[workspace.Projects[0].MatchGraph!.Matches[0].Id].EndTime - workspace.Schedule.Placements[workspace.Projects[0].MatchGraph!.Matches[0].Id].StartTime).TotalMinutes);
         Assert.All(workspace.Schedule.Policy.FinalDayRules, r => Assert.Equal(TournamentFinalDayPreference.Flexible, r.Preference)); // Effective Compact defaults have no hidden final preference.
         Assert.Single(workspace.AuditEvents, a => a.Action == "ScheduleGenerated");
-        Assert.Equal(count == 1 ? "项目完成节奏" : "全赛事编排策略", page.PolicyLabel);
+        Assert.Equal(ScheduleAutoSchedulingStrategy.Compact, page.BuildSetup().Policy.Strategy);
     }
     [Fact]
-    public void DateEditKeepsTargetsAttachedToEditedDayAndBlankOverridesDifferFromZero()
+    public void DateEditKeepsResourceWindowsAttachedToEditedDay()
     {
         using var fixture = new ScheduleUiFixture(); var page = Page(fixture);
         var day = page.Days[0]; day.DateText = "2026-09-13";
-        Assert.Empty(page.BuildSetup().Policy.DayLoadTargets);
-        day.TargetLoadText = "0"; day.WarningLoadText = "50"; day.StageProgressText = "0";
+        day.AddUnavailableCommand.Execute(null);
+        day.Unavailable[0].StartText = "12:00"; day.Unavailable[0].EndText = "13:00";
         day.DateText = "2026-09-15";
         var request = page.BuildSetup();
-        Assert.Equal(new TournamentDayLoadTarget("2026-09-15", 0, .5), Assert.Single(request.Policy.DayLoadTargets));
-        Assert.Equal(new TournamentStageWaveTarget("2026-09-15", 0), Assert.Single(request.Policy.StageWaveTargets));
+        var resource = Assert.Single(request.Resources.Days);
+        Assert.Equal("2026-09-15", resource.DayLabel);
+        Assert.Equal(new TimeOnly(12, 0), Assert.Single(resource.UnavailableCourtWindows!).StartTime);
         day.RemoveCommand.Execute(null);
         Assert.ThrowsAny<Exception>(() => page.BuildSetup());
     }
     [Fact]
-    public void ResourceWindowsAndProjectIdFinalRulesReachOnePolicyWithExactTimePrecision()
+    public void ResourceWindowsAndFinalDayRequirementReachOnePolicyWithExactTimePrecision()
     {
         using var fixture = new ScheduleUiFixture(3); var page = Page(fixture);
         page.Days[0].DateText = "2026-09-13"; page.Days[0].StartText = "09:00:30.123"; page.Days[0].EndText = "15:00"; page.Days[0].CourtsText = "B1, B2";
@@ -282,13 +283,13 @@ public sealed class ScheduleSetupPageViewModelTests
         var blocked = page.Days[0].Unavailable[0]; blocked.StartText = "10:00"; blocked.EndText = "11:00"; blocked.CourtsText = "B1";
         page.Days[0].AddRefereeWindowCommand.Execute(null);
         var referees = page.Days[0].RefereeWindows[0]; referees.StartText = "11:00"; referees.EndText = "12:00"; referees.CountText = "0";
-        page.ProjectTimings[2].FinalPreferenceIndex = 4;
+        page.RequireChampionshipFinalsOnLastDay = true;
         var setup = page.BuildSetup();
         Assert.Equal(new TimeOnly(9, 0, 30, 123), setup.Resources.Days[0].DayStart);
         Assert.Equal("B1", Assert.Single(Assert.Single(setup.Resources.Days[0].UnavailableCourtWindows!).Courts));
         Assert.Equal(0, Assert.Single(setup.Resources.Days[0].RefereeCapacityWindows!).RefereeCount);
-        Assert.Equal(fixture.Workflow.CurrentSession!.Workspace.Projects[2].Id, Assert.Single(setup.Policy.FinalDayRules).ProjectId);
-        Assert.Equal(TournamentFinalDayPreference.StronglyPreferFinalDay, setup.Policy.FinalDayRules[0].Preference);
+        Assert.True(setup.Policy.RequireChampionshipFinalsOnLastDay);
+        Assert.Empty(setup.Policy.FinalDayRules);
     }
     [Fact]
     public void CourtEditorTreatsRangesAsLiteralNamesAndOnlySplitsExplicitSeparators()
@@ -325,14 +326,14 @@ public sealed class ScheduleSetupPageViewModelTests
         other.GenerateSchedule(current.Resources with { MinimumRestMinutes = 15 }, current.Policy, other.CurrentSession.Workspace.Revision);
         await fixture.Shell.ReloadCommand.ExecuteAsync();
         Assert.Equal("47", page.MinimumRestText); Assert.True(page.HasEditorConflict); Assert.False(page.GenerateCommand.CanExecute(null));
-        page.ResetCommand.Execute(null);
+        await page.ResetCommand.ExecuteAsync();
         Assert.Equal("15", page.MinimumRestText); Assert.False(page.HasEditorConflict); Assert.True(page.GenerateCommand.CanExecute(null));
     }
     [Fact]
-    public async Task InvalidTextAndNonFinitePercentNeverChangeArchive()
+    public async Task InvalidRestTimeNeverChangesArchive()
     {
         using var fixture = new ScheduleUiFixture(); var page = Page(fixture); var session = fixture.Workflow.CurrentSession;
-        page.Days[0].TargetLoadText = "NaN";
+        page.MinimumRestText = "NaN";
         await page.GenerateCommand.ExecuteAsync();
         Assert.NotNull(fixture.Shell.LastError); Assert.Same(session, fixture.Workflow.CurrentSession); Assert.Null(session!.Workspace.Schedule);
     }
@@ -345,14 +346,15 @@ public sealed class ScheduleSetupPageViewModelTests
         Assert.Equal("09:", day.StartText); Assert.Single(day.Unavailable); Assert.Single(day.RefereeWindows);
     }
     [Fact]
-    public async Task ChoosingFreshStrategyDefaultsClearsReturnedOverridesButKeepsDurationsAndResources()
+    public async Task DisablingFinalDayRequirementKeepsDurationsAndResources()
     {
         using var fixture = new ScheduleUiFixture(); var page = Page(fixture);
-        page.StrategyIndex = 2; page.ProjectTimings[0].MinutesText = "45";
+        page.RequireChampionshipFinalsOnLastDay = true; page.ProjectTimings[0].MinutesText = "45";
         await page.GenerateCommand.ExecuteAsync();
-        Assert.NotEmpty(page.BuildSetup().Policy.FinalDayRules);
-        page.StrategyIndex = 0; page.UseStrategyDefaultsCommand.Execute(null);
+        Assert.True(page.BuildSetup().Policy.RequireChampionshipFinalsOnLastDay);
+        page.RequireChampionshipFinalsOnLastDay = false;
         var setup = page.BuildSetup(); Assert.Empty(setup.Policy.FinalDayRules); Assert.Empty(setup.Policy.DayLoadTargets); Assert.Empty(setup.Policy.StageWaveTargets);
+        Assert.False(setup.Policy.RequireChampionshipFinalsOnLastDay);
         Assert.Equal(45, setup.Policy.ProjectTimings.Values.Single().MatchMinutes); Assert.NotEmpty(setup.Resources.Days);
     }
 }

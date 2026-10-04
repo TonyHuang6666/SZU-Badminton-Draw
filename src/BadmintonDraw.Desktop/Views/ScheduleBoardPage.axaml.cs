@@ -16,7 +16,7 @@ public partial class ScheduleBoardPage : UserControl
         AttachedToVisualTree += async (_, _) => { BindPage(); if (page is { } current) await current.InitializeAsync(); };
         DetachedFromVisualTree += (_, _) => UnbindPage();
         ScheduleBoard.MatchSelected += key => page?.SelectMatch(key);
-        ScheduleBoard.ManualMoveRequested += key => { page?.SelectMatch(key); MoveEditor.IsChecked = true; TargetTime.Focus(); };
+        ScheduleBoard.ManualMoveRequested += key => { page?.SelectMatch(key); page?.EditSelectedCommand.Execute(null); TargetTime.Focus(); };
         ScheduleBoard.MoveRequested += MoveRequested;
     }
     private void BindPage()
@@ -38,6 +38,10 @@ public partial class ScheduleBoardPage : UserControl
     private void CloseMoveEditor(object? sender, RoutedEventArgs e)
     {
         if (page is { } current) current.IsMoveEditorExpanded = false;
+    }
+    private void ReturnToSetup(object? sender, RoutedEventArgs e)
+    {
+        (TopLevel.GetTopLevel(this) as Window)?.Owner?.Activate();
     }
     private async void MoveRequested(WorkspaceBoardMoveIntent intent)
     {

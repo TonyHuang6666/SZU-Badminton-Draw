@@ -30,7 +30,9 @@ public sealed class ScheduleDatePickerTests : IDisposable
         using var model = new ScheduleSetupPageViewModel(fixture.Shell, fixture.Workflow.CurrentSession!);
         var day = model.Days[0];
         day.DateText = "2026-10-03"; day.StartText = "14:00"; day.EndText = "18:00";
-        day.CourtsText = "粤海东馆 · B1, 粤海东馆 · B2"; day.TargetLoadText = "50";
+        day.CourtsText = "粤海东馆 · B1, 粤海东馆 · B2";
+        day.AddUnavailableCommand.Execute(null);
+        day.Unavailable[0].StartText = "15:00"; day.Unavailable[0].EndText = "16:00";
         var session = fixture.Workflow.CurrentSession!;
         var bytes = File.ReadAllBytes(session.WorkspacePath);
         var page = new ScheduleSetupPage { DataContext = model };
@@ -44,7 +46,9 @@ public sealed class ScheduleDatePickerTests : IDisposable
             picker.SelectedDate = new DateTime(2028, 2, 29); Layout(window);
             Assert.Equal("2028-02-29", day.DateText);
             Assert.Equal(new DateOnly(2028, 2, 29), day.Build().Date);
-            Assert.Equal("2028-02-29", Assert.Single(model.BuildSetup().Policy.DayLoadTargets).DayLabel);
+            var resource = Assert.Single(model.BuildSetup().Resources.Days);
+            Assert.Equal("2028-02-29", resource.DayLabel);
+            Assert.Equal(new TimeOnly(15, 0), Assert.Single(resource.UnavailableCourtWindows!).StartTime);
             Assert.Equal("14:00", day.StartText); Assert.Equal("18:00", day.EndText);
             Assert.Equal("粤海东馆 · B1, 粤海东馆 · B2", day.CourtsText);
             Assert.Same(session, fixture.Workflow.CurrentSession);

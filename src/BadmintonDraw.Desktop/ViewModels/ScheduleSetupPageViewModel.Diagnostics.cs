@@ -35,6 +35,7 @@ public sealed partial class ScheduleSetupPageViewModel
                 yield return "有界搜索未找到完整方案；诊断未提供具体分支或回退限制数值。";
             yield return "已用工作单位：" + string.Join("，", diagnostics.UsedWorkUnits.OrderBy(p => p.Key).Select(p => $"{p.Key}={p.Value}"));
             yield return $"本次设置快照：最短休息：{diagnostics.Resources.MinimumRestMinutes} 分钟；每日上限：{diagnostics.Resources.MaxPlayerMatchesPerDay} 场；策略：{StrategyName(diagnostics.Policy.Strategy)}。";
+            yield return "冠亚军决赛必须在最后比赛日：" + (diagnostics.Policy.RequireChampionshipFinalsOnLastDay ? "是" : "否") + "。";
             foreach (var day in diagnostics.Resources.Days)
                 yield return $"{day.DayLabel}：{day.DayStart:HH:mm:ss.fffffff}–{day.DayEnd:HH:mm:ss.fffffff}；场地：{string.Join("、", day.Courts)}";
             // These are immutable run settings, never the currently edited controls.
