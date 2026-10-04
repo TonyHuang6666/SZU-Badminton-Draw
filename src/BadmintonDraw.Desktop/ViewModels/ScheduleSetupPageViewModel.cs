@@ -129,6 +129,7 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
     public DelegateCommand AddDayCommand { get; }
     public AsyncCommand ResetCommand { get; }
     public DelegateCommand BoardCommand { get; }
+    public DelegateCommand PlayerEntriesCommand { get; }
     public ScheduleSetupPageViewModel(AppShellViewModel shell, WorkspaceSession session,
         Func<VenueCourtSelectionViewModel, Task<bool>>? chooseCourts = null,
         Func<UnavailableCourtSelectionViewModel, Task<bool>>? chooseUnavailable = null,
@@ -167,6 +168,7 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
             }
         }, () => !disposed && !shell.IsBusy && (edited || conflict), shell.ReportError);
         BoardCommand = new(() => shell.Navigate(WorkspaceRoute.ScheduleBoard), () => shell.CanNavigate(WorkspaceRoute.ScheduleBoard));
+        PlayerEntriesCommand = new(shell.OpenPlayerEntries, () => !disposed && shell.CanOpenPlayerEntries);
         Load();
     }
     public ScheduleSetupRequest BuildSetup()
@@ -279,6 +281,7 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         OnPropertyChanged(nameof(CanEdit)); OnPropertyChanged(nameof(HasEditorConflict)); OnPropertyChanged(nameof(EditHint));
         OnPropertyChanged(nameof(CapacityEstimate)); OnPropertyChanged(nameof(CapacitySummary)); OnPropertyChanged(nameof(FinalDayHint));
         GenerateCommand?.NotifyCanExecuteChanged(); AddDayCommand?.NotifyCanExecuteChanged(); ResetCommand?.NotifyCanExecuteChanged(); BoardCommand?.NotifyCanExecuteChanged();
+        PlayerEntriesCommand?.NotifyCanExecuteChanged();
         foreach (var day in Days) day.RefreshCommands();
     }
 }

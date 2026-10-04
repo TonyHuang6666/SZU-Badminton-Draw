@@ -24,6 +24,7 @@
             <views:ResultImportEvidenceText x:Name="ResultImportState" Text="{Binding StateMessage}" />
             <views:ResultImportEvidenceText Text="{Binding CountsText}" />
             <views:ResultImportEvidenceText x:Name="ResultImportDiagnostics" Text="{Binding DiagnosticDetails}" />
+            <CheckBox x:Name="ConfirmResultImport" IsChecked="{Binding Confirmed}" IsVisible="{Binding HasCurrentPreview}" IsEnabled="{Binding HasCurrentPreview}"><TextBlock Text="我已核对比赛、文件来源、检查结果与更正内容，确认本次操作。" TextWrapping="Wrap" /></CheckBox>
           </StackPanel>
         </Border>
         <Expander Header="核对文件来源与分类">
@@ -53,11 +54,12 @@
         <TextBlock Classes="muted" Text="仍未填写的记录会保留为待填。完成情况以赛事中已保存的结果为准；作废的旧文件不会再次生效。" />
       </StackPanel>
     </ScrollViewer>
-    <Border Grid.Row="1" Classes="action-bar">
-      <StackPanel Spacing="10">
-        <CheckBox x:Name="ConfirmResultImport" IsChecked="{Binding Confirmed}" IsEnabled="{Binding HasCurrentPreview}"><TextBlock Text="我已核对比赛、文件来源、检查结果与更正内容，确认本次操作。" TextWrapping="Wrap" /></CheckBox>
-        <Button x:Name="ApplyResultImport" Classes="primary" Content="{Binding ConfirmButtonText}" Command="{Binding ConfirmImportCommand}" HorizontalAlignment="Right" />
-      </StackPanel>
+    <Border Grid.Row="1" Classes="action-bar" Padding="24,10">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Classes="muted" Text="请先检查记录表" IsVisible="{Binding !HasCurrentPreview}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+        <TextBlock Classes="muted" Text="请核对检查结果" IsVisible="{Binding HasCurrentPreview}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+        <Button x:Name="ApplyResultImport" Grid.Column="1" Classes="primary" Content="{Binding ConfirmButtonText}" Command="{Binding ConfirmImportCommand}" Margin="16,0,0,0" />
+      </Grid>
     </Border>
   </Grid>
 </UserControl>

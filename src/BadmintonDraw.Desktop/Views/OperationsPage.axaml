@@ -70,6 +70,7 @@
                 <StackPanel Spacing="10">
                   <TextBlock Classes="section-title" Text="确认这次要生成的材料" />
                   <views:ResultImportEvidenceText Text="{Binding ScopeSummary}" />
+                  <CheckBox x:Name="ConfirmOperationalScope" IsChecked="{Binding ScopeConfirmed}"><TextBlock Text="我已核对项目、日期、打印设置与保存文件夹。" TextWrapping="Wrap" /></CheckBox>
                 </StackPanel>
               </Border>
               <Border Classes="callout">
@@ -85,11 +86,12 @@
               </Border>
             </StackPanel>
           </ScrollViewer>
-          <Border Grid.Row="1" Classes="action-bar">
-            <StackPanel Spacing="10">
-              <CheckBox x:Name="ConfirmOperationalScope" IsChecked="{Binding ScopeConfirmed}"><TextBlock Text="我已核对项目、日期、打印设置与保存文件夹。" TextWrapping="Wrap" /></CheckBox>
-              <Button x:Name="ExportOperationalPackage" Classes="primary" Content="生成现场比赛材料" Command="{Binding ExportCommand}" HorizontalAlignment="Right" />
-            </StackPanel>
+          <Border Grid.Row="1" Classes="action-bar" Padding="24,10">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="muted" Text="请核对上方摘要" IsVisible="{Binding !ScopeConfirmed}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+              <TextBlock Classes="muted" Text="材料范围已核对" IsVisible="{Binding ScopeConfirmed}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+              <Button x:Name="ExportOperationalPackage" Grid.Column="1" Classes="primary" Content="生成现场比赛材料" Command="{Binding ExportCommand}" Margin="16,0,0,0" />
+            </Grid>
           </Border>
         </Grid>
       </TabItem>

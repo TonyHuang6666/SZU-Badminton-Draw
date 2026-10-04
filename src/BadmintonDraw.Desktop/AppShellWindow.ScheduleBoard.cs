@@ -7,16 +7,19 @@ namespace BadmintonDraw.Desktop;
 public partial class AppShellWindow
 {
     private ScheduleBoardWindow? boardWindow;
+    private PlayerEntriesWindow? entriesWindow;
 
     private void ConfigureScheduleBoardWindow(AppShellViewModel shell)
     {
         shell.BoardWindowRequested += ShowScheduleBoard;
-        shell.BoardWindowInvalidated += CloseScheduleBoard;
+        shell.PlayerEntriesWindowRequested += ShowPlayerEntries;
+        shell.BoardWindowInvalidated += CloseScheduleWindows;
         Closed += (_, _) =>
         {
             shell.BoardWindowRequested -= ShowScheduleBoard;
-            shell.BoardWindowInvalidated -= CloseScheduleBoard;
-            CloseScheduleBoard();
+            shell.PlayerEntriesWindowRequested -= ShowPlayerEntries;
+            shell.BoardWindowInvalidated -= CloseScheduleWindows;
+            CloseScheduleWindows();
         };
     }
     private void ShowScheduleBoard(ScheduleBoardPageViewModel model)
@@ -37,5 +40,24 @@ public partial class AppShellWindow
         };
         window.Show(this);
     }
-    private void CloseScheduleBoard() => boardWindow?.Close();
+    private void ShowPlayerEntries(PlayerEntriesViewModel model)
+    {
+        if (entriesWindow is { } current)
+        {
+            if (current.WindowState == WindowState.Minimized) current.WindowState = WindowState.Normal;
+            current.Activate(); return;
+        }
+        var window = new PlayerEntriesWindow { DataContext = model, Icon = Icon };
+        entriesWindow = window;
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(entriesWindow, window)) entriesWindow = null;
+            window.DataContext = null;
+        };
+        window.Show(this);
+    }
+    private void CloseScheduleWindows()
+    {
+        entriesWindow?.Close(); boardWindow?.Close();
+    }
 }

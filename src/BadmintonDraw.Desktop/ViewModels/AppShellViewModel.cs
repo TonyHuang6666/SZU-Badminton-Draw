@@ -25,6 +25,7 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
     // The board may outlive the main page, but never the tournament it belongs to.
     private ScheduleBoardPageViewModel? scheduleBoardPage;
     public event Action<ScheduleBoardPageViewModel>? BoardWindowRequested;
+    public event Action<PlayerEntriesViewModel>? PlayerEntriesWindowRequested;
     public event Action? BoardWindowInvalidated;
     public WorkspaceNavigator Navigator { get; } = new();
     public StartPageViewModel StartPage { get; }
@@ -138,6 +139,18 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
     {
         if (!disposed && ReferenceEquals(board, scheduleBoardPage) && CanNavigate(WorkspaceRoute.ScheduleBoard))
             BoardWindowRequested?.Invoke(board);
+    }
+    internal bool CanOpenPlayerEntries => !disposed && CurrentSession is { RequiresReload: false } && CanNavigate(WorkspaceRoute.ScheduleBoard);
+    internal void OpenPlayerEntries()
+    {
+        if (!CanOpenPlayerEntries) return;
+        // Viewing saved matches must not navigate away from, or discard, a settings draft.
+        var board = (ScheduleBoardPageViewModel)CreatePage(WorkspaceRoute.ScheduleBoard, CurrentSession!);
+        board.ShowPlayerEntriesCommand.Execute(null);
+    }
+    internal void RequestPlayerEntriesWindow(ScheduleBoardPageViewModel board, PlayerEntriesViewModel entries)
+    {
+        if (CanOpenPlayerEntries && ReferenceEquals(board, scheduleBoardPage)) PlayerEntriesWindowRequested?.Invoke(entries);
     }
     private WorkspacePageViewModel CreatePage(WorkspaceRoute route, WorkspaceSession session)
     {
@@ -357,7 +370,7 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         Recovery.Dispose();
         DisposeCurrentPage();
         InvalidateBoardWindow();
-        BoardWindowRequested = null; BoardWindowInvalidated = null;
+        BoardWindowRequested = null; PlayerEntriesWindowRequested = null; BoardWindowInvalidated = null;
     }
 }
 
