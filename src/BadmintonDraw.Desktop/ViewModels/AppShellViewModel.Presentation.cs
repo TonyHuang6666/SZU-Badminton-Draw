@@ -15,7 +15,7 @@ public sealed partial class AppShellViewModel
         : error.Code switch
         {
             "InvalidWorkspace" => "无法打开这个赛事文件。请检查文件位置，或从备份恢复。",
-            "UnsupportedWorkspaceVersion" => "这个文件来自不兼容的版本，请用原版本打开。详情中保留了版本信息。",
+            "UnsupportedWorkspaceVersion" => "这个赛事文件的格式与当前应用不兼容。请查看操作详情。",
             "RevisionConflict" => "赛事已被另一个窗口更新。请重新读取后再继续。",
             "desktop.operation-failed" => "这次操作未能完成。请查看操作详情，核对文件位置和访问权限。",
             _ => error.Message

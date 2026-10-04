@@ -21,6 +21,9 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
         ExportCommand = new(ExportAsync, CanExport); RebuildChoices(initial: true);
     }
     public IReadOnlyList<OperationalProjectChoice> ProjectChoices { get; private set; } = Array.Empty<OperationalProjectChoice>();
+    public bool HasProjectScopeChoice => session.Workspace.Projects.Count > 1;
+    public string AdvancedSettingsHeader => HasProjectScopeChoice
+        ? "高级导出设置 · 项目范围、补录与打印分页" : "高级导出设置 · 补录与打印分页";
     public IReadOnlyList<OperationalDayChoice> Days { get; private set; } = Array.Empty<OperationalDayChoice>();
     public IReadOnlyList<OperationalDayChoice> PendingDays => Array.AsReadOnly(Days.Where(d => d.IsSelected).ToArray());
     public OperationalProjectChoice? SelectedProject { get => selectedProject; set { if (!refreshingChoices && SetProperty(ref selectedProject, value)) Edited(); } }
@@ -39,7 +42,9 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
         (session.RequiresReload ? "\n最后已知快照，必须重新载入后操作。" : "");
     public string ScopeSummary => $"范围：{SelectedProject?.Label ?? "未选择有效项目"}\n日期：{string.Join("、", Days.Where(d => d.IsSelected).Select(d => d.Label))}\n" +
         $"待填记录目标日：{(IncludePendingCarryover ? SelectedCarryoverDay?.Label ?? "尚未选择" : "不纳入")}；淘汰赛 PDF：{PdfRows} 行 × {PdfColumns} 列\n" +
-        "每日材料包括赛程 Excel／PDF、记录表与计分表；带时间的对阵图包含所选项目的全部场次，检查报告包含整场比赛。";
+        "每日材料包括赛程 Excel／PDF、记录表与计分表；带时间的对阵图包含所选项目的全部场次。" +
+        (SelectedProject is { ProjectId: null } && ProjectChoices.Contains(SelectedProject) && HasProjectScopeChoice
+            ? "检查报告包含整场比赛。" : "");
     public OperationalPackageOutcome? Outcome { get; private set; }
     public OperationalPackageExportException? ExportFailure { get; private set; }
     public WorkspaceError? Error { get; private set; }
@@ -79,16 +84,17 @@ public sealed class WorkspaceOperationalExportViewModel : ViewModelBase, IDispos
             var previousDates = Days.ToDictionary(d => d.Day, d => d.IsSelected);
             foreach (var old in Days) old.PropertyChanged -= DayChanged;
             var projectId = selectedProject?.ProjectId; var hadProject = selectedProject is not null;
-            ProjectChoices = Array.AsReadOnly(new[] { new OperationalProjectChoice(null, "全项目") }.Concat(session.Workspace.Projects.Select(p =>
+            ProjectChoices = Array.AsReadOnly((HasProjectScopeChoice ? new[] { new OperationalProjectChoice(null, "全项目") } : Array.Empty<OperationalProjectChoice>()).Concat(session.Workspace.Projects.Select(p =>
                 new OperationalProjectChoice(p.Id, session.Workspace.Projects.Count(other => other.DisplayName == p.DisplayName) > 1
                     ? $"{p.DisplayName} [{p.Id:D}]" : p.DisplayName))).ToArray());
-            selectedProject = initial ? ProjectChoices[0] : hadProject ? ProjectChoices.FirstOrDefault(p => p.ProjectId == projectId) : null;
+            selectedProject = ProjectChoices.Count == 1 ? ProjectChoices[0] : initial ? ProjectChoices.FirstOrDefault()
+                : hadProject ? ProjectChoices.FirstOrDefault(p => p.ProjectId == projectId) : null;
             var targetDate = selectedCarryover?.Day;
             Days = Array.AsReadOnly((session.Workspace.Schedule?.Resources.Days ?? []).Select(d =>
                 new OperationalDayChoice(d.Date, initial || previousDates.GetValueOrDefault(d.Date))).ToArray());
             foreach (var day in Days) day.PropertyChanged += DayChanged;
             selectedCarryover = Days.FirstOrDefault(d => d.Day == targetDate && d.IsSelected);
-            foreach (var name in new[] { nameof(ProjectChoices), nameof(SelectedProject), nameof(Days), nameof(PendingDays), nameof(SelectedCarryoverDay), nameof(ScopeSummary) }) OnPropertyChanged(name);
+            foreach (var name in new[] { nameof(ProjectChoices), nameof(HasProjectScopeChoice), nameof(AdvancedSettingsHeader), nameof(SelectedProject), nameof(Days), nameof(PendingDays), nameof(SelectedCarryoverDay), nameof(ScopeSummary) }) OnPropertyChanged(name);
         }
         finally { refreshingChoices = false; }
     }

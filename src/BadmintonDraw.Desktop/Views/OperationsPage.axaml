@@ -23,7 +23,7 @@
                 <StackPanel Spacing="16">
                   <StackPanel Spacing="5">
                     <TextBlock Classes="section-title" Text="为裁判和参赛者准备材料" />
-                    <TextBlock Classes="muted" Text="生成每日赛程 Excel／PDF、比赛记录表、计分表、带时间的对阵图和检查报告。导出后可查看文件、打印或分发。" />
+                    <TextBlock Classes="muted" Text="生成每日赛程 Excel／PDF、比赛记录表、计分表和带时间的对阵图。导出后可查看文件、打印或分发。" />
                   </StackPanel>
                   <TextBlock Text="需要哪些日期的比赛材料？" FontWeight="SemiBold" />
                   <ItemsControl ItemsSource="{Binding Days}">
@@ -34,13 +34,15 @@
                   <TextBlock Classes="muted" Text="点击生成后，再在系统窗口中选择保存位置。程序会创建按日期命名的材料包文件夹；有同名文件时会询问是否替换。" TextWrapping="Wrap" />
                 </StackPanel>
               </Border>
-              <Expander x:Name="OperationalAdvancedSettings" Header="高级导出设置 · 项目范围、补录与打印分页">
+              <Expander x:Name="OperationalAdvancedSettings" Header="{Binding AdvancedSettingsHeader}">
                 <Border Classes="card" Margin="0,10,0,0">
                   <StackPanel Spacing="14">
-                    <TextBlock Text="项目范围" FontWeight="SemiBold" />
-                    <ComboBox x:Name="OperationalProject" ItemsSource="{Binding ProjectChoices}" SelectedItem="{Binding SelectedProject}" HorizontalAlignment="Stretch" AutomationProperties.Name="导出项目范围">
-                      <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:OperationalProjectChoice"><TextBlock Text="{Binding Label}" TextWrapping="Wrap" /></DataTemplate></ComboBox.ItemTemplate>
-                    </ComboBox>
+                    <StackPanel Spacing="8" IsVisible="{Binding HasProjectScopeChoice}">
+                      <TextBlock Text="项目范围" FontWeight="SemiBold" />
+                      <ComboBox x:Name="OperationalProject" ItemsSource="{Binding ProjectChoices}" SelectedItem="{Binding SelectedProject}" HorizontalAlignment="Stretch" AutomationProperties.Name="导出项目范围">
+                        <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:OperationalProjectChoice"><TextBlock Text="{Binding Label}" TextWrapping="Wrap" /></DataTemplate></ComboBox.ItemTemplate>
+                      </ComboBox>
+                    </StackPanel>
                     <CheckBox x:Name="IncludePendingCarryover" IsChecked="{Binding IncludePendingCarryover}">
                       <TextBlock Text="将此前未录入赛果的比赛补入本次材料" TextWrapping="Wrap" />
                     </CheckBox>

@@ -117,7 +117,9 @@ internal sealed class V5AcceptanceFaultScenarios(V5AcceptanceEvidence evidence)
         Require(!failure.AuditRecorded && Hash(path) == hash && (all ? failure.Outputs.Count > 1 : failure.Outputs.Count == 1) && failure.Outputs.All(o => Hash(o.Path).Equals(o.Sha256, StringComparison.OrdinalIgnoreCase)), "Partial real package publication evidence is false.");
         Require(!new TournamentWorkspaceStore().Read(path).AuditEvents.Any(a => a.Id == failure.AuditId), "Failed audit save claimed package audit.");
         if (!all) Require(failure.AttemptedOutputPath is not null && !File.Exists(failure.AttemptedOutputPath) && Directory.Exists(failure.RetainedStagingDirectory), "Attempted target/staging not truthfully retained.");
-        else Require(File.Exists(failure.Error.CandidatePath) && File.Exists(failure.Error.BackupPath) && failure.Outputs.Any(o => o.Kind == OperationalMaterialKind.Manifest), "All-files-before-audit-save boundary not reached.");
+        else Require(File.Exists(failure.Error.CandidatePath) && File.Exists(failure.Error.BackupPath) &&
+            failure.Outputs.Count == failure.Counts!.RequiredOutputCount && failure.Outputs.Any(o => o.Kind == OperationalMaterialKind.Description),
+            "All-files-before-audit-save boundary not reached.");
         evidence.Json("fault-" + name + ".json", new { failure.Error, failure.AuditId, failure.Outputs, failure.AttemptedOutputPath, failure.RetainedStagingDirectory, BeforeSha256 = hash, AfterSha256 = Hash(path) });
     }
     private void StaleRevision()

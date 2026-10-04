@@ -6,7 +6,6 @@ public sealed class StartPageViewModel(AppShellViewModel shell) : ViewModelBase
 {
     public DelegateCommand NewCommand => shell.NewCommand;
     public AsyncCommand OpenCommand => shell.OpenCommand;
-    public DelegateCommand OpenRecoveryCommand => shell.OpenRecoveryCommand;
     public ObservableCollection<RecentWorkspaceViewModel> RecentWorkspaces { get; } = [];
     public bool HasRecentWorkspaces => RecentWorkspaces.Count > 0;
     public bool HasNoRecentWorkspaces => !HasRecentWorkspaces;

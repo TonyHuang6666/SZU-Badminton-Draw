@@ -70,7 +70,10 @@ public sealed class OperationsCompositionTests : IDisposable
             view.FindControl<TabControl>("OperationsTabs")!.SelectedIndex = 0; window.UpdateLayout();
             var advanced = view.FindControl<Expander>("OperationalAdvancedSettings")!;
             advanced.IsExpanded = true; window.UpdateLayout();
-            var project = view.FindControl<ComboBox>("OperationalProject")!; project.SelectedIndex = 1;
+            var project = view.FindControl<ComboBox>("OperationalProject")!;
+            Assert.False(project.IsEffectivelyVisible);
+            Assert.Equal(data.Session.Workspace.Projects[0].Id,
+                Assert.IsType<OperationalProjectChoice>(project.SelectedItem).ProjectId);
             view.FindControl<NumericUpDown>("OperationalPdfRows")!.Value = 2;
             Assert.Equal(2, page.Materials.PdfRows); Assert.False(page.Materials.ScopeConfirmed);
             advanced.IsExpanded = false; window.UpdateLayout(); advanced.IsExpanded = true; window.UpdateLayout();

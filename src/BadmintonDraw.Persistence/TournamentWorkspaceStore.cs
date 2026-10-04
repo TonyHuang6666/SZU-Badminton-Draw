@@ -18,7 +18,7 @@ public partial class TournamentWorkspaceStore(WorkspaceFileOperations? fileOpera
             if (version != WorkspaceSchemaVersion.Current)
             {
                 var message = version is >= 0 and < 500
-                    ? "该文件不是 v5 工作区，请使用 v4.6.0 打开：https://github.com/TonyHuang6666/SZU-Badminton-Draw/releases/tag/v4.6.0"
+                    ? "该文件使用不兼容的工作区格式，无法在此应用中打开。"
                     : "该文件使用更新的工作区版本，请升级应用后打开。";
                 throw new WorkspaceStoreException("UnsupportedWorkspaceVersion", message);
             }

@@ -80,18 +80,20 @@ public sealed partial class OperationalPackageWorkflow
             .ThenBy(r => nodeOrders[r.Key.MatchId]).ThenBy(r => r.Key.MatchId).ToArray();
         var materials = new List<MaterialPlan>();
         var projectNames = ProjectFileNames(source);
+        var singleProject = projects.Length == 1;
+        var selectedProjectName = singleProject ? projectNames[projects[0].Id] : null;
         var multipleYears = days[0].Year != days[^1].Year;
         void Add(OperationalMaterialKind kind, Guid? projectId, DateOnly? day, string extension,
             IReadOnlyList<WorkspaceRecordExportRow>? selectedRows = null) => materials.Add(new(kind, projectId, day,
-                MaterialFileName(kind, projectId is { } id ? projectNames[id] : null, day, extension,
-                    request.ProjectId is not null, multipleYears), selectedRows ?? []));
+                MaterialFileName(kind, projectId is { } id ? projectNames[id] : selectedProjectName, day, extension,
+                    singleProject, multipleYears), selectedRows ?? []));
         foreach (var project in projects)
         { Add(OperationalMaterialKind.TimedDrawExcel, project.Id, null, ".xlsx"); Add(OperationalMaterialKind.TimedDrawA4Pdf, project.Id, null, ".pdf"); }
         foreach (var day in days)
         {
             var dayRows = rows.Where(r => r.RecordDay == day).ToArray();
             if (dayRows.Length == 0)
-            { progress.Skips.Add(new("export.empty-day", "该记录日期无场次，跳过合并每日材料。", RecordDay: day)); continue; }
+            { progress.Skips.Add(new("export.empty-day", "该记录日期无场次，跳过每日材料。", RecordDay: day)); continue; }
             Add(OperationalMaterialKind.DailyScheduleExcel, null, day, ".xlsx", dayRows);
             Add(OperationalMaterialKind.DailySchedulePdf, null, day, ".pdf", dayRows);
             Add(OperationalMaterialKind.MergedRecordExcel, null, day, ".xlsx", dayRows);
@@ -99,13 +101,11 @@ public sealed partial class OperationalPackageWorkflow
                 null, day, source.Kind == TournamentKind.Team ? ".xlsx" : ".pdf", dayRows);
         }
         Require(rows.Length > 0, "export.no-matches", "所选范围没有可导出的记录场次；未生成任何材料。");
-        Add(OperationalMaterialKind.QualityExcel, null, null, ".xlsx");
+        if (!singleProject) Add(OperationalMaterialKind.QualityExcel, null, null, ".xlsx");
         Add(OperationalMaterialKind.Description, null, null, ".txt");
-        Add(OperationalMaterialKind.Manifest, null, null, ".json");
         progress.Counts = new(rows.Select(r => r.Key).Distinct().Count(), rows.Length, carryKeys.Count,
             projects.Sum(p => p.MatchGraph!.Matches.Count), materials.Count);
-        var outputDirectory = PackageDirectory(request.OutputDirectory, days,
-            request.ProjectId is { } selectedId ? projectNames[selectedId] : null);
+        var outputDirectory = PackageDirectory(request.OutputDirectory, days, selectedProjectName);
         Require(materials.Select(m => m.FileName).Distinct(StringComparer.OrdinalIgnoreCase).Count() == materials.Count,
             "export.duplicate-path", "材料文件名重复，无法安全导出。");
         foreach (var material in materials)

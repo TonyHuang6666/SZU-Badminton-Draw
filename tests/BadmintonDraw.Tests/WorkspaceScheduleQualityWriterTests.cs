@@ -13,7 +13,7 @@ namespace BadmintonDraw.Tests;
 public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
 {
     private readonly string directory = Directory.CreateTempSubdirectory("quality-writer-").FullName;
-    private static readonly string[] Sheets = ["检查总览", "当前赛程卡片", "检查明细", "选手每日负荷", "资源与日负荷", "来源项目"];
+    private static readonly string[] Sheets = ["检查总览", "当前赛程卡片", "检查明细", "选手每日负荷", "资源与日负荷"];
     public void Dispose() => Directory.Delete(directory, true);
     private (string Path, XLWorkbook Book) Write(TournamentWorkspace workspace)
     {
@@ -24,11 +24,38 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
     private static IXLCell Value(IXLWorksheet sheet, string label) => sheet.CellsUsed().Single(c => c.GetString() == label).CellRight();
     private static string Text(IXLWorksheet sheet) => string.Join("\n", sheet.CellsUsed().Select(c => c.GetString()));
 
+    [Fact]
+    public void ProjectNamesThatAlreadyContainOrdinalSuffixesStayDistinctAndStable()
+    {
+        using var fixture = new WorkspaceOperationalPackageFixture(projects: 3, transform: workspace => workspace with
+        {
+            Projects = workspace.Projects.Select((project, index) => project with
+            {
+                DisplayName = index == 2 ? "A（项目 1）" : "A"
+            }).ToArray()
+        });
+        var workspace = fixture.Workspace;
+        var (_, book) = Write(workspace);
+        using (book)
+        {
+            var labels = book.Worksheet(Sheets[1]).RowsUsed().Where(r => r.RowNumber() > 4).Select(r => r.Cell(1).GetString()).ToArray();
+            Assert.Equal(3, labels.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+            Assert.All(labels, label => Assert.StartsWith("A", label));
+            Assert.DoesNotContain(labels, label => Guid.TryParse(label, out _));
+            var resourceLabels = book.Worksheet(Sheets[4]).RowsUsed().Where(r => r.Cell(1).GetString() == "项目时长设置")
+                .Select(r => r.Cell(2).GetString()).ToArray();
+            Assert.Equal(labels.Order(StringComparer.Ordinal), resourceLabels.Order(StringComparer.Ordinal));
+            var (_, reordered) = Write(workspace with { Projects = workspace.Projects.Reverse().ToArray() });
+            using (reordered)
+                Assert.Equal(labels, reordered.Worksheet(Sheets[1]).RowsUsed().Where(r => r.RowNumber() > 4).Select(r => r.Cell(1).GetString()));
+        }
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(6)]
-    public void ActualGlobalSnapshotAndCompletedLocksProduceFaithfulQualityAndProvenance(int completed)
+    public void CompactReportPreservesScheduleResultsWithoutTechnicalProvenance(int completed)
     {
         var workspace = WorkspaceScheduleQualityFixture.MultiProject(completed); var before = WorkspaceScheduleQualityFixture.Snapshot(workspace);
         var request = WorkspaceScheduleQualityFixture.Request(workspace);
@@ -41,36 +68,36 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
             Assert.Equal(6, Value(summary, "全局场次数").GetValue<int>());
             Assert.Equal(completed, Value(summary, "已记录赛果").GetValue<int>());
             Assert.Equal(6 - completed, Value(summary, "待记录场次").GetValue<int>());
-            Assert.Equal(expected.SoftScore, Value(summary, "当前基线软约束评分").GetValue<long>());
-            Assert.Contains("历史移动次数不计算", Text(summary)); Assert.DoesNotContain("历史移动次数：0", Text(summary));
             Assert.Equal(WorkspaceScheduleQualityFixture.GeneratedAt.ToString("O", CultureInfo.InvariantCulture), Value(summary, "生成时间").GetString());
-            Assert.Contains(workspace.Name, Text(summary)); Assert.Contains("17", Value(summary, "工作区修订").GetString());
-            Assert.Equal("9", Value(summary, "赛程修订").GetString());
+            Assert.Contains(workspace.Name, Text(summary));
             var cards = book.Worksheet(Sheets[1]);
             Assert.Equal(6, cards.RowsUsed().Count(r => r.RowNumber() > 4));
             foreach (var project in workspace.Projects)
             foreach (var node in project.MatchGraph!.Matches)
             {
-                var row = cards.RowsUsed().Single(r => r.Cell(3).GetString() == node.Id.ToString());
-                Assert.Equal(project.Id.ToString(), row.Cell(1).GetString()); Assert.Equal(project.DisplayName, row.Cell(2).GetString());
+                var row = cards.RowsUsed().Single(r => r.Cell(1).GetString() == project.DisplayName + $"（项目 {project.SortOrder + 1}）" && r.Cell(2).GetString() == node.Phase + " / " + node.DisplayName);
                 var placement = workspace.Schedule.Placements[node.Id];
-                Assert.Equal(placement.StartTime.ToString("HH:mm:ss.fffffff", CultureInfo.InvariantCulture), row.Cell(6).GetString());
-                Assert.Equal(placement.EndTime.ToString("HH:mm:ss.fffffff", CultureInfo.InvariantCulture), row.Cell(7).GetString());
-                Assert.Equal(workspace.Results.TryGetValue(new(project.Id, node.Id), out var result) ? "已记录" : "待记录", row.Cell(11).GetString());
-                Assert.Equal(result is null ? "" : result.ActualPlayedDay?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "未知", row.Cell(12).GetString());
+                Assert.Equal(placement.DayLabel, row.Cell(3).GetString());
+                Assert.Equal(placement.StartTime.ToString("HH:mm:ss", CultureInfo.InvariantCulture), row.Cell(4).GetString());
+                Assert.Equal(placement.EndTime.ToString("HH:mm:ss", CultureInfo.InvariantCulture), row.Cell(5).GetString());
+                Assert.Equal(workspace.Results.TryGetValue(new(project.Id, node.Id), out var result) ? "已记录" : "待记录", row.Cell(9).GetString());
+                Assert.Equal(result is null ? "" : result.ActualPlayedDay?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "未知", row.Cell(10).GetString());
                 if (completed == 6 && node.IsChampionshipFinal)
                 {
-                    Assert.Equal(workspace.Results[new(project.Id, node.Dependencies[0])].Winner.DisplayName, row.Cell(9).GetString());
-                    Assert.Equal(workspace.Results[new(project.Id, node.Dependencies[1])].Winner.DisplayName, row.Cell(10).GetString());
+                    Assert.Equal(workspace.Results[new(project.Id, node.Dependencies[0])].Winner.DisplayName, row.Cell(7).GetString());
+                    Assert.Equal(workspace.Results[new(project.Id, node.Dependencies[1])].Winner.DisplayName, row.Cell(8).GetString());
                 }
             }
-            var source = Text(book.Worksheet(Sheets[5]));
+            var report = string.Join("\n", book.Worksheets.Select(Text));
+            Assert.DoesNotContain(workspace.Id.ToString(), report);
             foreach (var project in workspace.Projects)
             {
-                Assert.Contains(project.Id.ToString(), source); Assert.Contains(project.MatchGraph!.Revision, source);
-                Assert.Contains(project.Draw!.ConfirmedAt!.Value.ToString("O", CultureInfo.InvariantCulture), source);
-                Assert.Contains(project.Roster!.ContentHash, source); Assert.Contains(project.Roster.SourceFileName, source);
+                Assert.DoesNotContain(project.Id.ToString(), report);
+                Assert.DoesNotContain(project.MatchGraph!.Revision, report);
+                Assert.DoesNotContain(project.Roster!.ContentHash, report);
             }
+            foreach (var field in new[] { "软约束评分", "工作区修订", "赛程修订", "概率", "次数:概率分布", "同步阶段进度", "阶段进度目标", "每日负荷目标", "节点计时来源", "决赛日偏好" })
+                Assert.DoesNotContain(field, report);
             Assert.DoesNotContain("LockedPlacement", Text(book.Worksheet(Sheets[2])));
             Assert.Equal(before, WorkspaceScheduleQualityFixture.Snapshot(workspace));
             if (completed == 6) Retain(path, "valid-completed", workspace, expected);
@@ -92,14 +119,17 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
             Assert.Equal(expected.Violations.Count, rows.Length);
             foreach (var violation in expected.Violations)
             {
-                var row = Assert.Single(rows, r => r.Cell(1).GetString() == violation.Code.ToString() && r.Cell(4).GetString() == violation.MatchId.ToString() && r.Cell(7).GetString() == (violation.RelatedMatchId?.ToString() ?? "—"));
+                var primary = violation.MatchId is { } id ? workspace.Projects.SelectMany(p => p.MatchGraph!.Matches).Single(n => n.Id == id) : null;
+                var primaryProject = primary is null ? null : workspace.Projects.Single(p => p.Id == primary.ProjectId);
+                var row = Assert.Single(rows, r => r.Cell(1).GetString() == violation.Code.ToString() && r.Cell(2).GetString() == violation.Message && r.Cell(3).GetString() == (primaryProject is null ? "—" : primaryProject.DisplayName + $"（项目 {primaryProject.SortOrder + 1}）") && r.Cell(4).GetString() == (primary?.DisplayName ?? "—"));
                 Assert.Equal(violation.Message, row.Cell(2).GetString());
                 if (violation.RelatedMatchId is { } related)
                 {
                     var owner = workspace.Projects.Single(p => p.MatchGraph!.Matches.Any(n => n.Id == related));
-                    Assert.Equal(owner.Id.ToString(), row.Cell(8).GetString()); Assert.NotEqual(row.Cell(3).GetString(), row.Cell(8).GetString());
-                    var relatedCard = book.Worksheet(Sheets[1]).RowsUsed().Single(r => r.Cell(3).GetString() == related.ToString());
-                    Assert.Contains(violation.Code.ToString(), relatedCard.Cell(13).GetString());
+                    Assert.Equal(owner.DisplayName + $"（项目 {owner.SortOrder + 1}）", row.Cell(5).GetString()); Assert.NotEqual(row.Cell(3).GetString(), row.Cell(5).GetString());
+                    Assert.Equal(owner.MatchGraph!.Matches.Single(n => n.Id == related).DisplayName, row.Cell(6).GetString());
+                    var relatedCard = book.Worksheet(Sheets[1]).RowsUsed().Single(r => r.Cell(1).GetString() == row.Cell(5).GetString() && r.Cell(2).GetString().EndsWith(row.Cell(6).GetString(), StringComparison.Ordinal));
+                    Assert.Contains(violation.Code.ToString(), relatedCard.Cell(11).GetString());
                 }
             }
             Retain(path, "cross-project-invalid", workspace, expected);
@@ -113,8 +143,8 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
         {
             var row = book.Worksheet(Sheets[3]).RowsUsed().Single(r => r.Cell(1).GetString() == "student:P0");
             Assert.Equal("未完成计算", row.Cell(5).GetString());
-            Assert.Contains("下界", row.Cell(11).GetString());
-            Assert.Contains("上界", row.Cell(11).GetString());
+            Assert.Contains("至少", row.Cell(6).GetString());
+            Assert.Contains("至多", row.Cell(6).GetString());
             Assert.Contains("未完成", Text(book.Worksheet(Sheets[0])));
         }
     }
@@ -133,7 +163,7 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
     }
 
     [Fact]
-    public void IncompleteSoftAnalysisIsNotWrittenAsZero()
+    public void IncompleteResourceAnalysisKeepsUnknownCapacity()
     {
         var workspace = WorkspaceScheduleQualityFixture.UnknownMaximum();
         // Repeated resource windows make the bounded integration allowance refuse work.
@@ -143,11 +173,16 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
         resource = resource with { Days = [day] };
         workspace = workspace with { Resources = resource, Schedule = workspace.Schedule with { Resources = resource } };
         var (_, book) = Write(workspace); using (book)
-            Assert.Equal("未完成计算", Value(book.Worksheet(Sheets[0]), "当前基线软约束评分").GetString());
+        {
+            var row = book.Worksheet(Sheets[4]).RowsUsed().Single(r => r.Cell(1).GetString() == day.DayLabel);
+            Assert.Equal("未完成计算", row.Cell(5).GetString());
+            Assert.Equal("未完成计算", row.Cell(6).GetString());
+            Assert.Equal("未知", row.Cell(7).GetString());
+        }
     }
 
     [Fact]
-    public void RealNineteenVariableForecastKeepsUnknownProbabilityAndExactCounts()
+    public void RealNineteenVariableForecastShowsExactCountsWithoutProbabilityOrContinuationRows()
     {
         var workspace = WorkspaceScheduleQualityFixture.UnknownForecast();
         var expected = new TournamentScheduleQualityAnalyzer().Analyze(WorkspaceScheduleQualityFixture.Request(workspace), workspace.Schedule!.Placements);
@@ -158,25 +193,15 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
         {
             var row = book.Worksheet(Sheets[3]).RowsUsed().Single(r => r.Cell(1).GetString() == "student:A");
             Assert.Equal(19, row.Cell(4).GetValue<int>()); Assert.Equal(38, row.Cell(5).GetValue<int>());
-            Assert.Equal("未知", row.Cell(6).GetString()); Assert.Equal("未知", row.Cell(7).GetString());
-            Assert.Contains("未知", row.Cell(8).GetString()); Assert.Equal("未知", row.Cell(9).GetString());
-            Assert.Contains("≥", Text(book.Worksheet(Sheets[3]))); Assert.Contains("0.5", Text(book.Worksheet(Sheets[0])));
-            var continuation = book.Worksheet(Sheets[3]).RowsUsed().Where(r => r.Cell(2).GetString().StartsWith("关联场次（续）", StringComparison.Ordinal)).ToArray();
-            Assert.NotEmpty(continuation);
-            foreach (var continued in continuation)
-            {
-                Assert.Contains("student:A", continued.Cell(2).GetString()); Assert.Contains("2026-09-19", continued.Cell(2).GetString());
-                Assert.All(Enumerable.Range(3, 7), column => Assert.True(continued.Cell(column).IsEmpty()));
-                Assert.True(continued.Height < 409);
-            }
-            var allKeys = string.Join("\n", new[] { row.Cell(10).GetString() }.Concat(continuation.Select(r => r.Cell(10).GetString())));
-            foreach (var id in forecast.MatchIds) Assert.Contains($"{workspace.Projects.Single().Id} / {id}", allKeys);
+            Assert.Equal(expected.PlayerLoads.Count, book.Worksheet(Sheets[3]).RowsUsed().Count(r => r.RowNumber() > 4));
+            Assert.DoesNotContain("关联场次（续）", Text(book.Worksheet(Sheets[3])));
+            foreach (var id in forecast.MatchIds) Assert.DoesNotContain(id.ToString(), Text(book.Worksheet(Sheets[3])));
             Retain(path, "forecast-unknown", workspace, expected);
         }
     }
 
     [Fact]
-    public void ResourceCapacitiesAndProbabilityAtCapKeepActualGlobalMeaning()
+    public void ResourceCapacitiesLimitsAndReadableProjectTimingKeepActualGlobalMeaning()
     {
         var workspace = WorkspaceScheduleQualityFixture.MultiProject();
         var expected = new TournamentScheduleQualityAnalyzer().Analyze(WorkspaceScheduleQualityFixture.Request(workspace), workspace.Schedule!.Placements);
@@ -191,23 +216,22 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
                 else Assert.Equal((double)day.RequiredPlacedMinutes / day.AvailableMatchMinutes, row.Cell(7).GetDouble(), 10);
             }
             Assert.Equal("未设置（仅受场地/分时段容量限制）", Value(resource, "默认裁判人数").GetString());
-            Assert.Contains("12:30:00.0000000", Text(resource)); Assert.Contains("13:30:00.0000000", Text(resource));
-            Assert.Contains("BeforeBoundaryMinutes", Text(resource));
+            Assert.Contains("12:30:00", Text(resource)); Assert.Contains("13:30:00", Text(resource));
+            Assert.DoesNotContain("BeforeBoundaryMinutes", Text(resource));
             foreach (var project in workspace.Projects)
             {
                 var timing = workspace.Schedule!.Policy.ProjectTimings[project.Id];
-                var row = resource.RowsUsed().Single(r => r.Cell(1).GetString() == "项目时长设置" && r.Cell(2).GetString() == project.Id.ToString());
-                Assert.Equal(timing.MatchMinutes, row.Cell(4).GetValue<int>());
-                Assert.Equal(timing.KnockoutTimingBoundaryEntrants?.ToString(CultureInfo.InvariantCulture) ?? "未设置", row.Cell(5).GetString());
-                Assert.Equal(timing.BeforeBoundaryMinutes?.ToString(CultureInfo.InvariantCulture) ?? "未设置", row.Cell(6).GetString());
+                var row = resource.RowsUsed().Single(r => r.Cell(1).GetString() == "项目时长设置" && r.Cell(2).GetString() == project.DisplayName + $"（项目 {project.SortOrder + 1}）");
+                Assert.Contains(timing.MatchMinutes + " 分钟", row.Cell(4).GetString());
+                if (timing.BeforeBoundaryMinutes is { } before) Assert.Contains(before + " 分钟", row.Cell(4).GetString());
             }
             Assert.Equal(3, resource.RowsUsed().Count(r => r.Cell(1).GetString().StartsWith("不可用场地 ", StringComparison.Ordinal)));
             Assert.Equal(2, resource.RowsUsed().Count(r => r.Cell(1).GetString().StartsWith("裁判窗口 ", StringComparison.Ordinal)));
             Assert.Equal(15, Value(resource, "全局最小休息分钟").GetValue<int>());
             Assert.Equal(1, Value(resource, "全局选手每日上限").GetValue<int>());
-            var player = expected.PlayerLoads.First(p => p.DayLabel == "2026-09-19"); Assert.Equal(1, player.ProbabilityAtOrAboveLimit);
+            var player = expected.PlayerLoads.First(p => p.DayLabel == "2026-09-19");
             var load = book.Worksheet(Sheets[3]).RowsUsed().Single(r => r.Cell(1).GetString() == player.PlayerKey && r.Cell(3).GetString() == player.DayLabel);
-            Assert.Equal(1, load.Cell(7).GetDouble()); Assert.Equal(1, load.Cell(4).GetValue<int>());
+            Assert.Equal(1, load.Cell(4).GetValue<int>());
         }
     }
 
@@ -218,7 +242,6 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
         Assert.False(new TournamentPlacementValidator(request).ValidateInput().IsValid);
         var (path, book) = Write(workspace); using (book)
         {
-            Assert.Equal("不可用（排程输入无效）", Value(book.Worksheet(Sheets[0]), "当前基线软约束评分").GetString());
             Assert.Contains("不可用", Text(book.Worksheet(Sheets[3])));
             var row = book.Worksheet(Sheets[2]).RowsUsed().Single(r => r.Cell(1).GetString() == "InvalidPolicy");
             Assert.Equal("—", row.Cell(3).GetString()); Assert.Equal("—", row.Cell(4).GetString());
@@ -228,7 +251,7 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
     }
 
     [Fact]
-    public void WorkbookPreservesLiteralNamesAndPrintableSixSheetStructureWithoutFormulasOrExternalLinks()
+    public void WorkbookPreservesLiteralNamesAndPrintableFiveSheetStructureWithoutFormulasOrExternalLinks()
     {
         var (path, book) = Write(WorkspaceScheduleQualityFixture.MultiProject()); using (book)
         {
@@ -280,14 +303,10 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
             var summary = book.Worksheet(Sheets[0]);
             Assert.Equal(expected.HardConstraintCount, Value(summary, "硬约束违规项数").GetValue<int>());
             Assert.Contains("禁止作为现场执行赛程/运营材料放行依据", Text(summary));
-            Assert.Equal("不可用（排程输入无效）", Value(summary, "当前基线软约束评分").GetString());
             Assert.Contains("不可用（排程输入无效）", Text(book.Worksheet(Sheets[3])));
             Assert.Contains("InvalidPolicy", Text(book.Worksheet(Sheets[2])));
-            var row = book.Worksheet(Sheets[4]).RowsUsed().Single(r => r.Cell(1).GetString() == (field == "progress" ? "阶段目标" : "负荷目标"));
-            var cell = row.Cell(field == "warning" ? 4 : 3);
-            if (double.IsFinite(value)) { Assert.Equal(XLDataType.Number, cell.DataType); Assert.Equal(value, cell.GetDouble()); }
-            else { Assert.Equal(XLDataType.Text, cell.DataType); Assert.Equal("无效原值：" + value.ToString("R", CultureInfo.InvariantCulture), cell.GetString()); }
-            Assert.False(cell.HasFormula);
+            Assert.DoesNotContain(book.Worksheets.SelectMany(s => s.CellsUsed()), c => c.DataType == XLDataType.Number && !double.IsFinite(c.GetDouble()));
+            Assert.DoesNotContain(book.Worksheets.SelectMany(s => s.CellsUsed()), c => c.HasFormula);
         }
     }
 

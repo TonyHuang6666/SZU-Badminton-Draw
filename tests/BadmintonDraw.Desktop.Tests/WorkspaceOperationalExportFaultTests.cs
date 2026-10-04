@@ -40,7 +40,7 @@ public sealed class WorkspaceOperationalExportFaultTests
         var original = f.Shell.CurrentSession!; var hash = WorkspaceResultImportFacadeFixture.Hash(original.WorkspacePath);
         files.Armed = true; files.FailPublish = !partialBackup; files.PartialBackup = partialBackup;
         await vm.ExportCommand.ExecuteAsync(); var failure = Assert.IsType<OperationalPackageExportException>(vm.ExportFailure);
-        Assert.Equal(9, vm.Outputs.Count); Assert.False(failure.AuditRecorded); Assert.False(failure.Error.Committed);
+        Assert.Equal(7, vm.Outputs.Count); Assert.False(failure.AuditRecorded); Assert.False(failure.Error.Committed);
         Assert.Equal(hash, WorkspaceResultImportFacadeFixture.Hash(original.WorkspacePath)); Assert.Same(original, f.Shell.CurrentSession);
         Assert.True(File.Exists(failure.Error.BackupPath)); Assert.True(File.Exists(failure.Error.CandidatePath));
         Assert.Contains(failure.Error.BackupPath!, vm.OutcomeDetails); Assert.Contains(failure.Error.CandidatePath!, vm.OutcomeDetails);
@@ -62,7 +62,7 @@ public sealed class WorkspaceOperationalExportFaultTests
         await vm.ExportCommand.ExecuteAsync(); while (posts.TryDequeue(out var next)) next();
         var failure = Assert.IsType<OperationalPackageExportException>(vm.ExportFailure);
         Assert.Equal("CommittedReadFailed", failure.Error.Code); Assert.True(failure.Error.Committed); Assert.True(failure.AuditRecorded);
-        Assert.Contains("审计已保存", vm.StateMessage); Assert.Contains("不代表回滚", vm.StateMessage); Assert.Equal(9, vm.Outputs.Count);
+        Assert.Contains("审计已保存", vm.StateMessage); Assert.Contains("不代表回滚", vm.StateMessage); Assert.Equal(7, vm.Outputs.Count);
         Assert.Equal(persistent, f.Shell.CurrentSession!.RequiresReload); Assert.False(vm.ExportCommand.CanExecute(null));
         vm.ScopeConfirmed = true; Assert.Equal(!persistent, vm.ExportCommand.CanExecute(null));
         var durable = new TournamentWorkspaceStore().Read(original.WorkspacePath);

@@ -26,15 +26,12 @@ public sealed partial class OperationalPackageWorkflow(OperationalPackageFileOpe
         }
         WorkspaceExportPublication.WithStaging(plan.OutputDirectory, progress, stage =>
         {
-            foreach (var material in plan.Materials.Where(m => m.Kind is not OperationalMaterialKind.Description and not OperationalMaterialKind.Manifest))
+            foreach (var material in plan.Materials.Where(m => m.Kind != OperationalMaterialKind.Description))
                 Render(Path.Combine(stage, material.FileName), material, plan, stage, request.DrawLayout ?? new(), auditId, exportedAt);
             var description = plan.Materials.Single(m => m.Kind == OperationalMaterialKind.Description);
             File.WriteAllText(Path.Combine(stage, description.FileName), Description(source, plan, auditId, exportedAt, progress));
-            var verified = plan.Materials.Where(m => m.Kind != OperationalMaterialKind.Manifest)
-                .ToDictionary(m => m.FileName, m => Inspect(stage, m, plan.OutputDirectory));
-            var manifest = plan.Materials.Single(m => m.Kind == OperationalMaterialKind.Manifest);
-            File.WriteAllText(Path.Combine(stage, manifest.FileName), Manifest(source, plan, auditId, exportedAt, progress, verified.Values));
-            // All renderers and the manifest have finished. No target can publish before this complete sweep.
+            var verified = plan.Materials.ToDictionary(m => m.FileName, m => Inspect(stage, m, plan.OutputDirectory));
+            // All renderers and the description have finished. No target can publish before this complete sweep.
             foreach (var material in plan.Materials)
             {
                 var current = Inspect(stage, material, plan.OutputDirectory);

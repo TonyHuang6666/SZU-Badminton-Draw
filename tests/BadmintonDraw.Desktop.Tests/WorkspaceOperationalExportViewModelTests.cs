@@ -11,6 +11,71 @@ namespace BadmintonDraw.Desktop.Tests;
 public sealed class WorkspaceOperationalExportViewModelTests
 {
     [Fact]
+    public async Task SoleProjectDefaultsToItsActualIdentityAndOmitsTheGlobalReportFromScope()
+    {
+        using var f = new OperationsUiFixture(); var vm = f.Page.Materials;
+        var projectId = Assert.Single(f.Page.Session.Workspace.Projects).Id;
+        Assert.Equal(projectId, vm.SelectedProject!.ProjectId);
+        Assert.Equal(projectId, Assert.Single(vm.ProjectChoices).ProjectId);
+        Assert.All(vm.Days, day => Assert.True(day.IsSelected));
+        Assert.DoesNotContain("检查报告", vm.ScopeSummary);
+        f.PrepareExport(); await vm.ExportCommand.ExecuteAsync();
+        Assert.Equal(projectId, Assert.Single(vm.Outcome!.Scope.ProjectIds));
+        Assert.Equal(projectId, Assert.Single(f.Page.Session.Workspace.AuditEvents,
+            audit => audit.Action == "OperationalPackageExported").ProjectId);
+    }
+
+    [Fact]
+    public void MultiProjectDefaultIncludesGlobalReportButIndividualScopeDoesNot()
+    {
+        using var f = new OperationsUiFixture(2); var vm = f.Page.Materials;
+        Assert.Null(vm.SelectedProject!.ProjectId);
+        Assert.Contains("检查报告", vm.ScopeSummary);
+        vm.SelectedProject = vm.ProjectChoices[1];
+        Assert.DoesNotContain("检查报告", vm.ScopeSummary);
+        vm.SelectedProject = vm.ProjectChoices[0];
+        Assert.Contains("检查报告", vm.ScopeSummary);
+    }
+
+    [Fact]
+    public void RefreshBetweenSingleAndMultipleProjectsUsesSoleProjectAndPreservesValidSpecificScope()
+    {
+        using var f = new OperationsUiFixture(2); var vm = f.Page.Materials;
+        var original = f.Page.Session; var first = original.Workspace.Projects[0];
+        vm.SelectedProject = vm.ProjectChoices[2]; vm.ScopeConfirmed = true;
+        vm.RefreshSession(original with { Workspace = original.Workspace with { Projects = [first] } });
+        Assert.Equal(first.Id, vm.SelectedProject!.ProjectId); Assert.False(vm.ScopeConfirmed);
+        Assert.DoesNotContain("检查报告", vm.ScopeSummary);
+        vm.ScopeConfirmed = true;
+        vm.RefreshSession(original with { Workspace = original.Workspace with { Revision = original.Workspace.Revision + 1 } });
+        Assert.Equal(first.Id, vm.SelectedProject!.ProjectId); Assert.False(vm.ScopeConfirmed);
+        Assert.DoesNotContain("检查报告", vm.ScopeSummary);
+        vm.SelectedProject = vm.ProjectChoices[2];
+        vm.RefreshSession(original with { Workspace = original.Workspace with { Revision = original.Workspace.Revision + 2 } });
+        Assert.Equal(original.Workspace.Projects[1].Id, vm.SelectedProject!.ProjectId);
+    }
+
+    [Fact]
+    public void RefreshMapsAllOrMissingSelectionToSoleProjectButDoesNotExpandARemovedSpecificScope()
+    {
+        using var f = new OperationsUiFixture(2); var vm = f.Page.Materials;
+        var original = f.Page.Session; var first = original.Workspace.Projects[0];
+        vm.RefreshSession(original with { Workspace = original.Workspace with { Projects = [first] } });
+        Assert.Equal(first.Id, vm.SelectedProject!.ProjectId);
+        vm.SelectedProject = null;
+        vm.RefreshSession(original with { Workspace = original.Workspace with { Projects = [first], Revision = original.Workspace.Revision + 1 } });
+        Assert.Equal(first.Id, vm.SelectedProject!.ProjectId);
+        // The fixture schedules two disciplines; this UI-only snapshot adds a distinct choice
+        // to keep the refreshed scope genuinely multiple after the original project is removed.
+        var second = original.Workspace.Projects[1];
+        var third = second with { Id = Guid.NewGuid(), DisplayName = "另一个项目", SortOrder = 2 };
+        vm.RefreshSession(original with { Workspace = original.Workspace with { Projects = [second, third] } });
+        Assert.Equal(3, vm.ProjectChoices.Count);
+        Assert.Null(vm.SelectedProject);
+        Assert.DoesNotContain("检查报告", vm.ScopeSummary);
+    }
+
+    [Fact]
     public async Task ExportPromptsForDestinationWithoutPreselectedFolderAndUsesFreshChoiceEachTime()
     {
         using var f = new OperationsUiFixture(); var vm = f.Page.Materials;
@@ -116,7 +181,7 @@ public sealed class WorkspaceOperationalExportViewModelTests
         vm.ScopeConfirmed = true; Assert.True(vm.ExportCommand.CanExecute(null)); await vm.ExportCommand.ExecuteAsync();
         while (posts.TryDequeue(out var next)) next();
         var outcome = Assert.IsType<OperationalPackageOutcome>(vm.Outcome);
-        Assert.Equal(9, outcome.Outputs.Count); Assert.Equal(9, vm.Outputs.Count); Assert.True(outcome.AuditRecorded);
+        Assert.Equal(7, outcome.Outputs.Count); Assert.Equal(7, vm.Outputs.Count); Assert.True(outcome.AuditRecorded);
         Assert.Equal(before.Workspace.Revision + 1, f.Page.Session.Workspace.Revision);
         Assert.Single(f.Page.Session.Workspace.AuditEvents, a => a.Action == "OperationalPackageExported");
         Assert.Equal(TournamentStage.ScheduleReady, f.Page.Session.Workspace.Stage); Assert.Empty(f.Page.Session.Workspace.Results);
@@ -231,7 +296,7 @@ public sealed class WorkspaceOperationalExportViewModelTests
         Assert.False(vm.ScopeConfirmed); Assert.Contains("取消", vm.StateMessage);
         accept = true; vm.ScopeConfirmed = true;
         await vm.ExportCommand.ExecuteAsync(); var outcome = Assert.IsType<OperationalPackageOutcome>(vm.Outcome);
-        Assert.Equal(9, outcome.Outputs.Count); Assert.Equal(afterFirst.Workspace.Revision + 1, outcome.Command.Workspace.Revision);
+        Assert.Equal(7, outcome.Outputs.Count); Assert.Equal(afterFirst.Workspace.Revision + 1, outcome.Command.Workspace.Revision);
         Assert.Equal(2, outcome.Command.Workspace.AuditEvents.Count(a => a.Action == "OperationalPackageExported"));
         Assert.Equal(2, prompts.Count); Assert.False(vm.ScopeConfirmed);
         accept = false; vm.ScopeConfirmed = true; await vm.ExportCommand.ExecuteAsync();
@@ -243,7 +308,7 @@ public sealed class WorkspaceOperationalExportViewModelTests
     public void ReplannedDatesRetainValidDraftSelectionsButDoNotAutoSelectNewDaysOrKeepRemovedCarryTarget()
     {
         using var f = new OperationsUiFixture(); var vm = f.Page.Materials;
-        vm.SelectedProject = vm.ProjectChoices[1]; vm.IncludePendingCarryover = true; vm.SelectedCarryoverDay = vm.Days[1];
+        vm.SelectedProject = vm.ProjectChoices[0]; vm.IncludePendingCarryover = true; vm.SelectedCarryoverDay = vm.Days[1];
         f.PrepareExport(); var projectId = vm.SelectedProject.ProjectId;
         var before = f.Shell.CurrentSession!.Workspace; var days = before.Schedule!.Resources.Days;
         // A genuine replan must also remove the old date's persisted load-target reference.

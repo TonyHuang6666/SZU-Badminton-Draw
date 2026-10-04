@@ -61,7 +61,7 @@ public sealed class WorkspaceOperationalPackageFaultTests
     [InlineData("empty", "export.artifact-invalid")]
     [InlineData("missing", "export.artifact-invalid")]
     [InlineData("changed", "export.artifact-changed")]
-    [InlineData("manifest-empty", "export.artifact-invalid")]
+    [InlineData("description-empty", "export.artifact-invalid")]
     public void Every_real_artifact_is_verified_before_first_publication(string fault, string code)
     {
         var files = new ExportFaultFiles { ReadFault = fault };
@@ -102,7 +102,7 @@ public sealed class WorkspaceOperationalPackageFaultTests
         using var f = new WorkspaceOperationalPackageFixture(files: files);
         var hash = Hash(f.Archive);
         var error = Assert.Throws<OperationalPackageExportException>(() => f.Workflow.ExportOperationalPackage(new(f.Output), f.Workspace.Revision));
-        Assert.Equal(publishFails ? 1 : 9, error.Outputs.Count); Assert.False(error.AuditRecorded);
+        Assert.Equal(publishFails ? 1 : error.Counts!.RequiredOutputCount, error.Outputs.Count); Assert.False(error.AuditRecorded);
         Assert.True(Directory.Exists(error.RetainedStagingDirectory));
         Assert.StartsWith(f.Output + Path.DirectorySeparatorChar, error.RetainedStagingDirectory!);
         Assert.Equal(hash, Hash(f.Archive));
@@ -118,19 +118,19 @@ public sealed class WorkspaceOperationalPackageFaultTests
     {
         var files = new ExportFaultFiles(); using var f = new WorkspaceOperationalPackageFixture(files: files);
         var victim = Path.Combine(f.DirectoryPath, "user-data.txt"); File.WriteAllText(victim, "keep this user data");
-        var target = Path.Combine(PackageDirectory(f), "材料包校验清单.json");
+        var target = Path.Combine(PackageDirectory(f), "材料包说明.txt");
         files.AfterAllChecks = () =>
         {
             if (race == "directory") Directory.CreateDirectory(target);
             else if (race == "symlink") File.CreateSymbolicLink(target, victim);
-            else File.WriteAllText(target, "late user manifest");
+            else File.WriteAllText(target, "late user description");
         };
         var error = Assert.Throws<OperationalPackageExportException>(() => f.Workflow.ExportOperationalPackage(
             new(f.Output, OverwriteExisting: race != "existing"), f.Workspace.Revision));
         Assert.Equal(race == "existing" ? "export.exists" : "export.protected-path", error.Error.Code);
-        Assert.Equal(8, error.Outputs.Count); Assert.Equal(target, error.AttemptedOutputPath); Assert.False(error.AuditRecorded);
+        Assert.Equal(error.Counts!.RequiredOutputCount - 1, error.Outputs.Count); Assert.Equal(target, error.AttemptedOutputPath); Assert.False(error.AuditRecorded);
         Assert.Equal("keep this user data", File.ReadAllText(victim));
-        if (race == "existing") Assert.Equal("late user manifest", File.ReadAllText(target));
+        if (race == "existing") Assert.Equal("late user description", File.ReadAllText(target));
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public sealed class WorkspaceOperationalPackageFaultTests
         Assert.Equal("export.exists", error.Error.Code); Assert.Empty(error.Outputs);
         Assert.All(original, pair => Assert.Equal(pair.Value, Hash(pair.Key)));
         var overwritten = f.Workflow.ExportOperationalPackage(new(f.Output, OverwriteExisting: true), f.Workspace.Revision);
-        Assert.Equal(9, overwritten.Outputs.Count); Assert.True(overwritten.AuditRecorded);
+        Assert.Equal(first.Outputs.Count, overwritten.Outputs.Count); Assert.True(overwritten.AuditRecorded);
         var protectedName = Path.GetFileName(first.Outputs[0].Path);
         f.Store.Mutate(f.Archive, f.Workspace.Revision, w => w with
         { Projects = w.Projects.Select(p => p with { Roster = p.Roster! with { SourceFileName = protectedName } }).ToArray() });
@@ -153,18 +153,18 @@ public sealed class WorkspaceOperationalPackageFaultTests
     }
 
     [Theory]
-    [InlineData("candidate-copy", 0)]
-    [InlineData("candidate-read", 9)]
-    [InlineData("backup", 9)]
-    [InlineData("publish", 9)]
-    public void Real_SQLite_failure_reports_artifacts_candidate_and_partial_backup_without_audit_claim(string fault, int outputs)
+    [InlineData("candidate-copy", false)]
+    [InlineData("candidate-read", true)]
+    [InlineData("backup", true)]
+    [InlineData("publish", true)]
+    public void Real_SQLite_failure_reports_artifacts_candidate_and_partial_backup_without_audit_claim(string fault, bool allOutputs)
     {
         var files = new ArchiveFaultFiles(); var store = new ArchiveFaultStore(files);
         using var f = new WorkspaceOperationalPackageFixture(store: store);
         var before = f.Workflow.CurrentSession; var hash = Hash(f.Archive);
         files.Fault = fault; store.FailCandidateRead = fault == "candidate-read";
         var error = Assert.Throws<OperationalPackageExportException>(() => f.Workflow.ExportOperationalPackage(new(f.Output), f.Workspace.Revision));
-        Assert.False(error.AuditRecorded); Assert.Equal(outputs, error.Outputs.Count);
+        Assert.False(error.AuditRecorded); Assert.Equal(allOutputs ? error.Counts!.RequiredOutputCount : 0, error.Outputs.Count);
         Assert.Equal(hash, Hash(f.Archive)); Assert.Same(before, f.Workflow.CurrentSession);
         Assert.True(File.Exists(error.Error.CandidatePath));
         Assert.DoesNotContain(new TournamentWorkspaceStore().Read(f.Archive).AuditEvents, a => a.Id == error.AuditId);
@@ -183,7 +183,7 @@ public sealed class WorkspaceOperationalPackageFaultTests
         using var f = new WorkspaceOperationalPackageFixture(store: store);
         store.Target = f.Archive; files.Fault = "postcommit"; var before = f.Workspace;
         var error = Assert.Throws<OperationalPackageExportException>(() => f.Workflow.ExportOperationalPackage(new(f.Output), before.Revision));
-        Assert.Equal("CommittedReadFailed", error.Error.Code); Assert.True(error.AuditRecorded); Assert.Equal(9, error.Outputs.Count);
+        Assert.Equal("CommittedReadFailed", error.Error.Code); Assert.True(error.AuditRecorded); Assert.Equal(error.Counts!.RequiredOutputCount, error.Outputs.Count);
         Assert.Equal(persistent, f.Workflow.CurrentSession!.RequiresReload);
         var durable = new TournamentWorkspaceStore().Read(f.Archive);
         Assert.Equal(before.Revision + 1, durable.Revision); Assert.Single(durable.AuditEvents, a => a.Id == error.AuditId);
@@ -237,11 +237,11 @@ public sealed class WorkspaceOperationalPackageFaultTests
         var error = Assert.Throws<OperationalPackageExportException>(() => f.Workflow.ExportOperationalPackage(
             new(f.Output, Days: [FirstDay.AddDays(1)], PendingCarryoverDay: FirstDay.AddDays(1)), f.Workspace.Revision));
         Assert.Equal("export.layout", error.Error.Code); Assert.Empty(error.Outputs); Assert.Equal(hash, Hash(f.Archive));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(f.Output, "9月21日多项目合并材料包")));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(f.Output, "9月21日同名项目比赛材料包")));
     }
 
     private static string PackageDirectory(WorkspaceOperationalPackageFixture f) =>
-        Path.Combine(f.Output, "9月20日-9月22日多项目合并材料包");
+        Path.Combine(f.Output, "9月20日-9月22日同名项目比赛材料包");
 
     private sealed class ExportFaultFiles : OperationalPackageFileOperations
     {
@@ -251,21 +251,23 @@ public sealed class WorkspaceOperationalPackageFaultTests
         internal bool FailCleanup;
         internal Action? AfterAllChecks;
         internal int PublishCalls;
-        private int reads;
+        private readonly Dictionary<string, int> reads = new(StringComparer.Ordinal);
+        private bool sweepStarted;
         public override Stream OpenRead(string path)
         {
-            reads++;
-            // Minimal package has eight real non-manifest artifacts followed by the nine-file sweep.
-            if (reads == 9)
+            reads[path] = reads.GetValueOrDefault(path) + 1;
+            // A second read of the first artifact marks the final complete sweep.
+            if (!sweepStarted && reads[path] == 2)
             {
+                sweepStarted = true;
                 if (ReadFault == "read") throw new IOException("injected real artifact read failure");
                 if (ReadFault == "empty") File.WriteAllBytes(path, []);
                 if (ReadFault == "missing") File.Delete(path);
                 if (ReadFault == "changed") File.AppendAllText(path, "changed staged bytes");
-                if (ReadFault == "manifest-empty")
-                    File.WriteAllBytes(Path.Combine(Path.GetDirectoryName(path)!, "材料包校验清单.json"), []);
+                if (ReadFault == "description-empty")
+                    File.WriteAllBytes(Path.Combine(Path.GetDirectoryName(path)!, "材料包说明.txt"), []);
             }
-            if (reads == 17) AfterAllChecks?.Invoke();
+            if (reads[path] == 2 && path.EndsWith(".txt", StringComparison.Ordinal)) AfterAllChecks?.Invoke();
             return base.OpenRead(path);
         }
         public override void Publish(string stagedPath, string destination, bool overwrite)

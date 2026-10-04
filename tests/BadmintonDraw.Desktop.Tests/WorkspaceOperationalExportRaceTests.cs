@@ -15,7 +15,7 @@ public sealed class WorkspaceOperationalExportRaceTests
     public async Task LatePickerSuccessAndExceptionCannotOverrideNewScopeOrFeedback(string change, bool throws)
     {
         var returned = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var f = new OperationsUiFixture(outputPicker: () => returned.Task); var vm = f.Page.Materials; f.PrepareExport();
+        using var f = new OperationsUiFixture(2, outputPicker: () => returned.Task); var vm = f.Page.Materials; f.PrepareExport();
         var original = f.Shell.CurrentSession!;
         var pending = vm.ExportCommand.ExecuteAsync(); Assert.False(pending.IsCompleted);
         if (change == "navigate") Assert.True(f.Shell.Navigate(WorkspaceRoute.Start));
@@ -62,7 +62,7 @@ public sealed class WorkspaceOperationalExportRaceTests
     {
         var shown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var returned = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var f = new OperationsUiFixture(confirmOverwrite: _ => { shown.TrySetResult(); return returned.Task; });
+        using var f = new OperationsUiFixture(2, confirmOverwrite: _ => { shown.TrySetResult(); return returned.Task; });
         f.PrepareExport(); var vm = f.Page.Materials; await vm.ExportCommand.ExecuteAsync();
         var original = f.Shell.CurrentSession!;
         var paths = vm.Outputs.Select(file => file.Path).ToArray();
@@ -112,8 +112,8 @@ public sealed class WorkspaceOperationalExportRaceTests
         finally { release.Set(); }
         await pending;
         var capturedPackage = Assert.Single(Directory.GetDirectories(originalOutput));
-        Assert.Equal(Path.Combine(originalOutput, "9月13日多项目合并材料包"), capturedPackage);
-        Assert.Equal(9, Directory.GetFiles(capturedPackage).Length); Assert.False(Directory.Exists(f.NextOutput));
+        Assert.Equal(Path.Combine(originalOutput, "9月13日同名项目比赛材料包"), capturedPackage);
+        Assert.Equal(7, Directory.GetFiles(capturedPackage).Length); Assert.False(Directory.Exists(f.NextOutput));
         Assert.Single(f.Shell.CurrentSession!.Workspace.AuditEvents, a => a.Action == "OperationalPackageExported");
         Assert.Null(vm.Outcome); Assert.False(vm.ScopeConfirmed); Assert.DoesNotContain("正在", vm.StateMessage);
     }

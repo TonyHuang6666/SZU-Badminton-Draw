@@ -16,7 +16,7 @@ public sealed class WorkspaceRecoveryPanelTests : IDisposable
 {
     private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
     [Fact]
-    public Task RealWindowHeaderAndStartOpenTheSameUnboundToSessionPanel() => session.Dispatch(() =>
+    public Task RealWindowHeaderOpensRecoveryFromEmptyStateWithoutADuplicateStartAction() => session.Dispatch(() =>
     {
         using var fixture = new RecoveryUiFixture();
         var window = new AppShellWindow(fixture.Workflow, new RecentWorkspaceStore(fixture.PathFor("window-recent.json")));
@@ -27,8 +27,11 @@ public sealed class WorkspaceRecoveryPanelTests : IDisposable
             var panel = window.FindControl<WorkspaceRecoveryPanel>("RecoveryPanel")!;
             Assert.Same(shell.Recovery, panel.DataContext); Assert.False(panel.IsVisible);
             var start = Assert.Single(window.GetVisualDescendants().OfType<StartPage>());
-            var startButton = start.FindControl<Button>("StartRecoveryButton")!;
-            Assert.Same(shell.OpenRecoveryCommand, startButton.Command); Activate(window, startButton);
+            Assert.DoesNotContain(start.GetVisualDescendants().OfType<Button>(),
+                button => ReferenceEquals(button.Command, shell.OpenRecoveryCommand));
+            var headerButton = window.FindControl<Button>("HeaderRecoveryButton")!;
+            Assert.Same(shell.OpenRecoveryCommand, headerButton.Command);
+            Assert.True(headerButton.IsEffectivelyEnabled); Activate(window, headerButton);
             Dispatcher.UIThread.RunJobs(); window.UpdateLayout(); Assert.True(panel.IsVisible);
             var close = panel.FindControl<Button>("CloseRecoveryButton")!;
             Assert.Same(shell.Recovery.CloseCommand, close.Command);

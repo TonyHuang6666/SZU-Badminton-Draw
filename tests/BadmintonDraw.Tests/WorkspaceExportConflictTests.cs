@@ -35,11 +35,12 @@ public sealed class WorkspaceExportConflictTests
         var package = Path.Combine(f.Output, "9月20日同名项目（2）比赛材料包");
         Directory.CreateDirectory(package);
         var paths = new[] { Path.Combine(package, "同名项目（2）带时间对阵图.pdf"),
-            Path.Combine(package, "9月20日合并赛程记录表.xlsx"),
-            Path.Combine(package, "材料包校验清单.json") };
+            Path.Combine(package, "9月20日同名项目（2）赛程记录表.xlsx"),
+            Path.Combine(package, "材料包说明.txt") };
         foreach (var path in paths) File.WriteAllText(path, "existing");
         File.WriteAllText(Path.Combine(package, "同名项目带时间对阵图.xlsx"), "other project");
-        File.WriteAllText(Path.Combine(package, "9月21日合并赛程记录表.xlsx"), "other day");
+        File.WriteAllText(Path.Combine(package, "9月21日同名项目（2）赛程记录表.xlsx"), "other day");
+        File.WriteAllText(Path.Combine(package, "材料包校验清单.json"), "legacy metadata is not an overwrite target");
         var before = Snapshot(f); var session = f.Workflow.CurrentSession; var notifications = 0;
         f.Workflow.SessionChanged += (_, _) => notifications++;
 
@@ -176,8 +177,8 @@ public sealed class WorkspaceExportConflictTests
             var approved = workflow.PreviewOperationalExportConflicts(new(f.Output), f.Workspace.Revision);
             var error = Assert.Throws<OperationalPackageExportException>(() => workflow.ExportOperationalPackage(
                 new(f.Output, OverwriteExisting: true) { ConfirmedOverwritePaths = approved }, f.Workspace.Revision));
-            Assert.Equal("export.exists", error.Error.Code); Assert.Equal(8, error.Outputs.Count);
-            Assert.Equal(8, operationalFiles.PublishCalls); Assert.Equal(target, error.AttemptedOutputPath);
+            Assert.Equal("export.exists", error.Error.Code); Assert.Equal(error.Counts!.RequiredOutputCount - 1, error.Outputs.Count);
+            Assert.Equal(error.Outputs.Count, operationalFiles.PublishCalls); Assert.Equal(target, error.AttemptedOutputPath);
         }
         else
         {
@@ -227,7 +228,7 @@ public sealed class WorkspaceExportConflictTests
     private static string DrawPath(WorkspaceOperationalPackageFixture f, int project, string extension) =>
         Path.Combine(f.Output, $"同名项目_{f.Workspace.Projects[project].Id:N}_已确认抽签结果{extension}");
     private static string Target(WorkspaceOperationalPackageFixture f, bool operational) => operational
-        ? Path.Combine(f.Output, "9月20日-9月22日多项目合并材料包", "材料包校验清单.json") : DrawPath(f, 0, ".xlsx");
+        ? Path.Combine(f.Output, "9月20日-9月22日同名项目比赛材料包", "材料包说明.txt") : DrawPath(f, 0, ".xlsx");
     private static IReadOnlyList<string> Preview(WorkspaceOperationalPackageFixture f, bool operational, long? revision = null) => operational
         ? f.Workflow.PreviewOperationalExportConflicts(new(f.Output), revision ?? f.Workspace.Revision)
         : f.Workflow.PreviewDrawExportConflicts(null, new(f.Output, WorkflowExportFormat.Excel), revision ?? f.Workspace.Revision);

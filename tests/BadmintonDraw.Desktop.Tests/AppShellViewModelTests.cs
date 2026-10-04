@@ -49,8 +49,10 @@ public sealed class AppShellViewModelTests : IDisposable
         Assert.Single(new RecentWorkspaceStore(PathFor("recent.json")).Read());
     }
 
-    [Fact]
-    public async Task FailedVersionOpenKeepsCurrentWorkspaceAndGivesReleaseAddress()
+    [Theory]
+    [InlineData(400, false)]
+    [InlineData(501, true)]
+    public async Task FailedVersionOpenKeepsCurrentWorkspaceAndExplainsCompatibility(int version, bool newer)
     {
         var workflow = new TournamentWorkspaceWorkflow();
         using var shell = Shell(workflow);
@@ -61,14 +63,15 @@ public sealed class AppShellViewModelTests : IDisposable
         {
             connection.Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "PRAGMA user_version=400";
+            command.CommandText = $"PRAGMA user_version={version}";
             command.ExecuteNonQuery();
         }
         Assert.False(await shell.OpenWorkspaceAsync(legacy));
         Assert.Same(session, shell.CurrentSession);
         Assert.Equal("UnsupportedWorkspaceVersion", shell.LastError!.Code);
-        Assert.Contains("v4.6.0", shell.Status);
-        Assert.Contains("https://github.com/TonyHuang6666/SZU-Badminton-Draw/releases/tag/v4.6.0", shell.Status);
+        Assert.Contains("不兼容", shell.StatusSummary);
+        Assert.Contains(newer ? "升级应用" : "不兼容", shell.Status);
+        Assert.DoesNotContain("v4.6", shell.Status);
     }
 
     [Fact]

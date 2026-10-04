@@ -69,10 +69,7 @@
       <Border Classes="inset" IsVisible="{Binding HasNoRecentWorkspaces}">
         <StackPanel Spacing="7"><TextBlock Text="你的第一场比赛，从这里开始" FontWeight="SemiBold" /><TextBlock Text="创建比赛后，它会出现在这里。也可以打开其他组织者交给你的 5.0 赛事文件。" Classes="muted" FontSize="13" /></StackPanel>
       </Border>
-      <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,8">
-        <TextBlock Text="支持团体赛与单项赛 · 每场比赛独立保存&#10;4.x 存档请使用原版本打开。" Classes="muted" FontSize="11" LineHeight="20" VerticalAlignment="Center" />
-        <Button x:Name="StartRecoveryButton" Grid.Column="1" Content="恢复以前的比赛" Command="{Binding OpenRecoveryCommand}" Classes="quiet" VerticalAlignment="Center" />
-      </Grid>
+      <TextBlock Text="支持团体赛与单项赛 · 每场比赛独立保存" Classes="muted" FontSize="11" LineHeight="20" Margin="0,0,0,8" />
     </StackPanel>
   </ScrollViewer>
 </UserControl>

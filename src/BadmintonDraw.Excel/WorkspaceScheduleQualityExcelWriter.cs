@@ -9,7 +9,6 @@ namespace BadmintonDraw.Excel;
 public sealed class WorkspaceScheduleQualityExcelWriter
 {
     private const string Unavailable = "不可用（排程输入无效）";
-    private const string Baseline = "基线：当前快照；未提供历史比较基线，历史移动次数不计算";
     private const string Prohibition = "检查不通过：存在硬约束违规；禁止作为现场执行赛程/运营材料放行依据";
     private const string IncompleteValidation = "硬约束检查未完成；冲突情况未知，不能作为现场执行赛程/运营材料放行依据";
     private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
@@ -21,6 +20,18 @@ public sealed class WorkspaceScheduleQualityExcelWriter
         if (generatedAt == default) throw new ArgumentException("必须提供报告生成时间。", nameof(generatedAt));
         var workspace = context.Workspace; var schedule = workspace.Schedule!;
         var projects = workspace.Projects.OrderBy(p => p.SortOrder).ThenBy(p => p.Id).ToArray();
+        var projectLabels = new Dictionary<Guid, string>();
+        var usedLabels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < projects.Length; index++)
+        {
+            var project = projects[index];
+            var label = projects.Count(p => string.Equals(p.DisplayName, project.DisplayName, StringComparison.OrdinalIgnoreCase)) > 1
+                ? project.DisplayName + $"（项目 {index + 1}）" : project.DisplayName;
+            var uniqueLabel = label;
+            for (var suffix = 1; !usedLabels.Add(uniqueLabel); suffix++)
+                uniqueLabel = label + $"（项目 {index + 1}，{suffix}）";
+            projectLabels.Add(project.Id, uniqueLabel);
+        }
         var request = new TournamentSchedulingRequest(projects.Select(p => p.MatchGraph!).ToArray(), schedule.Resources, schedule.Policy)
         {
             ProjectNames = projects.ToDictionary(p => p.Id, p => p.DisplayName), Results = workspace.Results,
@@ -32,17 +43,16 @@ public sealed class WorkspaceScheduleQualityExcelWriter
             or SchedulingConstraintCode.CyclicDependency or SchedulingConstraintCode.InvalidResult or SchedulingConstraintCode.PlayerOnBothSides);
         var owners = context.Nodes.Keys.ToDictionary(k => k.MatchId);
         using var book = new XLWorkbook();
-        WriteOverview(book, context, generatedAt, quality, inputValid);
-        WriteCards(book, context, quality);
-        WriteIssues(book, context, quality, owners);
-        WritePlayers(book, context, quality, inputValid, owners);
-        WriteResources(book, context, quality);
-        WriteSources(book, context, generatedAt, projects);
+        WriteOverview(book, context, generatedAt, quality);
+        WriteCards(book, context, quality, projectLabels);
+        WriteIssues(book, context, quality, owners, projectLabels);
+        WritePlayers(book, quality, inputValid);
+        WriteResources(book, context, quality, projectLabels);
         WorkbookPrintTitles.SaveAs(book, outputPath);
     }
 
     private static void WriteOverview(XLWorkbook book, WorkspaceScheduleExportContext context, DateTimeOffset at,
-        TournamentScheduleQuality quality, bool inputValid)
+        TournamentScheduleQuality quality)
     {
         var w = context.Workspace; var s = w.Schedule!;
         var conclusion = !quality.HardValidationComplete ? IncompleteValidation : quality.HardConstraintCount == 0
@@ -52,28 +62,24 @@ public sealed class WorkspaceScheduleQualityExcelWriter
         var row = 5;
         foreach (var pair in new (string Label, object Value)[]
         {
-            ("生成时间", Instant(at)), ("赛事名称", w.Name), ("工作区 ID", w.Id), ("赛事类型", w.Kind),
-            ("工作区用途", w.Purpose), ("赛事阶段", w.Stage), ("工作区修订", w.Revision), ("赛程修订", s.Revision),
+            ("生成时间", Instant(at)), ("赛事名称", w.Name),
             ("项目数", w.Projects.Count), ("全局场次数", context.MatchKeys.Count), ("已记录赛果", w.Results.Count),
             ("待记录场次", context.MatchKeys.Count - w.Results.Count), ("配置日期", string.Join("、", s.Resources.Days.OrderBy(d => d.Date).Select(d => d.DayLabel))),
             ("硬约束违规项数", quality.HardValidationComplete ? quality.HardConstraintCount : "未完成计算 / 未知"), ("全局检查结论", conclusion),
-            ("当前基线软约束评分", !inputValid ? Unavailable : quality.SoftAnalysisComplete ? quality.SoftScore : "未完成计算"),
-            ("评分含义", "内部软约束评分，可为负数；不是百分比、质量等级或最优性证明。"), ("比较基线", Baseline),
-            ("负荷口径", "已确定出场数指计划赛程中参与路径已确定的场次，不是已完成赛果数；仅完成证明时最大值才是兼容路径的精确最大值；未完成计算时列示已证明下界与安全上界。"),
-            ("概率口径", $"中性分支模型 0.5；条件模型估计，不是实测胜率。P(N ≥ {s.Resources.MaxPlayerMatchesPerDay}) 为达到或超过每日上限的概率；达到上限本身不等于违规。"),
-            ("未知值", "最大值未完成计算时不写零或上界；概率枚举未完成时期望/概率/分布均显示未知，不视为零风险。"),
-            ("选手分析完整性", quality.PlayerAnalysisComplete ? "已完成" : "未完成；部分最大值或概率未知"),
+            ("负荷口径", "已确定出场数是当前计划中确定参赛的场次，不是已完成场次。最大可能出场数考虑选手能够实际连续参与的晋级路径；未完成计算时显示已证明的范围。"),
+            ("未知值", "检查或最大值计算未完成时显示未知，不按零处理，也不将估计上限当作已证明的最大值。"),
             ("材料边界", "本文件是检查诊断，不发布或修改赛程，不证明材料包导出或审计保存成功。")
         }) Row(sheet, row++, pair.Label, pair.Value);
         Finish(sheet, row - 1, 2);
         if (!quality.HardValidationComplete || quality.HardConstraintCount != 0) sheet.Range(2, 1, 2, 2).Style.Font.FontColor = XLColor.DarkRed;
     }
 
-    private static void WriteCards(XLWorkbook book, WorkspaceScheduleExportContext context, TournamentScheduleQuality quality)
+    private static void WriteCards(XLWorkbook book, WorkspaceScheduleExportContext context, TournamentScheduleQuality quality,
+        IReadOnlyDictionary<Guid, string> projectLabels)
     {
-        var sheet = Sheet(book, "当前赛程卡片", "全部项目 / 计划日期与实际比赛日期分别列示；身份以 GUID 为准。",
-            ["项目 ID", "项目名称", "场次 ID", "阶段 / 场次", "计划日期", "计划开始", "计划结束", "场地", "对阵 A", "对阵 B", "赛果状态", "实际比赛日期", "关联违规代码"],
-            [28, 20, 28, 22, 14, 22, 22, 10, 22, 22, 12, 14, 26]);
+        var sheet = Sheet(book, "当前赛程卡片", "全部项目；计划日期与实际比赛日期分别列示，同名项目按项目顺序标注。",
+            ["项目名称", "阶段 / 场次", "计划日期", "计划开始", "计划结束", "场地", "对阵 A", "对阵 B", "赛果状态", "实际比赛日期", "关联违规代码"],
+            [26, 22, 14, 12, 12, 10, 22, 22, 12, 14, 26]);
         var row = 5;
         foreach (var key in context.MatchKeys.OrderBy(k => context.Placements[k].DayLabel, StringComparer.Ordinal)
             .ThenBy(k => context.Placements[k].StartTime).ThenBy(k => context.Placements[k].Court, StringComparer.Ordinal)
@@ -83,65 +89,59 @@ public sealed class WorkspaceScheduleQualityExcelWriter
             context.Workspace.Results.TryGetValue(key, out var result);
             var codes = quality.Violations.Where(v => v.MatchId == key.MatchId || v.RelatedMatchId == key.MatchId)
                 .Select(v => v.Code.ToString()).Distinct().Order(StringComparer.Ordinal);
-            Row(sheet, row++, key.ProjectId, context.Projects[key.ProjectId].DisplayName, key.MatchId,
+            Row(sheet, row++, projectLabels[key.ProjectId],
                 node.Phase + " / " + node.DisplayName, p.DayLabel, Time(p.StartTime), Time(p.EndTime), p.Court,
                 match.SideA, match.SideB, result is null ? "待记录" : "已记录",
                 result is null ? "" : result.ActualPlayedDay?.ToString("yyyy-MM-dd", Invariant) ?? "未知", string.Join("\n", codes));
         }
-        Finish(sheet, row - 1, 13);
+        Finish(sheet, row - 1, 11);
     }
 
     private static void WriteIssues(XLWorkbook book, WorkspaceScheduleExportContext context, TournamentScheduleQuality quality,
-        IReadOnlyDictionary<Guid, WorkspaceMatchKey> owners)
+        IReadOnlyDictionary<Guid, WorkspaceMatchKey> owners, IReadOnlyDictionary<Guid, string> projectLabels)
     {
-        var sheet = Sheet(book, "检查明细", "下列均为 Core 硬约束违规；— 表示全局/未指定身份。关联场次独立解析所属项目。",
-            ["违规代码", "原始说明", "项目 ID", "场次 ID", "项目名称", "场次名称", "关联场次 ID", "关联项目 ID", "关联项目名称", "关联场次名称"],
-            [23, 55, 28, 28, 20, 22, 28, 28, 20, 22]);
+        var sheet = Sheet(book, "检查明细", "赛程检查发现的问题；— 表示全局或未指定项目/场次。",
+            ["违规代码", "问题说明", "项目名称", "场次名称", "关联项目名称", "关联场次名称"],
+            [23, 55, 26, 22, 26, 22]);
         var row = 5;
         foreach (var issue in quality.Violations.OrderBy(v => v.Code).ThenBy(v => v.ProjectId).ThenBy(v => v.MatchId)
             .ThenBy(v => v.RelatedMatchId).ThenBy(v => v.Message, StringComparer.Ordinal))
         {
             var primary = issue.MatchId is { } id && owners.TryGetValue(id, out var owner) ? owner : (WorkspaceMatchKey?)null;
             var related = issue.RelatedMatchId is { } relatedId && owners.TryGetValue(relatedId, out var relatedOwner) ? relatedOwner : (WorkspaceMatchKey?)null;
-            Row(sheet, row++, issue.Code, issue.Message, issue.ProjectId?.ToString() ?? "—", issue.MatchId?.ToString() ?? "—",
-                issue.ProjectId is { } project && context.Projects.TryGetValue(project, out var p) ? p.DisplayName : "—",
-                primary is { } k ? context.Nodes[k].DisplayName : "—", issue.RelatedMatchId?.ToString() ?? "—",
-                related?.ProjectId.ToString() ?? "—", related is { } r ? context.Projects[r.ProjectId].DisplayName : "—",
+            Row(sheet, row++, issue.Code, ReadableIssueMessage(issue.Message, context, owners, projectLabels),
+                primary is { } ownerKey ? projectLabels[ownerKey.ProjectId]
+                    : issue.ProjectId is { } project && projectLabels.TryGetValue(project, out var label) ? label : "—",
+                primary is { } k ? context.Nodes[k].DisplayName : "—",
+                related is { } r ? projectLabels[r.ProjectId] : "—",
                 related is { } n ? context.Nodes[n].DisplayName : "—");
         }
         if (row == 5) Row(sheet, row++, quality.HardValidationComplete ? "未发现硬约束违规；不等于全部赛事材料已验收。" : IncompleteValidation);
-        Finish(sheet, row - 1, 10);
+        Finish(sheet, row - 1, 6);
     }
 
-    private static void WritePlayers(XLWorkbook book, WorkspaceScheduleExportContext context, TournamentScheduleQuality quality,
-        bool inputValid, IReadOnlyDictionary<Guid, WorkspaceMatchKey> owners)
+    private static void WritePlayers(XLWorkbook book, TournamentScheduleQuality quality, bool inputValid)
     {
-        var sheet = Sheet(book, "选手每日负荷", "计划赛程的条件模型估计；中性分支 0.5，兼容路径计数；续行仅展示关联键，不是新负荷。",
-            ["选手身份键", "选手姓名", "计划日期", "已确定出场数", "兼容最大出场数", "期望出场数", $"P(N ≥ {context.Workspace.Schedule!.Resources.MaxPlayerMatchesPerDay})", "枚举状态", "次数:概率分布", "关联项目 ID / 场次 ID", "最大值证明范围"],
-            [26, 20, 14, 14, 16, 14, 16, 24, 30, 82, 28]);
+        var sheet = Sheet(book, "选手每日负荷", "每位选手每天一行；已确定出场数与最大可能出场数按当前计划计算，尚未证明最大值时注明范围。",
+            ["选手身份键", "选手姓名", "计划日期", "已确定出场数", "最大可能出场数", "未完成计算说明"],
+            [26, 20, 14, 16, 18, 46]);
         var row = 5;
         if (!inputValid) Row(sheet, row++, Unavailable);
         else foreach (var load in quality.PlayerLoads)
         {
-            var keys = load.MatchIds.Select(id => owners[id]).OrderBy(k => k.ProjectId).ThenBy(k => k.MatchId)
-                .Select(k => $"{k.ProjectId} / {k.MatchId}").Chunk(8).ToArray();
-            Row(sheet, row, load.PlayerKey, load.PlayerName, load.DayLabel, load.ConfirmedCount, load.MaximumCount is { } maximum ? maximum : "未完成计算",
-                load.ExpectedCount is { } expected ? expected : "未知", load.ProbabilityAtOrAboveLimit is { } probability ? probability : "未知",
-                load.IsExact ? "精确枚举（条件模型）" : "未精确枚举 / 未知",
-                load.Distribution.Count == 0 ? "未知" : string.Join("; ", load.Distribution.OrderBy(p => p.Key).Select(p => $"{p.Key}:{p.Value.ToString("0.########", Invariant)}")),
-                keys.Length == 0 ? "—" : string.Join("\n", keys[0]), $"已证明下界 {load.MaximumLowerBound}；安全上界 {load.MaximumUpperBound}");
-            sheet.Cell(row, 6).Style.NumberFormat.Format = "0.########";
-            sheet.Cell(row++, 7).Style.NumberFormat.Format = "0.00%";
-            foreach (var chunk in keys.Skip(1)) Row(sheet, row++, "", $"关联场次（续）\n{load.PlayerKey}\n{load.DayLabel}", "", "", "", "", "", "", "", string.Join("\n", chunk));
+            Row(sheet, row++, load.PlayerKey, load.PlayerName, load.DayLabel, load.ConfirmedCount,
+                load.MaximumCount is { } maximum ? maximum : "未完成计算",
+                load.MaximumCount.HasValue ? "" : $"已证明至少 {load.MaximumLowerBound} 场；至多 {load.MaximumUpperBound} 场。最大值尚未确定。");
         }
         if (row == 5) Row(sheet, row++, quality.PlayerAnalysisComplete ? "未返回选手每日负荷记录。" : "选手分析未完成；负荷未知。");
-        Finish(sheet, row - 1, 11);
+        Finish(sheet, row - 1, 6);
     }
 
-    private static void WriteResources(XLWorkbook book, WorkspaceScheduleExportContext context, TournamentScheduleQuality quality)
+    private static void WriteResources(XLWorkbook book, WorkspaceScheduleExportContext context, TournamentScheduleQuality quality,
+        IReadOnlyDictionary<Guid, string> projectLabels)
     {
         var s = context.Workspace.Schedule!; var resource = s.Resources; var policy = s.Policy;
-        var sheet = Sheet(book, "资源与日负荷", "全局资源原值；容量按 Core 合并重叠不可用区间及裁判窗口计算。时长为项目专属设置。",
+        var sheet = Sheet(book, "资源与日负荷", "每日容量结合场地不可用时段及裁判人数计算；利用率为已排分钟占可用分钟的比例。",
             ["日期 / 设置", "开始 / 值", "结束 / 值", "场地 / 说明", "可用场地分钟", "已排场地分钟", "利用率 / 设置说明"],
             [30, 42, 30, 45, 20, 20, 48]);
         var row = 5;
@@ -160,8 +160,6 @@ public sealed class WorkspaceScheduleQualityExcelWriter
         Row(sheet, row++, "默认裁判人数", resource.RefereeCount is { } referees ? referees : "未设置（仅受场地/分时段容量限制）");
         Row(sheet, row++, "全局最小休息分钟", resource.MinimumRestMinutes);
         Row(sheet, row++, "全局选手每日上限", resource.MaxPlayerMatchesPerDay);
-        Row(sheet, row++, "编排策略", policy.Strategy);
-        Row(sheet, row++, "同步阶段进度", policy.SynchronizeStageWaves ? "启用" : "关闭");
         foreach (var day in resource.Days.OrderBy(d => d.Date))
         {
             foreach (var window in (day.RefereeCapacityWindows ?? []).OrderBy(w => w.StartTime).ThenBy(w => w.EndTime))
@@ -169,43 +167,26 @@ public sealed class WorkspaceScheduleQualityExcelWriter
             foreach (var window in (day.UnavailableCourtWindows ?? []).OrderBy(w => w.StartTime).ThenBy(w => w.EndTime))
                 Row(sheet, row++, "不可用场地 " + day.DayLabel, Time(window.StartTime), Time(window.EndTime), window.Courts.Count == 0 ? "全部配置场地" : string.Join("、", window.Courts));
         }
-        Row(sheet, row++, "项目时长", "项目 ID", "项目名称", "常规分钟", "分界人数", "分界前分钟", "计时口径");
         foreach (var project in context.Projects.Values.OrderBy(p => p.SortOrder).ThenBy(p => p.Id))
         {
             policy.ProjectTimings.TryGetValue(project.Id, out var timing);
-            Row(sheet, row++, "项目时长设置", project.Id, project.DisplayName, timing is null ? "逐场使用节点预计分钟" : timing.MatchMinutes,
-                timing?.KnockoutTimingBoundaryEntrants is { } boundary ? boundary : "未设置", timing?.BeforeBoundaryMinutes is { } before ? before : "未设置",
-                "BeforeBoundaryMinutes：非排位赛且人数大于分界或显式分界前标记时使用；否则常规分钟。未配置时使用各节点预计分钟。");
-            foreach (var node in project.MatchGraph!.Matches.OrderBy(n => n.Order).ThenBy(n => n.Id))
-                Row(sheet, row++, "节点计时来源", project.Id, node.Id, node.DisplayName, node.ExpectedDurationMinutes,
-                    node.KnockoutEntrantCount is { } entrants ? entrants : "未设置", $"显式分界前={node.ForceBeforeTimingBoundary}; 排位赛={node.IsPlacementPlayoff}");
+            var description = timing is null ? "按各场次预计时长安排。" : $"常规场次 {timing.MatchMinutes} 分钟。";
+            if (timing?.BeforeBoundaryMinutes is { } before && timing.KnockoutTimingBoundaryEntrants is { } boundary)
+                description += $"淘汰赛参赛人数多于 {boundary} 人的轮次或指定的前期轮次为 {before} 分钟；排位赛使用常规时长。";
+            Row(sheet, row++, "项目时长设置", projectLabels[project.Id], "", description);
         }
-        Row(sheet, row++, "每日负荷目标", "日期", "目标利用率", "预警利用率");
-        foreach (var target in policy.DayLoadTargets.OrderBy(t => t.DayLabel, StringComparer.Ordinal))
-            Row(sheet, row++, "负荷目标", target.DayLabel, target.TargetUtilization, target.WarningUtilization);
-        Row(sheet, row++, "阶段进度目标", "日期", "累计进度");
-        foreach (var target in policy.StageWaveTargets.OrderBy(t => t.DayLabel, StringComparer.Ordinal))
-            Row(sheet, row++, "阶段目标", target.DayLabel, target.CumulativeProgress);
-        Row(sheet, row++, "决赛日偏好", "项目 ID", "项目名称", "场次类别", "偏好（软约束）");
-        foreach (var rule in policy.FinalDayRules.OrderBy(r => r.ProjectId).ThenBy(r => r.Category))
-            Row(sheet, row++, "决赛日规则", rule.ProjectId, context.Projects.TryGetValue(rule.ProjectId, out var project) ? project.DisplayName : "未知项目（无效输入）", rule.Category, rule.Preference);
         Finish(sheet, row - 1, 7);
     }
 
-    private static void WriteSources(XLWorkbook book, WorkspaceScheduleExportContext context, DateTimeOffset at, IReadOnlyList<TournamentProject> projects)
-    {
-        var w = context.Workspace;
-        var sheet = Sheet(book, "来源项目", $"工作区 {w.Id} · 工作区修订 {w.Revision} · 赛程修订 {w.Schedule!.Revision}",
-            ["项目 ID", "项目名称", "单项", "赛制", "对阵图修订", "抽签确认时间", "名单来源文件名", "名单内容 SHA-256", "场次数", "已记录赛果"],
-            [28, 22, 20, 25, 42, 42, 32, 44, 10, 12]);
-        sheet.Cell(3, 1).Value = $"快照更新时间 {Instant(w.UpdatedAt)} · 生成时间 {Instant(at)} · 单一工作区来源；未声明文件导出审计已保存。";
-        var row = 5;
-        foreach (var project in projects)
-            Row(sheet, row++, project.Id, project.DisplayName, project.Discipline, project.CompetitionMode, project.MatchGraph!.Revision,
-                Instant(project.Draw!.ConfirmedAt!.Value), project.Roster!.SourceFileName, project.Roster.ContentHash, project.MatchGraph.Matches.Count,
-                w.Results.Keys.Count(k => k.ProjectId == project.Id));
-        Finish(sheet, row - 1, 10);
-    }
+    private static string ReadableIssueMessage(string message, WorkspaceScheduleExportContext context,
+        IReadOnlyDictionary<Guid, WorkspaceMatchKey> owners, IReadOnlyDictionary<Guid, string> projectLabels) =>
+        System.Text.RegularExpressions.Regex.Replace(message,
+            @"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", match =>
+            {
+                var id = Guid.Parse(match.Value);
+                if (owners.TryGetValue(id, out var key)) return projectLabels[key.ProjectId] + " / " + context.Nodes[key].DisplayName;
+                return projectLabels.TryGetValue(id, out var label) ? label : "未识别的项目或场次";
+            });
 
     private static IXLWorksheet Sheet(XLWorkbook book, string title, string note, string[] headers, double[] widths, bool landscape = true)
     {
@@ -219,7 +200,7 @@ public sealed class WorkspaceScheduleQualityExcelWriter
         sheet.Range(1, 1, 1, headers.Length).Style.Font.FontColor = XLColor.White;
         sheet.Range(1, 1, 1, headers.Length).Style.Font.FontSize = 18;
         sheet.Cell(2, 1).Value = note; sheet.Row(2).Height = 38;
-        sheet.Cell(3, 1).Value = "Core 全局检查 · 当前快照只读诊断 · 计划数据不替代真实赛果"; sheet.Row(3).Height = 34;
+        sheet.Cell(3, 1).Value = "全局赛程检查 · 当前快照只读诊断 · 计划数据不替代真实赛果"; sheet.Row(3).Height = 34;
         Row(sheet, 4, headers.Cast<object>().ToArray()); sheet.Row(4).Height = 36;
         sheet.Range(4, 1, 4, headers.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#EBE4F1");
         sheet.Range(4, 1, 4, headers.Length).Style.Font.Bold = true;
@@ -256,6 +237,6 @@ public sealed class WorkspaceScheduleQualityExcelWriter
         }
         sheet.PageSetup.PrintAreas.Add(1, 1, lastRow, columns);
     }
-    private static string Time(TimeOnly value) => value.ToString("HH:mm:ss.fffffff", Invariant);
+    private static string Time(TimeOnly value) => value.ToString("HH:mm:ss", Invariant);
     private static string Instant(DateTimeOffset value) => value.ToString("O", Invariant);
 }

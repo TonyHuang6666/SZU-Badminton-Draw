@@ -66,8 +66,8 @@
             <SelectableTextBlock x:Name="RecoveryOutputDetails" Text="{Binding OutputDetails}" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
-        <Expander Header="版本兼容与恢复说明">
-          <TextBlock Classes="muted" Margin="0,12,0,0" Text="4.x 赛事文件仍需使用 v4.6.0。关闭面板后需要重新检查和确认；程序不会自动重试恢复。只有验证通过的备份才能作为恢复来源。" />
+        <Expander Header="恢复说明">
+          <TextBlock Classes="muted" Margin="0,12,0,0" Text="关闭面板后需要重新检查和确认；程序不会自动重试恢复。只有验证通过的备份才能作为恢复来源。" />
         </Expander>
       </StackPanel>
     </ScrollViewer>

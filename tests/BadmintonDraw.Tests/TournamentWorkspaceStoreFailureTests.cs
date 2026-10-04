@@ -71,8 +71,9 @@ public class TournamentWorkspaceStoreFailureTests
         using var temp = new WorkspaceStoreTemp(); WorkspaceStoreTemp.Sql(temp.Path, $"PRAGMA user_version={version}; CREATE TABLE metadata(schema_version INTEGER); INSERT INTO metadata VALUES(1)"); var before = Hash(temp.Path);
         var ex = Assert.Throws<WorkspaceStoreException>(() => new TournamentWorkspaceStore().Read(temp.Path));
         Assert.Equal("UnsupportedWorkspaceVersion", ex.Code);
-        if (legacy) { Assert.Contains("v4.6.0", ex.Message); Assert.Contains("/releases/tag/v4.6.0", ex.Message); }
-        else Assert.DoesNotContain("v4.6.0", ex.Message);
+        if (legacy) Assert.Contains("不兼容", ex.Message);
+        else Assert.Contains("升级应用", ex.Message);
+        Assert.DoesNotContain("4.x", ex.Message); Assert.DoesNotContain("v4.6", ex.Message);
         Assert.Equal(before, Hash(temp.Path));
     }
 

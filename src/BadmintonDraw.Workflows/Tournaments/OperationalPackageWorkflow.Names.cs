@@ -6,7 +6,7 @@ namespace BadmintonDraw.Workflows.Tournaments;
 public sealed partial class OperationalPackageWorkflow
 {
     // Derive labels from all projects, not just the selection, so a project's filename stays
-    // the same when exporting it separately. IDs remain in the workbook and manifest.
+    // the same when exporting it separately. IDs remain in record workbooks and the archive audit.
     private static IReadOnlyDictionary<Guid, string> ProjectFileNames(TournamentWorkspace workspace)
     {
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -25,20 +25,20 @@ public sealed partial class OperationalPackageWorkflow
     }
 
     private static string MaterialFileName(OperationalMaterialKind kind, string? project, DateOnly? day,
-        string extension, bool selectedProject, bool multipleYears)
+        string extension, bool singleProject, bool multipleYears)
     {
         var date = day is { } d ? DateLabel(d, multipleYears) : "";
+        var dailyPrefix = date + (singleProject ? project : "合并");
         var title = kind switch
         {
             OperationalMaterialKind.TimedDrawExcel or OperationalMaterialKind.TimedDrawA4Pdf => project + "带时间对阵图",
             OperationalMaterialKind.ProjectRecordExcel => date + project + "赛程记录表",
-            OperationalMaterialKind.DailyScheduleExcel or OperationalMaterialKind.DailySchedulePdf => date + "合并赛程安排表",
-            OperationalMaterialKind.MergedRecordExcel => date + "合并赛程记录表",
-            OperationalMaterialKind.IndividualScorePdf => date + "合并单场比赛计分表",
-            OperationalMaterialKind.TeamScoreExcel => date + "合并团体比赛计分表",
-            OperationalMaterialKind.QualityExcel => selectedProject ? "赛程检查报告" : "多项目排程检查报告",
-            OperationalMaterialKind.Description => selectedProject ? "比赛材料包说明" : "合并材料包说明",
-            OperationalMaterialKind.Manifest => "材料包校验清单",
+            OperationalMaterialKind.DailyScheduleExcel or OperationalMaterialKind.DailySchedulePdf => dailyPrefix + "赛程安排表",
+            OperationalMaterialKind.MergedRecordExcel => dailyPrefix + "赛程记录表",
+            OperationalMaterialKind.IndividualScorePdf => dailyPrefix + "单场比赛计分表",
+            OperationalMaterialKind.TeamScoreExcel => dailyPrefix + "团体比赛计分表",
+            OperationalMaterialKind.QualityExcel => "多项目排程检查报告",
+            OperationalMaterialKind.Description => singleProject ? "材料包说明" : "合并材料包说明",
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
         return title + extension;

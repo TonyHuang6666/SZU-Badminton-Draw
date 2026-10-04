@@ -69,6 +69,10 @@ internal sealed partial class V5AcceptanceScenario(V5AcceptanceEvidence evidence
         Step("package-" + name, () => result = workflow.ExportOperationalPackage(new(evidence.PathFor("materials/" + name), project, days, carry), Revision));
         Require(result!.AuditRecorded && Workspace.AuditEvents.Count(a => a.Id == result.AuditId) == 1, "Package audit is not actually committed exactly once.");
         Require(result.Counts.RequiredOutputCount == result.Outputs.Count && result.Outputs.All(o => File.Exists(o.Path) && new FileInfo(o.Path).Length == o.ByteLength && Hash(o.Path).Equals(o.Sha256, StringComparison.OrdinalIgnoreCase)), "Published package output hash/coverage is incomplete.");
+        Require(!result.Outputs.Any(o => o.Kind == OperationalMaterialKind.Manifest || o.Path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)),
+            "Operational packages must not publish a JSON manifest.");
+        Require(result.Outputs.Count(o => o.Kind == OperationalMaterialKind.QualityExcel) == (result.Scope.ProjectIds.Count > 1 ? 1 : 0),
+            "Only a package containing multiple selected projects publishes a scheduling report.");
         var records = result.Outputs.Where(o => o.Kind == OperationalMaterialKind.MergedRecordExcel).ToArray();
         Require(!result.Outputs.Any(o => o.Kind == OperationalMaterialKind.ProjectRecordExcel) &&
             records.All(o => o.ProjectId is null && o.RecordDay is not null) &&
@@ -84,7 +88,7 @@ internal sealed partial class V5AcceptanceScenario(V5AcceptanceEvidence evidence
         evidence.Json("package-" + name + "-record-bindings.json", records
             .Select(o => V5AcceptanceResults.InspectBindings(o.Path, Workspace)).ToArray());
         evidence.Json("package-" + name + ".json", new { result.SourceRevision, result.AuditId, result.ExportedAt, result.Scope, result.Counts, result.Outputs, result.Skips,
-            ActualAudit = Workspace.AuditEvents.Single(a => a.Id == result.AuditId), ManifestAuditSemantics = "planned until archive audit commit" });
+            ActualAudit = Workspace.AuditEvents.Single(a => a.Id == result.AuditId) });
         return result;
     }
     private WorkspaceResultImportOutcome Import(string name, IReadOnlyList<string> files, bool corrections = false, string? reason = null)

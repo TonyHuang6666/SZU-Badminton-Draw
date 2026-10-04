@@ -23,8 +23,7 @@ public sealed class WorkspaceRecoveryViewModelTests
             fixture.Store.FailCommittedRead = false;
         }
         var (target, backup) = fixture.CorruptTarget(); var oldSession = shell.CurrentSession;
-        Assert.Same(shell.OpenRecoveryCommand, shell.StartPage.OpenRecoveryCommand);
-        shell.StartPage.OpenRecoveryCommand.Execute(null); var vm = shell.Recovery;
+        shell.OpenRecoveryCommand.Execute(null); var vm = shell.Recovery;
         Assert.True(vm.IsOpen); Assert.False(shell.CanNavigate(WorkspaceRoute.Operations));
         vm.RecoverCorruptTarget = true; vm.TargetPath = target; vm.BackupPath = backup; vm.Reason = "核对公开抽签备份后恢复";
         var hash = RecoveryUiFixture.Hash(target);

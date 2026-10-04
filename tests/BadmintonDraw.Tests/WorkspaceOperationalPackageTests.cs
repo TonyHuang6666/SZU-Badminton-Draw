@@ -22,14 +22,14 @@ public sealed class WorkspaceOperationalPackageTests
         var before = f.Workspace;
         var result = f.Workflow.ExportOperationalPackage(new(f.Output, oneProject ? selected.Id : null,
             [WorkspaceOperationalPackageFixture.FirstDay]), f.Workspace.Revision);
-        Assert.Equal(oneProject ? 9 : 13, result.Outputs.Count);
+        Assert.Equal(oneProject ? 7 : 12, result.Outputs.Count);
         Assert.Equal(oneProject ? 3 : 9, result.Counts.DistinctMatchCount);
         Assert.Equal(oneProject ? 3 : 9, result.Counts.RecordRowCount);
         Assert.Equal(oneProject ? 2 : 6, result.Outputs.Count(o => o.Kind is OperationalMaterialKind.TimedDrawExcel or OperationalMaterialKind.TimedDrawA4Pdf));
         Assert.DoesNotContain(result.Outputs, o => o.Kind == OperationalMaterialKind.ProjectRecordExcel);
         var record = Assert.Single(result.Outputs, o => Path.GetFileName(o.Path).EndsWith("赛程记录表.xlsx", StringComparison.Ordinal));
         Assert.Equal(OperationalMaterialKind.MergedRecordExcel, record.Kind);
-        Assert.Equal("9月20日合并赛程记录表.xlsx", Path.GetFileName(record.Path));
+        Assert.Equal(oneProject ? "9月20日同名项目（2）赛程记录表.xlsx" : "9月20日合并赛程记录表.xlsx", Path.GetFileName(record.Path));
         var rows = ReadRecord(record);
         Assert.Equal(oneProject ? 3 : 9, rows.Count);
         Assert.Equal(oneProject ? 1 : 3, rows.Select(r => r.ProjectId.Text).Distinct().Count());
@@ -41,9 +41,16 @@ public sealed class WorkspaceOperationalPackageTests
             Assert.Equal(project.Draw!.ConfirmedAt!.Value, DateTimeOffset.Parse(row.DrawConfirmedAt.Text));
             Assert.Equal("2026-09-20", row.RecordDay.Text);
         }
-        using var quality = new XLWorkbook(Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.QualityExcel).Path);
-        var provenance = string.Join("\n", quality.Worksheet("来源项目").CellsUsed().Select(c => c.GetString()));
-        Assert.All(f.Workspace.Projects, p => Assert.Contains(p.Id.ToString(), provenance));
+        if (oneProject) Assert.DoesNotContain(result.Outputs, o => o.Kind == OperationalMaterialKind.QualityExcel);
+        else
+        {
+            using var quality = new XLWorkbook(Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.QualityExcel).Path);
+            Assert.Equal(new[] { "检查总览", "当前赛程卡片", "检查明细", "选手每日负荷", "资源与日负荷" }, quality.Worksheets.Select(s => s.Name));
+            var cards = string.Join("\n", quality.Worksheet("当前赛程卡片").CellsUsed().Select(c => c.GetString()));
+            Assert.Contains("同名项目", cards);
+            Assert.Contains("B1", cards);
+            Assert.Contains("2026-09-20", cards);
+        }
         var placements = f.Workspace.Schedule!.Placements;
         Assert.Equal(new[] { 20, 25, 30 }, f.Workspace.Projects.Select(p =>
             (int)(placements[p.MatchGraph!.Matches[0].Id].EndTime - placements[p.MatchGraph.Matches[0].Id].StartTime).TotalMinutes));
@@ -78,7 +85,7 @@ public sealed class WorkspaceOperationalPackageTests
     [Fact]
     public void New_merged_package_preserves_old_project_record_files_without_listing_them_as_outputs()
     {
-        using var f = new WorkspaceOperationalPackageFixture();
+        using var f = new WorkspaceOperationalPackageFixture(projects: 2);
         var package = Directory.CreateDirectory(Path.Combine(f.Output, "9月20日-9月22日多项目合并材料包")).FullName;
         var oldRecord = Path.Combine(package, "9月20日同名项目赛程记录表.xlsx");
         File.Copy(f.Record("old-record", [new(f.FirstKey, WorkspaceOperationalPackageFixture.FirstDay)], fill: true), oldRecord);
@@ -92,9 +99,8 @@ public sealed class WorkspaceOperationalPackageTests
         Assert.DoesNotContain(result.Outputs, output => output.Path == oldRecord);
         Assert.Single(result.Outputs, output => output.Kind == OperationalMaterialKind.MergedRecordExcel);
         Assert.DoesNotContain(result.Outputs, output => output.Kind == OperationalMaterialKind.ProjectRecordExcel);
-        using var manifest = ReadManifest(result);
-        Assert.DoesNotContain(manifest.RootElement.GetProperty("Files").EnumerateArray(),
-            output => output.GetProperty("FileName").GetString() == Path.GetFileName(oldRecord));
+        var description = File.ReadAllText(Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.Description).Path);
+        Assert.DoesNotContain(Path.GetFileName(oldRecord), description);
     }
 
     [Theory]
@@ -125,7 +131,7 @@ public sealed class WorkspaceOperationalPackageTests
         Assert.Equal(2, f.Workspace.ImportLogs.Count);
         var before = f.Workspace;
         var result = f.Workflow.ExportOperationalPackage(new(f.Output, PendingCarryoverDay: day.AddDays(1)), before.Revision);
-        Assert.Equal(new OperationalPackageCounts(1, 2, 1, 1, 13), result.Counts);
+        Assert.Equal(new OperationalPackageCounts(1, 2, 1, 1, 11), result.Counts);
         var record = Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.MergedRecordExcel && o.RecordDay == day.AddDays(1));
         Assert.Equal("2026-09-21", Assert.Single(ReadRecord(record)).RecordDay.Text);
         Assert.DoesNotContain(result.Outputs, o => o.RecordDay == day.AddDays(2));
@@ -135,12 +141,10 @@ public sealed class WorkspaceOperationalPackageTests
         Assert.Contains("2026-09-20", daily.Worksheet("赛程明细").Cell(5, 12).GetString());
         Assert.Contains("无本日已安排", daily.Worksheet("时间场地网格").Cell(3, 1).GetString());
         Assert.Equal(WorkspaceOperationalPackageFixture.Business(before), WorkspaceOperationalPackageFixture.Business(result.Command.Workspace));
-        using var manifest = ReadManifest(result);
-        var proofs = manifest.RootElement.GetProperty("CarryoverEvidence").EnumerateArray().ToArray();
-        Assert.Equal(2, proofs.Length);
-        Assert.All(proofs, p => Assert.Contains(before.ImportLogs, log => log.Id == p.GetProperty("ImportLogId").GetGuid() &&
-            log.ContentHash == p.GetProperty("ContentHash").GetString()));
-        Assert.Equal(2, manifest.RootElement.GetProperty("Rows").GetArrayLength());
+        var durable = new TournamentWorkspaceStore().Read(f.Archive);
+        Assert.Equal(before.ImportLogs.Select(log => (log.Id, log.ContentHash)), durable.ImportLogs.Select(log => (log.Id, log.ContentHash)));
+        Assert.Single(durable.AuditEvents, a => a.Id == result.AuditId);
+        Assert.Equal(2, result.Outputs.Where(o => o.Kind == OperationalMaterialKind.MergedRecordExcel).Sum(o => ReadRecord(o).Count));
         f.Retain("pending-carryover", before, result);
     }
 
@@ -178,7 +182,7 @@ public sealed class WorkspaceOperationalPackageTests
             return source with { Schedule = source.Schedule with { Placements = placements } };
         });
         var result = f.Workflow.ExportOperationalPackage(new(f.Output, Days: [WorkspaceOperationalPackageFixture.FirstDay]), f.Workspace.Revision);
-        Assert.Equal(11, result.Outputs.Count);
+        Assert.Equal(10, result.Outputs.Count);
         Assert.Equal(2, result.Counts.TimedDrawMatchCount);
         Assert.DoesNotContain(result.Outputs, o => o.Kind == OperationalMaterialKind.ProjectRecordExcel);
         var row = Assert.Single(ReadRecord(Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.MergedRecordExcel)));
@@ -245,16 +249,14 @@ public sealed class WorkspaceOperationalPackageTests
         var changed = request with { Days = dates }; dates.Add(WorkspaceOperationalPackageFixture.FirstDay.AddDays(2));
         Assert.Empty(changed.Days!);
         var result = f.Workflow.ExportOperationalPackage(request, f.Workspace.Revision);
-        Assert.Single(result.Scope.Days); Assert.Equal(9, result.Outputs.Count);
+        Assert.Single(result.Scope.Days); Assert.Equal(7, result.Outputs.Count);
         var outputs = result.Outputs.ToList(); var copy = result with { Outputs = outputs }; outputs.Clear();
-        Assert.Equal(9, copy.Outputs.Count);
+        Assert.Equal(7, copy.Outputs.Count);
         Assert.Throws<NotSupportedException>(() => ((IList<OperationalPackageOutput>)result.Outputs).Clear());
     }
 
     internal static IReadOnlyList<WorkspaceRecordRawRow> ReadRecord(OperationalPackageOutput output) =>
         new WorkspaceMatchRecordReader().ReadWorkspaceRecord(File.ReadAllBytes(output.Path)).Rows;
-    internal static JsonDocument ReadManifest(OperationalPackageOutcome result) =>
-        JsonDocument.Parse(File.ReadAllText(Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.Manifest).Path));
 
     [Fact]
     public void Narrow_day_still_gets_full_timed_graph_and_unselected_receipt_cannot_add_rows()
@@ -275,7 +277,7 @@ public sealed class WorkspaceOperationalPackageTests
         var result = f.Workflow.ExportOperationalPackage(new(f.Output, selected.Id,
             [WorkspaceOperationalPackageFixture.FirstDay, WorkspaceOperationalPackageFixture.FirstDay.AddDays(1)],
             WorkspaceOperationalPackageFixture.FirstDay.AddDays(1)), f.Workspace.Revision);
-        Assert.Equal(new OperationalPackageCounts(2, 2, 0, 3, 9), result.Counts);
+        Assert.Equal(new OperationalPackageCounts(2, 2, 0, 3, 7), result.Counts);
         Assert.DoesNotContain(result.Outputs, o => o.RecordDay == WorkspaceOperationalPackageFixture.FirstDay.AddDays(1));
         using var timed = new XLWorkbook(Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.TimedDrawExcel).Path);
         var content = string.Join("\n", timed.Worksheets.SelectMany(s => s.CellsUsed()).Select(c => c.GetString()));
@@ -285,12 +287,11 @@ public sealed class WorkspaceOperationalPackageTests
             var placement = f.Workspace.Schedule!.Placements[n.Id];
             Assert.Contains($"{placement.DayLabel} {placement.StartTime:HH:mm}-{placement.EndTime:HH:mm}\n{placement.Court}", content);
         });
-        using var manifest = ReadManifest(result);
-        Assert.Equal(0, manifest.RootElement.GetProperty("CarryoverEvidence").GetArrayLength());
+        Assert.Equal(0, result.Counts.PendingCarryoverCount);
     }
 
     [Fact]
-    public void Real_single_project_package_publishes_all_nine_artifacts_then_saves_one_audit_only()
+    public void Real_single_project_package_publishes_all_selected_materials_then_saves_one_audit_only()
     {
         using var fixture = new WorkspaceOperationalPackageFixture();
         var before = fixture.Workspace;
@@ -299,9 +300,9 @@ public sealed class WorkspaceOperationalPackageTests
         Assert.Equal(before.Revision, result.SourceRevision);
         Assert.Equal(before.Revision + 1, result.Command.Workspace.Revision);
         Assert.Equal(WorkspaceOperationalPackageFixture.Business(before), WorkspaceOperationalPackageFixture.Business(result.Command.Workspace));
-        Assert.Equal(new OperationalPackageCounts(1, 1, 0, 1, 9), result.Counts);
-        Assert.Equal(9, result.Outputs.Count);
-        Assert.Equal(9, result.Outputs.Select(o => o.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Equal(new OperationalPackageCounts(1, 1, 0, 1, 7), result.Counts);
+        Assert.Equal(result.Counts.RequiredOutputCount, result.Outputs.Count);
+        Assert.Equal(result.Outputs.Count, result.Outputs.Select(o => o.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count());
         Assert.All(result.Outputs, output =>
         {
             Assert.True(output.ByteLength > 0);
@@ -315,11 +316,12 @@ public sealed class WorkspaceOperationalPackageTests
         Assert.Single(parsed.Rows);
         var durable = new TournamentWorkspaceStore().Read(fixture.Archive);
         Assert.Single(durable.AuditEvents, a => a.Id == result.AuditId && a.Action == "OperationalPackageExported");
-        using var manifest = JsonDocument.Parse(File.ReadAllText(Assert.Single(result.Outputs, o => o.Kind == OperationalMaterialKind.Manifest).Path));
-        Assert.Equal("Planned", manifest.RootElement.GetProperty("Audit").GetProperty("State").GetString());
-        Assert.Equal(8, manifest.RootElement.GetProperty("Files").GetArrayLength());
+        using var audit = JsonDocument.Parse(durable.AuditEvents.Single(a => a.Id == result.AuditId).Detail!);
+        Assert.Equal(result.Outputs.Count, audit.RootElement.GetProperty("Outputs").GetArrayLength());
+        Assert.All(audit.RootElement.GetProperty("Outputs").EnumerateArray(), output =>
+            Assert.Equal(WorkspaceOperationalPackageFixture.Hash(output.GetProperty("Path").GetString()!), output.GetProperty("Sha256").GetString()));
         var package = Assert.Single(Directory.GetDirectories(fixture.Output));
-        Assert.Equal(Path.Combine(fixture.Output, "9月20日-9月22日多项目合并材料包"), package);
+        Assert.Equal(Path.Combine(fixture.Output, "9月20日-9月22日同名项目比赛材料包"), package);
         Assert.Empty(Directory.GetDirectories(package));
         Assert.All(result.Outputs, output => Assert.Equal(package, Path.GetDirectoryName(output.Path)));
         fixture.Retain("single-project", before, result);
