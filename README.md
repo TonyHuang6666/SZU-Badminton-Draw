@@ -4,6 +4,14 @@
 
 [使用说明](docs/usage.md) · [赛程编排](docs/scheduling.md) · [故障处理](docs/troubleshooting.md) · [文档中心](docs/index.md)
 
+## 项目起源与自主研发
+
+本项目由 Tony Huang 围绕深圳大学羽毛球协会的校园赛事组织需求发起并持续开发。项目的早期原型是 C++ 抽签分组程序 [BFSZU.cpp](https://github.com/TonyHuang6666/Badminton-Draw/blob/main/BFSZU.cpp)，面向单项赛和团体赛，提供名单输入、随机分组、种子分配、轮空与首轮对阵安排，以及抽签结果的文本导出，帮助赛事组织者完成抽签和后续制表工作。
+
+原型源码的开头说明记载了作者身份及 **2023 年校长杯筹备**的开发背景；该文件的 Git 提交记录可追溯至 **2023 年 8 月 27 日**的[首次提交 `616dc10`](https://github.com/TonyHuang6666/Badminton-Draw/commit/616dc1052e3c4ec38665e73d9d9a2de0a51af67c)。[该次提交中的原型源码](https://github.com/TonyHuang6666/Badminton-Draw/blob/616dc1052e3c4ec38665e73d9d9a2de0a51af67c/BFSZU.cpp)保留了当时的设计说明和实现，可作为了解项目起点的可核查资料。
+
+项目的自主研发工作围绕赛事业务规则、组织流程及其软件实现展开。当前程序采用 C#/.NET 与 Avalonia，研发范围覆盖可复现抽签、种子保护与同单位分散、比赛依赖建模、多项目赛程编排与约束校验，并延伸至赛事存档、现场材料、赛果导入和桌面交互。具体实现与验证依据可查阅本仓库源码、测试、提交记录，以及[算法说明](docs/algorithm.md)和[系统架构](docs/architecture.md)。从抽签原型到赛事工作台，项目持续围绕校园羽毛球比赛的实际组织需求完善功能。
+
 ## 主要功能
 
 - 一份 `.szbd` 赛事文件保存整场比赛的项目、名单、签表、赛程、赛果和操作记录。
@@ -80,3 +88,5 @@ dotnet run --project src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj -c R
 ## 授权
 
 本项目采用双许可证模式：大学、高校羽毛球社团可免费用于非商业校园赛事、社团管理、学生比赛及相关教育或学生组织活动；商业用途需先取得作者书面授权。授权范围与条件见 [LICENSE](LICENSE)。
+
+项目起源与研发记录用于说明开发沿革。本项目使用的第三方框架、软件库、字体及图形素材，其权利与使用条件以各自的授权声明为准；商业化发布时应一并核对相关许可与署名要求。
