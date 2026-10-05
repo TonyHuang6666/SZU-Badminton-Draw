@@ -17,12 +17,15 @@ public sealed class ScheduleProjectTimingViewModel : ScheduleEditorViewModel
     public bool UseTimingSplit { get => useTimingSplit; set => Edit(ref useTimingSplit, value, nameof(UseTimingSplit)); }
     public ScheduleProjectTimingViewModel(TournamentProject project, TournamentSchedulingPolicy? policy, Action changed) : base(changed)
     {
-        ProjectId = project.Id; Name = project.DisplayName; SupportsTimingSplit = project.CompetitionMode is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout;
+        ProjectId = project.Id; Name = project.DisplayName; SupportsTimingSplit = project.CompetitionMode == CompetitionMode.SinglesKnockout;
         var timing = policy?.ProjectTimings.GetValueOrDefault(project.Id);
         useTimingSplit = SupportsTimingSplit && timing?.KnockoutTimingBoundaryEntrants is not null;
         // The persisted model stores the later duration in MatchMinutes. Present the
         // early duration as the main input without changing existing match lengths.
-        minutesText = (useTimingSplit ? timing!.BeforeBoundaryMinutes!.Value :
+        // A saved team split becomes a uniform draft using its existing base (early) duration.
+        var hadKnockoutSplit = project.CompetitionMode is CompetitionMode.SinglesKnockout or CompetitionMode.TeamKnockout &&
+            timing?.KnockoutTimingBoundaryEntrants is not null;
+        minutesText = (hadKnockoutSplit ? timing!.BeforeBoundaryMinutes!.Value :
             timing?.MatchMinutes ?? project.MatchGraph?.Matches.FirstOrDefault()?.ExpectedDurationMinutes ?? 30).ToString();
         boundaryText = timing?.KnockoutTimingBoundaryEntrants?.ToString() ?? "8";
         afterMinutesText = timing?.MatchMinutes.ToString() ?? minutesText;

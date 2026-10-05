@@ -94,7 +94,7 @@
     <Border x:Name="DrawActionBar" Grid.Row="1" Classes="action-bar">
       <WrapPanel HorizontalAlignment="Right">
         <Button Content="返回名单" Classes="quiet" Command="{Binding BackCommand}" Margin="0,0,12,6" />
-        <Button x:Name="PendingDrawSummaryButton" Content="{Binding PendingDrawSummary}" IsVisible="{Binding HasPendingDraws}" Classes="quiet" Margin="0,0,12,6">
+        <Button x:Name="PendingDrawSummaryButton" Content="{Binding PendingDrawSummary}" IsVisible="{Binding ShowPendingDrawSummary}" Classes="quiet" Margin="0,0,12,6">
           <Button.Flyout>
             <Flyout Placement="Top" ShowMode="Standard" OverlayDismissEventPassThrough="False">
               <StackPanel x:Name="PendingDrawList" Width="300" Spacing="12">

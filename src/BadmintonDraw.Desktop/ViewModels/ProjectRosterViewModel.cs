@@ -91,7 +91,7 @@ public sealed class ProjectRosterViewModel : ViewModelBase
         editorBaseline = project; editorConflict = false;
         Rows.Clear();
         if (project.Roster is { } roster)
-            foreach (var (participant, index) in roster.Participants.Select((p, i) => (p, i))) Rows.Add(new(index, participant));
+            foreach (var (participant, index) in roster.Participants.Select((p, i) => (p, i))) Rows.Add(new(index, participant, project.Discipline == EventDiscipline.Team));
         RefreshAvailability();
     }
     internal void Refresh(TournamentProject next)
@@ -111,15 +111,16 @@ public sealed class ProjectRosterViewModel : ViewModelBase
     }
 }
 
-public sealed class RosterSeedRowViewModel(int sourceIndex, DrawParticipant participant) : ViewModelBase
+public sealed class RosterSeedRowViewModel(int sourceIndex, DrawParticipant participant, bool isTeam) : ViewModelBase
 {
     private bool canEdit;
     private bool isSeed = participant.IsSeed;
     private string seedRankText = participant.SeedRank?.ToString() ?? "";
     public int SourceIndex { get; } = sourceIndex;
     public string Order => (SourceIndex + 1).ToString();
-    public string Name => participant.PrimaryName ?? participant.DisplayName;
-    public string Identity => string.Join(" · ", new[] { participant.PrimaryStudentId, participant.TeamName }.Where(s => !string.IsNullOrWhiteSpace(s)));
+    public string Name => isTeam || string.IsNullOrWhiteSpace(participant.PrimaryName) ? participant.DisplayName : participant.PrimaryName;
+    public string Identity => isTeam ? "" : string.Join(" · ", new[] { participant.PrimaryStudentId, participant.TeamName }.Where(s => !string.IsNullOrWhiteSpace(s)));
+    public bool HasIdentity => !string.IsNullOrWhiteSpace(Identity);
     public string Partner => string.Join(" · ", new[] { participant.PartnerName, participant.PartnerStudentId, participant.PartnerTeamName }.Where(s => !string.IsNullOrWhiteSpace(s)));
     public string Note => participant.Note ?? "";
     public bool CanEdit => canEdit;

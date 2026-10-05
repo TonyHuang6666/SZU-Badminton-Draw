@@ -102,7 +102,7 @@
           </Border>
           <Border Classes="card">
             <StackPanel Spacing="12"><TextBlock Classes="section-title" Text="比赛安排" />
-              <TextBlock Text="程序会优先使用较早的可用时段，让比赛尽快完成，同时保证选手休息。" TextWrapping="Wrap" Classes="muted" />
+              <TextBlock Text="{Binding SchedulingHint}" TextWrapping="Wrap" Classes="muted" />
               <CheckBox x:Name="FinalsOnLastDay" IsChecked="{Binding RequireChampionshipFinalsOnLastDay}" IsVisible="{Binding IsMultiProject}"
                         AutomationProperties.Name="将各项目决赛安排在最后一个比赛日">
                 <TextBlock Text="将各项目决赛安排在最后一个比赛日" TextWrapping="Wrap" />
@@ -137,7 +137,7 @@
             </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
           </StackPanel>
           <StackPanel Spacing="14">
-            <StackPanel Spacing="4"><TextBlock Classes="section-title" Text="每场比赛预留多久？" /><TextBlock Classes="muted" Text="请包含热身、比赛和换场时间。选手的休息时间会另行计算。" TextWrapping="Wrap" /></StackPanel>
+            <StackPanel Spacing="4"><TextBlock Classes="section-title" Text="每场比赛预留多久？" /><TextBlock Classes="muted" Text="{Binding MatchDurationHint}" TextWrapping="Wrap" /></StackPanel>
             <ItemsControl ItemsSource="{Binding ProjectTimings}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ScheduleProjectTimingViewModel">
               <Border Classes="card" Margin="0,0,0,12"><Grid ColumnDefinitions="*,180">
                 <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,16,0" />
@@ -147,15 +147,15 @@
           </StackPanel>
           <Expander x:Name="AdvancedScheduleSettings" Header="高级排程设置" IsExpanded="False" HorizontalAlignment="Stretch">
             <StackPanel Spacing="20" Margin="0,16,0,0">
-              <TextBlock Classes="muted" Text="在这里设置裁判、选手休息、不可用时段和分段比赛时长。折叠此处不会清空已填写的内容。" TextWrapping="Wrap" />
+              <TextBlock Classes="muted" Text="{Binding AdvancedSettingsHint}" TextWrapping="Wrap" />
               <Border Classes="card"><StackPanel Spacing="14">
-                <TextBlock Classes="section-title" Text="裁判与选手休息" />
+                <TextBlock Classes="section-title" Text="{Binding ResourceSettingsTitle}" />
                 <WrapPanel>
                   <StackPanel Width="200" Spacing="6" Margin="0,0,16,8"><TextBlock Text="裁判人数" /><TextBox Text="{Binding RefereeCountText}" PlaceholderText="留空时按场地数计算" AutomationProperties.Name="全局裁判人数" /></StackPanel>
-                  <StackPanel Width="200" Spacing="6" Margin="0,0,16,8"><TextBlock Text="选手最少休息 · 分钟" /><TextBox Text="{Binding MinimumRestText}" AutomationProperties.Name="全局最小休息分钟" /></StackPanel>
-                  <StackPanel Width="200" Spacing="6" Margin="0,0,16,8"><TextBlock Text="每位选手每天最多场次" /><TextBox Text="{Binding DailyMaximumText}" AutomationProperties.Name="全局每日场次上限" /></StackPanel>
+                  <StackPanel Width="200" Spacing="6" Margin="0,0,16,8" IsVisible="{Binding IsIndividual}"><TextBlock Text="选手最少休息 · 分钟" /><TextBox Text="{Binding MinimumRestText}" AutomationProperties.Name="全局最小休息分钟" /></StackPanel>
+                  <StackPanel Width="200" Spacing="6" Margin="0,0,16,8" IsVisible="{Binding IsIndividual}"><TextBlock Text="每位选手每天最多场次" /><TextBox Text="{Binding DailyMaximumText}" AutomationProperties.Name="全局每日场次上限" /></StackPanel>
                 </WrapPanel>
-                <TextBlock Classes="muted" Text="场地、裁判、选手休息和每日场次限制必须满足。勾选决赛最后一天后，也必须满足该日期要求；无法安排时会保留原赛程。" TextWrapping="Wrap" />
+                <TextBlock Classes="muted" Text="{Binding ResourceConstraintsHint}" TextWrapping="Wrap" />
               </StackPanel></Border>
               <TextBlock Classes="section-title" Text="每天的特殊安排" />
               <ItemsControl ItemsSource="{Binding Days}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ScheduleDayEditorViewModel">
@@ -190,10 +190,10 @@
                   </StackPanel></Expander>
                 </StackPanel></Border>
               </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-              <TextBlock Classes="section-title" Text="分段比赛时长" />
-              <TextBlock Classes="muted" Text="分界前使用上方的基础时长。例如基础 20 分钟、前 16 名起 30 分钟：32 进 16 用 20 分钟，16 进 8 及以后用 30 分钟；排位赛使用后段时长。" TextWrapping="Wrap" />
-              <ItemsControl ItemsSource="{Binding ProjectTimings}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ScheduleProjectTimingViewModel">
-                <Border Classes="card" Margin="0,0,0,12"><StackPanel Spacing="14">
+              <TextBlock Classes="section-title" Text="分段比赛时长" IsVisible="{Binding HasTimingSplitSettings}" />
+              <TextBlock Classes="muted" Text="分界前使用上方的基础时长。例如基础 20 分钟、前 16 名起 30 分钟：32 进 16 用 20 分钟，16 进 8 及以后用 30 分钟；排位赛使用后段时长。" TextWrapping="Wrap" IsVisible="{Binding HasTimingSplitSettings}" />
+              <ItemsControl ItemsSource="{Binding ProjectTimings}" IsVisible="{Binding HasTimingSplitSettings}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ScheduleProjectTimingViewModel">
+                <Border Classes="card" Margin="0,0,0,12" IsVisible="{Binding SupportsTimingSplit}"><StackPanel Spacing="14">
                   <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" />
                   <CheckBox Content="进入前 N 名起使用不同的比赛时长" IsChecked="{Binding UseTimingSplit}" IsVisible="{Binding SupportsTimingSplit}" />
                   <WrapPanel IsVisible="{Binding UseTimingSplit}">
@@ -204,7 +204,7 @@
               </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
             </StackPanel>
           </Expander>
-          <TextBlock Classes="muted" Text="生成时会检查可用时段、场地、裁判、选手冲突和休息要求；若无法全部安排，会保留现有赛程并列出原因。" TextWrapping="Wrap" />
+          <TextBlock Classes="muted" Text="{Binding GenerationHint}" TextWrapping="Wrap" />
         </StackPanel>
       </StackPanel>
     </ScrollViewer>

@@ -64,7 +64,7 @@
                                 <Border BorderBrush="{DynamicResource AppSoftBorderBrush}" BorderThickness="0,0,0,1" Padding="12">
                                   <Grid ColumnDefinitions="40,2*,2*,65,90" RowDefinitions="Auto,Auto">
                                     <TextBlock Text="{Binding Order}" Classes="muted" VerticalAlignment="Center" />
-                                    <StackPanel Grid.Column="1" Spacing="4" Margin="0,0,12,0"><SelectableTextBlock Text="{Binding Name}" TextWrapping="Wrap" /><SelectableTextBlock Text="{Binding Identity}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AppMutedTextBrush}" /></StackPanel>
+                                    <StackPanel Grid.Column="1" Spacing="4" Margin="0,0,12,0" VerticalAlignment="Center"><SelectableTextBlock Text="{Binding Name}" TextWrapping="Wrap" /><SelectableTextBlock Text="{Binding Identity}" IsVisible="{Binding HasIdentity}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AppMutedTextBrush}" /></StackPanel>
                                     <StackPanel Grid.Column="2" Spacing="4" Margin="0,0,12,0"><SelectableTextBlock Text="{Binding Partner}" TextWrapping="Wrap" /><TextBlock Text="{Binding Note}" TextWrapping="Wrap" Classes="muted" FontSize="12" /></StackPanel>
                                     <CheckBox Grid.Column="3" IsChecked="{Binding IsSeed}" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="种子标记" />
                                     <TextBox Grid.Column="4" Text="{Binding SeedRankText}" IsEnabled="{Binding CanEdit}" PlaceholderText="可留空" AutomationProperties.Name="种子序号" />

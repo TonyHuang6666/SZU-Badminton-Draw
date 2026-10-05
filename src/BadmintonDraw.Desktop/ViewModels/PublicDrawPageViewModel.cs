@@ -38,6 +38,7 @@ public sealed class PublicDrawPageViewModel : WorkspacePageViewModel, IDisposabl
     public bool AllDrawsConfirmed => Session.Workspace.Projects.Count > 0 && Session.Workspace.Projects.All(p => p.Draw?.ConfirmedAt is not null);
     public IReadOnlyList<ProjectDrawViewModel> PendingProjects => Projects.Where(project => !project.IsConfirmed).ToArray();
     public bool HasPendingDraws => PendingProjects.Count > 0;
+    public bool ShowPendingDrawSummary => Session.Workspace.Kind == TournamentKind.Individual && HasMultipleProjects && HasPendingDraws;
     public string PendingDrawSummary => $"还有 {PendingProjects.Count} 项未确认 · 查看";
     public string SchedulingHint => HasPendingDraws
         ? $"还有 {PendingProjects.Count} 个项目未确认抽签。点击下方项目继续处理，全部确认后即可安排赛程。"
@@ -173,7 +174,7 @@ public sealed class PublicDrawPageViewModel : WorkspacePageViewModel, IDisposabl
         }
         base.RefreshSession(next); RefreshProjects();
         foreach (var property in new[] { nameof(Readiness), nameof(CanUpgrade), nameof(AllDrawsConfirmed), nameof(CompletionHint), nameof(HasMultipleProjects),
-            nameof(PendingProjects), nameof(HasPendingDraws), nameof(PendingDrawSummary), nameof(SchedulingHint) }) OnPropertyChanged(property);
+            nameof(PendingProjects), nameof(HasPendingDraws), nameof(ShowPendingDrawSummary), nameof(PendingDrawSummary), nameof(SchedulingHint) }) OnPropertyChanged(property);
     }
     private void RefreshProjects()
     {

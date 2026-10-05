@@ -180,7 +180,7 @@ public sealed partial class ScheduleExcelWriter
             ("网格打印", "本日全部场地按配置顺序合并总览；保留空闲场地，PDF 为 A4 横向每日总览。"),
             ("裁判人数默认值", resources.RefereeCount is { } referee ? $"{referee} 人" : "按可用场地数"),
             ("全局最短休息", $"{resources.MinimumRestMinutes} 分钟"),
-            ("全局选手每日上限", $"{resources.MaxPlayerMatchesPerDay} 场"),
+            ("全局选手每日上限", resources.MaxPlayerMatchesPerDay == int.MaxValue ? "不限" : $"{resources.MaxPlayerMatchesPerDay} 场"),
             ("全局编排策略", policy.Strategy switch { ScheduleAutoSchedulingStrategy.Compact => "紧凑完成",
                 ScheduleAutoSchedulingStrategy.BalancedRelaxed => "均衡宽松", ScheduleAutoSchedulingStrategy.FinalsDayFriendly => "决赛日友好", _ => "自定义" }),
             ("同步阶段进度", policy.SynchronizeStageWaves ? "是" : "否")

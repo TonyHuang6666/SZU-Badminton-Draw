@@ -27,6 +27,24 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
     public ObservableCollection<ScheduleProjectTimingViewModel> ProjectTimings { get; } = [];
     public bool IsSingleProject => Session.Workspace.Projects.Count == 1;
     public bool IsMultiProject => !IsSingleProject;
+    public bool IsIndividual => Session.Workspace.Kind == TournamentKind.Individual;
+    public bool HasTimingSplitSettings => ProjectTimings.Any(p => p.SupportsTimingSplit);
+    public string SchedulingHint => IsIndividual
+        ? "程序会优先使用较早的可用时段，让比赛尽快完成，同时保证选手休息。"
+        : "程序会优先使用较早的可用时段，让比赛尽快完成，同时保证团体对抗的先后顺序。";
+    public string MatchDurationHint => IsIndividual
+        ? "请包含热身、比赛和换场时间。选手的休息时间会另行计算。"
+        : "请填写一场团体对抗的完整时长，包含各盘比赛、热身和换场时间。";
+    public string AdvancedSettingsHint => IsIndividual
+        ? "在这里设置裁判、选手休息、不可用时段和分段比赛时长。折叠此处不会清空已填写的内容。"
+        : "在这里设置裁判人数和不可用时段。折叠此处不会清空已填写的内容。";
+    public string ResourceSettingsTitle => IsIndividual ? "裁判与选手休息" : "裁判设置";
+    public string ResourceConstraintsHint => IsIndividual
+        ? "场地、裁判、选手休息和每日场次限制必须满足。勾选决赛最后一天后，也必须满足该日期要求；无法安排时会保留原赛程。"
+        : "场地和裁判限制必须满足；同一队伍不能同时参加两场对抗，后续比赛必须在前序比赛结束后开始。无法安排时会保留原赛程。";
+    public string GenerationHint => IsIndividual
+        ? "生成时会检查可用时段、场地、裁判、选手冲突和休息要求；若无法全部安排，会保留现有赛程并列出原因。"
+        : "生成时会检查可用时段、场地、裁判、队伍冲突和比赛先后顺序；若无法全部安排，会保留现有赛程并列出原因。";
     public string ScheduleSummary => $"{Session.Workspace.Projects.Count} 个项目 · 共 {Session.Workspace.Projects.Sum(p => p.MatchGraph?.Matches.Count ?? 0)} 场比赛";
     public ScheduleCapacityEstimate? CapacityEstimate
     {
@@ -49,7 +67,9 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
     public string CapacitySummary => CapacityEstimate is not { } estimate
         ? "请填写有效的日期、时段、场地和时长后查看容量估算。"
         : $"按场地与裁判计算，可用时间共 {estimate.AvailableMinutes} 分钟；{estimate.MatchCount} 场比赛预计需要 {estimate.RequiredMinutes} 分钟。折合约 {estimate.EquivalentMatches} 场（按平均时长估算）。" +
-            (estimate.IsInsufficient ? " 当前总容量不足，请增加日期、时间或资源。" : " 总量可容纳；仍需检查选手冲突、休息和比赛先后顺序。") +
+            (estimate.IsInsufficient ? " 当前总容量不足，请增加日期、时间或资源。" : IsIndividual
+                ? " 总量可容纳；仍需检查选手冲突、休息和比赛先后顺序。"
+                : " 总量可容纳；仍需检查队伍冲突和比赛先后顺序。") +
             " 容量估算不保证能排下全部比赛。";
     public string FinalDayHint => Days.Select(d => d.SelectedDate).Max() is { } last
         ? $"最后一个比赛日：{last:yyyy-MM-dd}。仅限定冠亚军决赛；半决赛、季军赛和排位赛仍尽早安排。没有冠亚军决赛的项目不受此项影响。"
@@ -88,19 +108,24 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         SchedulingFailureKind.InvalidInput => "请检查日期、时段、场地、裁判、预计时长及高级设置中的输入提示。",
         SchedulingFailureKind.Canceled => "输入仍保留，可以检查设置后重新生成。",
         SchedulingFailureKind.ProvenInfeasible when Failure.CapacityEvidence?.Kind == "PlayerDailyCap" => "请增加比赛日，或由赛事组织者复核每位选手的每日场次上限。场地和裁判数量不会改变该上限。",
-        SchedulingFailureKind.ProvenInfeasible when Failure.CapacityEvidence?.Kind == "PlayerTime" => "请增加比赛日或延长每日可用时段，并复核比赛时长、最短休息和每日上限；场地和裁判数量不会增加同一选手的可用时间。",
+        SchedulingFailureKind.ProvenInfeasible when Failure.CapacityEvidence?.Kind == "PlayerTime" => IsIndividual
+            ? "请增加比赛日或延长每日可用时段，并复核比赛时长、最短休息和每日上限；场地和裁判数量不会增加同一选手的可用时间。"
+            : "请增加比赛日或延长每日可用时段，并复核每场团体对抗的完整时长；增加场地和裁判不能让同一队伍同时参加多场对抗。",
         SchedulingFailureKind.ProvenInfeasible => "请增加比赛日、延长可用时段或增加可用场地与裁判，并检查不可用时段。",
         _ when Failure?.Diagnostics is { Policy.RequireChampionshipFinalsOnLastDay: true } details && details.Resources.Days.Count > 0 =>
             $"本次要求冠亚军决赛必须在 {details.Resources.Days.Max(d => d.Date):yyyy-MM-dd} 进行。请检查最后一天的时段、场地和裁判，以及前序比赛与休息时间。程序不会自动提前决赛或取消勾选；如不需要固定日期，可自行取消勾选后重新生成。",
-        _ when Failure is not null => "可以检查设置后重试，或请赛事组织者复核比赛时长、休息和每日上限。本次没有自动修改任何参数。",
+        _ when Failure is not null => IsIndividual
+            ? "可以检查设置后重试，或请赛事组织者复核比赛时长、休息和每日上限。本次没有自动修改任何参数。"
+            : "可以检查设置后重试，或复核团体对抗时长、可用时段、场地和裁判。本次没有自动修改任何参数。",
         _ => ""
     };
 
-    private static string CapacityFailureSummary(SchedulingFailure detail)
+    private string CapacityFailureSummary(SchedulingFailure detail)
     {
         if (detail.CapacityEvidence is not { } evidence || detail.Diagnostics is not { } diagnostics)
             return "已证明当前设置的容量不足。";
-        var resources = diagnostics.Resources; var player = string.IsNullOrWhiteSpace(evidence.PlayerName) ? "该选手" : evidence.PlayerName;
+        var resources = diagnostics.Resources; var player = string.IsNullOrWhiteSpace(evidence.PlayerName)
+            ? IsIndividual ? "该选手" : "该队伍" : evidence.PlayerName;
         if (evidence.Kind == "PlayerDailyCap")
             return $"已证明每日场次上限不足：{player}在一种可能的晋级路径中至少需 {evidence.RequiredLowerBound} 场，" +
                 $"当前容量上界为 {resources.Days.Count} 天 × 每天 {resources.MaxPlayerMatchesPerDay} 场 = {evidence.CapacityUpperBound} 场。";
@@ -109,10 +134,10 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
             var count = evidence.WitnessMatchIds.Count;
             var minimumTicks = evidence.RequiredLowerBound / count;
             var capacityCount = minimumTicks > 0 ? evidence.CapacityUpperBound / minimumTicks : 0;
-            return $"已证明选手时间容量不足：{player}在一种可能的晋级路径中至少需 {count} 场，" +
+            return $"已证明{(IsIndividual ? "选手" : "队伍")}时间容量不足：{player}在一种可能的晋级路径中至少需 {count} 场，" +
                 $"按最短单场 {minimumTicks / (double)TimeSpan.TicksPerMinute:0.##} 分钟折算：" +
                 $"{count} 场 × 单场时长 > 容量上界 {capacityCount} 场 × 单场时长。" +
-                $"该上界已计入 {resources.MinimumRestMinutes} 分钟最短休息和每天 {resources.MaxPlayerMatchesPerDay} 场上限。";
+                (IsIndividual ? $"该上界已计入 {resources.MinimumRestMinutes} 分钟最短休息和每天 {resources.MaxPlayerMatchesPerDay} 场上限。" : "同一队伍的团体对抗不能重叠安排。");
         }
         return $"已证明场地与裁判时间容量不足：需要至少 {evidence.RequiredLowerBound / (double)TimeSpan.TicksPerMinute:0.##} 分钟，" +
             $"可用容量上界为 {evidence.CapacityUpperBound / (double)TimeSpan.TicksPerMinute:0.##} 分钟。";
@@ -178,7 +203,10 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         if (Days.Count == 0) throw ScheduleEditorInput.Error("请至少添加一个比赛日。");
         var days = Days.Select(d => d.Build()).OrderBy(d => d.Date).ToArray();
         var resources = new TournamentResourcePlan(days, string.IsNullOrWhiteSpace(RefereeCountText) ? null : ScheduleEditorInput.Integer(RefereeCountText, "裁判人数"),
-            ScheduleEditorInput.Integer(MinimumRestText, "最小休息", 0), ScheduleEditorInput.Integer(DailyMaximumText, "每日场次上限"));
+            IsIndividual ? ScheduleEditorInput.Integer(MinimumRestText, "最小休息", 0) : 0,
+            IsIndividual ? ScheduleEditorInput.Integer(DailyMaximumText, "每日场次上限") : int.MaxValue);
+        // Team ties retain overlap/dependency checks, but not individual-player rest/daily caps.
+        // Normalize only this draft; opening the editor must never rewrite the saved schedule.
         // Rebuild the policy explicitly: retired soft targets from older schedules must not
         // silently affect the simple editor. The saved schedule changes only after success.
         var policy = new TournamentSchedulingPolicy(ScheduleAutoSchedulingStrategy.Compact, [], false, [], [])
@@ -222,7 +250,8 @@ public sealed partial class ScheduleSetupPageViewModel : WorkspacePageViewModel,
         Days.Clear(); foreach (var day in resources?.Days.OrderBy(d => d.Date).ToArray() ?? [new ScheduleDaySettings(DateOnly.FromDateTime(DateTime.Today), new(9, 0), new(18, 0), [])]) AddDay(day);
         ProjectTimings.Clear(); foreach (var project in workspace.Projects.OrderBy(p => p.SortOrder)) ProjectTimings.Add(new(project, policy, Edited));
         editorBaseline = EditorSnapshot();
-        foreach (var property in new[] { nameof(RefereeCountText), nameof(MinimumRestText), nameof(DailyMaximumText), nameof(RequireChampionshipFinalsOnLastDay), nameof(IsSingleProject), nameof(IsMultiProject), nameof(ScheduleSummary) }) OnPropertyChanged(property);
+        foreach (var property in new[] { nameof(RefereeCountText), nameof(MinimumRestText), nameof(DailyMaximumText), nameof(RequireChampionshipFinalsOnLastDay), nameof(IsSingleProject), nameof(IsMultiProject), nameof(ScheduleSummary),
+            nameof(IsIndividual), nameof(HasTimingSplitSettings), nameof(SchedulingHint), nameof(MatchDurationHint), nameof(AdvancedSettingsHint), nameof(ResourceSettingsTitle), nameof(ResourceConstraintsHint), nameof(GenerationHint) }) OnPropertyChanged(property);
         RefreshAvailability();
     }
     private static string BuildSuccessSummary(TournamentSchedule? schedule, TournamentScheduleQuality? quality = null,

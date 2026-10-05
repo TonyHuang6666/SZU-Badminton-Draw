@@ -15,6 +15,22 @@ public sealed class WorkspaceDailyScheduleWriterTests : IDisposable
     private string PathFor(string name) => Path.Combine(directory, name + ".xlsx");
 
     [Fact]
+    public void UnlimitedTeamDailyCapIsPresentedAsUnlimitedInExportedSettings()
+    {
+        var workspace = WorkspaceMaterialTestFixture.Create(team: true);
+        var resources = workspace.Resources! with { MinimumRestMinutes = 0, MaxPlayerMatchesPerDay = int.MaxValue };
+        workspace = workspace with { Resources = resources, Schedule = workspace.Schedule! with { Resources = resources } };
+        var context = new WorkspaceScheduleExportContext(workspace);
+        var rows = context.MatchKeys.Where(k => context.Placements[k].DayLabel == "2026-09-19")
+            .Select(k => new WorkspaceRecordExportRow(k, new(2026, 9, 19))).ToArray();
+        var path = PathFor("team-unlimited");
+        new ScheduleExcelWriter().WriteDailySchedule(path, context, rows);
+        using var book = new XLWorkbook(path);
+        var settings = book.Worksheet("赛程参数");
+        Assert.Equal("不限", settings.CellsUsed().Single(c => c.GetString() == "全局选手每日上限").CellRight().GetString());
+    }
+
+    [Fact]
     public void GlobalProjectionKeepsSameNamedProjectsQualifiedAndPreservesLiteralNamesAndPreciseTimes()
     {
         var workspace = WorkspaceRecordExportTestData.Create();

@@ -25,6 +25,16 @@ public sealed class WorkspaceScheduleQualityWriterTests : IDisposable
     private static string Text(IXLWorksheet sheet) => string.Join("\n", sheet.CellsUsed().Select(c => c.GetString()));
 
     [Fact]
+    public void UnlimitedDailyCapDoesNotLeakItsStorageSentinelIntoTheReport()
+    {
+        var workspace = WorkspaceMaterialTestFixture.Create(team: true);
+        var resources = workspace.Resources! with { MinimumRestMinutes = 0, MaxPlayerMatchesPerDay = int.MaxValue };
+        workspace = workspace with { Resources = resources, Schedule = workspace.Schedule! with { Resources = resources } };
+        var (_, book) = Write(workspace);
+        using (book) Assert.Equal("不限", Value(book.Worksheet("资源与日负荷"), "全局选手每日上限").GetString());
+    }
+
+    [Fact]
     public void ProjectNamesThatAlreadyContainOrdinalSuffixesStayDistinctAndStable()
     {
         using var fixture = new WorkspaceOperationalPackageFixture(projects: 3, transform: workspace => workspace with

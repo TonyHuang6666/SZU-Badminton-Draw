@@ -159,7 +159,7 @@ public sealed class WorkspaceScheduleQualityExcelWriter
         }
         Row(sheet, row++, "默认裁判人数", resource.RefereeCount is { } referees ? referees : "未设置（仅受场地/分时段容量限制）");
         Row(sheet, row++, "全局最小休息分钟", resource.MinimumRestMinutes);
-        Row(sheet, row++, "全局选手每日上限", resource.MaxPlayerMatchesPerDay);
+        Row(sheet, row++, "全局选手每日上限", resource.MaxPlayerMatchesPerDay == int.MaxValue ? "不限" : resource.MaxPlayerMatchesPerDay);
         foreach (var day in resource.Days.OrderBy(d => d.Date))
         {
             foreach (var window in (day.RefereeCapacityWindows ?? []).OrderBy(w => w.StartTime).ThenBy(w => w.EndTime))

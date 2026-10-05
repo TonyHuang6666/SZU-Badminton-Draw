@@ -3,7 +3,28 @@
   <UserControl.Styles>
     <Style Selector="Border.wizard-step"><Setter Property="Padding" Value="16,14" /><Setter Property="CornerRadius" Value="12" /><Setter Property="Background" Value="{DynamicResource AppSurfaceMutedBrush}" /></Style>
     <Style Selector="Border.wizard-step.active"><Setter Property="Background" Value="{DynamicResource AppSuccessCardBackgroundBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" /><Setter Property="BorderThickness" Value="1" /></Style>
-    <Style Selector="RadioButton.choice"><Setter Property="Padding" Value="18" /><Setter Property="MinHeight" Value="94" /><Setter Property="HorizontalAlignment" Value="Stretch" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Background" Value="{DynamicResource AppSurfaceMutedBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="14" /></Style>
+    <Style Selector="RadioButton.choice">
+      <Setter Property="Padding" Value="18" />
+      <Setter Property="MinHeight" Value="94" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Background" Value="{DynamicResource AppSurfaceMutedBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Name="ChoiceCardBorder" Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+            <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
     <Style Selector="RadioButton.choice:checked"><Setter Property="Background" Value="{DynamicResource AppSuccessCardBackgroundBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" /></Style>
   </UserControl.Styles>
   <Grid RowDefinitions="*,Auto">
@@ -28,20 +49,20 @@
                 <TextBlock Text="比赛类型" FontWeight="SemiBold" />
                 <Grid ColumnDefinitions="*,16,*">
                   <RadioButton Classes="choice" GroupName="kind" IsChecked="{Binding IsTeam}" AutomationProperties.Name="团体赛，以队伍为单位参赛">
-                    <StackPanel Spacing="6" Margin="6,0,0,0"><TextBlock Text="团体赛" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="以队伍为单位参赛，共同争夺团体成绩。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
+                    <StackPanel Spacing="6"><TextBlock Text="团体赛" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="以队伍为单位参赛，共同争夺团体成绩。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
                   </RadioButton>
                   <RadioButton Grid.Column="2" Classes="choice" GroupName="kind" IsChecked="{Binding IsIndividual}" AutomationProperties.Name="单项赛，选择单打或双打项目">
-                    <StackPanel Spacing="6" Margin="6,0,0,0"><TextBlock Text="单项赛" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="选择单打或双打项目，各项目分别抽签。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
+                    <StackPanel Spacing="6"><TextBlock Text="单项赛" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="选择单打或双打项目，各项目分别抽签。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
                   </RadioButton>
                 </Grid>
               </StackPanel>
               <StackPanel Spacing="10">
                 <TextBlock Text="本次先做什么？" FontWeight="SemiBold" />
                 <RadioButton Classes="choice" GroupName="purpose" IsChecked="{Binding IsDrawOnly}" AutomationProperties.Name="先完成公开抽签">
-                  <StackPanel Spacing="6" Margin="6,0,0,0"><TextBlock Text="先完成公开抽签" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="导入名单、公开抽签并导出结果。以后随时可以继续安排赛程。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
+                  <StackPanel Spacing="6"><TextBlock Text="先完成公开抽签" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="导入名单、公开抽签并导出结果。以后随时可以继续安排赛程。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
                 </RadioButton>
                 <RadioButton Classes="choice" GroupName="purpose" IsChecked="{Binding IsFullTournament}" AutomationProperties.Name="从抽签到现场，筹备整场比赛">
-                  <StackPanel Spacing="6" Margin="6,0,0,0"><TextBlock Text="从抽签到现场，筹备整场比赛" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" /><TextBlock Text="确认抽签结果后，再安排时间、场地，准备现场材料和记录赛果。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
+                  <StackPanel Spacing="6"><TextBlock Text="从抽签到现场，筹备整场比赛" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" /><TextBlock Text="确认抽签结果后，再安排时间、场地，准备现场材料和记录赛果。" Classes="muted" TextWrapping="Wrap" /></StackPanel>
                 </RadioButton>
               </StackPanel>
             </StackPanel>
