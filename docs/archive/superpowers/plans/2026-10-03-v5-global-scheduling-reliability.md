@@ -1,5 +1,7 @@
 # v5.0 Global Scheduling Reliability Implementation Plan
 
+> 资料归档：本文保存文中日期、提交与验证范围对应的记录。当前程序的功能和操作见[文档中心](../../../index.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 让 5.0 更早解释确实矛盾的排程条件，并通过有界回溯与跨日均衡找到更多完整合法方案，不以放松规则换取成功。

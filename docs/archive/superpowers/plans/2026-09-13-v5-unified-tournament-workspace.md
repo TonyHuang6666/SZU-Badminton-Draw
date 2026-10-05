@@ -1,5 +1,7 @@
 # v5.0 Unified Tournament Workspace Implementation Plan
 
+> 资料归档：本文保存文中日期、提交与验证范围对应的记录。当前程序的功能和操作见[文档中心](../../../index.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the v4 single-project/archive-first flow with one v5 `.szbd` workspace that supports a mutually exclusive team tournament or one-to-five individual events, an explicit public-draw stopping point, and one global scheduling pass.

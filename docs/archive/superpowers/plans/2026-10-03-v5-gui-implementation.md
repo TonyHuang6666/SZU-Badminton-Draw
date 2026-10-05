@@ -1,5 +1,7 @@
 # v5 赛事助手 GUI Implementation Plan
 
+> 资料归档：本文保存文中日期、提交与验证范围对应的记录。当前程序的功能和操作见[文档中心](../../../index.md)。
+
 > **For agentic workers:** Use the approved design and execute the owned tasks below; keep changes inside the named files. Track verification here.
 
 **Goal:** Deliver a polished, approachable Avalonia desktop interface for ordinary badminton organizers.

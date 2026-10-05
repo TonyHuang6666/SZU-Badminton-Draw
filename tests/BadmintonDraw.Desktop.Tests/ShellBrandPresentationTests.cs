@@ -6,6 +6,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using BadmintonDraw.Desktop.Navigation;
 using BadmintonDraw.Desktop.ViewModels;
 using Xunit;
 
@@ -72,6 +73,29 @@ public sealed class ShellBrandPresentationTests : IDisposable
             void AssertColor(string key) => Assert.Equal(
                 Assert.IsAssignableFrom<ISolidColorBrush>(window.FindResource(window.ActualThemeVariant, key)).Color,
                 Assert.IsAssignableFrom<ISolidColorBrush>(symbol.Foreground).Color);
+        }
+        finally { window.Close(); }
+    }, CancellationToken.None);
+
+    [Fact]
+    public Task RecentTournamentUsesAShuttlecockMarkInsteadOfACharacterBadge() => ui.Dispatch(() =>
+    {
+        using var fixture = new ScheduleUiFixture();
+        var recentStore = new RecentWorkspaceStore(Path.Combine(fixture.DirectoryPath, "brand-recent-card.json"));
+        recentStore.Save(new[] { fixture.Workflow.CurrentSession!.WorkspacePath });
+        var window = new AppShellWindow(fixture.Workflow, recentStore);
+        try
+        {
+            window.Show();
+            var shell = Assert.IsType<AppShellViewModel>(window.DataContext);
+            Assert.True(shell.Navigate(WorkspaceRoute.Start));
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "赛");
+            var icon = Assert.Single(window.GetVisualDescendants().OfType<Image>(), image => image.Name == "RecentTournamentIcon");
+            Assert.IsAssignableFrom<Bitmap>(icon.Source);
+            Assert.Equal(Stretch.Uniform, icon.Stretch);
+            Assert.Equal(BitmapInterpolationMode.HighQuality, RenderOptions.GetBitmapInterpolationMode(icon));
         }
         finally { window.Close(); }
     }, CancellationToken.None);

@@ -53,8 +53,12 @@
             <DataTemplate x:DataType="vm:RecentWorkspaceViewModel">
               <Border Classes="card" Padding="18,12" Margin="0,0,0,8">
                 <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="14">
-                  <Border Background="{DynamicResource AppPurpleCardBackgroundBrush}" CornerRadius="10" Width="40" Height="40" VerticalAlignment="Center"><TextBlock Text="赛" Foreground="{DynamicResource AppAccentBrush}" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
-                  <StackPanel Grid.Column="1" Spacing="5" VerticalAlignment="Center" ToolTip.Tip="{Binding Path}">
+                  <Border Background="{DynamicResource AppPurpleCardBackgroundBrush}" CornerRadius="10" Width="40" Height="40" VerticalAlignment="Center">
+                    <Image Name="RecentTournamentIcon" Source="/Assets/recent-tournament-badminton.png" Width="34" Height="34"
+                           Stretch="Uniform" RenderOptions.BitmapInterpolationMode="HighQuality"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" AutomationProperties.Name="羽毛球与球拍图标" />
+                  </Border>
+                  <StackPanel Grid.Column="1" Spacing="5" VerticalAlignment="Center" ToolTip.Tip="{Binding Details}">
                     <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                     <TextBlock Text="{Binding Availability}" Classes="muted" FontSize="12" />
                   </StackPanel>

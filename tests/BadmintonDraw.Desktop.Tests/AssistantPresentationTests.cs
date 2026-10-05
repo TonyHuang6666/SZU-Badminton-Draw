@@ -3,6 +3,7 @@ using BadmintonDraw.Core.Tournaments;
 using BadmintonDraw.Desktop.Navigation;
 using BadmintonDraw.Desktop.ViewModels;
 using BadmintonDraw.Workflows.Tournaments;
+using System.Text.Json;
 using Xunit;
 
 namespace BadmintonDraw.Desktop.Tests;
@@ -50,6 +51,62 @@ public sealed class AssistantPresentationTests : IDisposable
         Assert.Empty(new RecentWorkspaceStore(PathFor("recent.json")).Read());
         Assert.True(File.Exists(Request().WorkspacePath));
         Assert.Equal("校长杯", new TournamentWorkspaceWorkflow().OpenWorkspace(Request().WorkspacePath).Workspace.Name);
+    }
+
+    [Fact]
+    public async Task RecentTournamentPersistsRealActivityTimesAndShowsTheLatestEvent()
+    {
+        using var shell = Shell(new());
+        await shell.CreateWorkspaceAsync(Request());
+        Assert.StartsWith("上次保存 · ", Assert.Single(shell.StartPage.RecentWorkspaces).Availability);
+        var before = DateTimeOffset.UtcNow;
+        await shell.OpenWorkspaceAsync(Request().WorkspacePath);
+        var after = DateTimeOffset.UtcNow;
+
+        using var document = JsonDocument.Parse(File.ReadAllText(PathFor("recent.json")));
+        var entry = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(Request().WorkspacePath, entry.GetProperty("Path").GetString());
+        var openedAt = entry.GetProperty("LastOpenedAt").GetDateTimeOffset();
+        var savedAt = entry.GetProperty("LastSavedAt").GetDateTimeOffset();
+        Assert.InRange(openedAt, before, after);
+        Assert.Equal(shell.CurrentSession!.Workspace.UpdatedAt, savedAt);
+
+        var recent = Assert.Single(shell.StartPage.RecentWorkspaces);
+        Assert.StartsWith("上次打开 · ", recent.Availability);
+        Assert.Contains("上次打开：", recent.Details);
+        Assert.Contains("上次保存：", recent.Details);
+        Assert.Contains(Request().WorkspacePath, recent.Details);
+    }
+
+    [Fact]
+    public void LegacyRecentTournamentDoesNotInventAnActivityTime()
+    {
+        File.WriteAllText(Request().WorkspacePath, "legacy placeholder");
+        File.WriteAllText(PathFor("recent.json"), JsonSerializer.Serialize(new[] { Request().WorkspacePath }));
+        using var shell = Shell(new());
+        var recent = Assert.Single(shell.StartPage.RecentWorkspaces);
+        Assert.Equal("本地赛事文件 · 时间未记录", recent.Availability);
+        Assert.DoesNotContain("上次打开：", recent.Details);
+        Assert.DoesNotContain("上次保存：", recent.Details);
+    }
+
+    [Fact]
+    public void RecentTournamentsAreSortedByTheirLatestRecordedActivity()
+    {
+        var olderPath = PathFor("较早比赛.szbd");
+        var newerPath = PathFor("最近比赛.szbd");
+        File.WriteAllText(olderPath, "older");
+        File.WriteAllText(newerPath, "newer");
+        var now = DateTimeOffset.UtcNow;
+        new RecentWorkspaceStore(PathFor("recent.json")).Save(new RecentWorkspaceEntry[]
+        {
+            new(olderPath, LastOpenedAt: now.AddHours(-3)),
+            new(newerPath, LastSavedAt: now.AddMinutes(-5))
+        });
+
+        using var shell = Shell(new());
+        Assert.Equal(new[] { "最近比赛", "较早比赛" }, shell.StartPage.RecentWorkspaces.Select(recent => recent.Name));
+        Assert.StartsWith("上次保存 · ", shell.StartPage.RecentWorkspaces[0].Availability);
     }
 
     [Theory]

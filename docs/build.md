@@ -1,84 +1,178 @@
-# 5.0 构建、验收与发布准备
+# 构建、验收与打包
 
-5.0 最初在 `feature/v5-unified-workspace` 分支实施，现已合并到 `main` 并以 `v5.0.0` 发布。本说明中的命令只操作本地构建和产物，不会自行推送代码、创建标签或发布 GitHub Release。当前产品状态见[文档中心](index.md)，冻结的候选证据见[v5.0.0 本地候选验收报告](acceptance/v5.0.0.md)。历史验收和较早提交的通过结果不能替代当前源码验证。
+本文提供当前仓库的开发、依赖审计、测试、端到端验收和本地打包入口。命令从仓库根目录执行；每一步确认退出码为零后，再继续下一步。构建结果应与当次源提交、工作区修改、运行环境和输出目录一起记录。已保存的验收记录见[文档归档](archive/index.md)，其结论仅适用于记录中的输入和运行。
 
-2026-10-05 发布前，PR #1 的最终功能提交已通过 Windows 与 macOS CI；合并后的发布状态文档提交再次执行同一套门禁。CI 只在 `main` 推送或 Pull Request 时触发，因此仍应以目标提交对应的实际检查记录为准。
+## 开发环境与版本来源
 
-## 开发环境
+| 项目 | 当前配置 |
+| --- | --- |
+| SDK | `global.json` 指定 `10.0.301`，`rollForward=latestPatch`，禁用预览版 |
+| 目标框架 | `net10.0` |
+| 产品版本 | `Directory.Build.props` 的 `VersionPrefix=5.0.0` |
+| 桌面入口 | `src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj`，Avalonia |
+| 发布 RID | `win-x64`、`osx-arm64`、`osx-x64` |
+| 依赖锁定 | `RestorePackagesWithLockFile=true`，各工程提交 `packages.lock.json` |
 
-- 使用仓库 `global.json` 指定的 .NET 10 SDK；从仓库根目录运行命令，确保 SDK 选择规则生效。
-- 桌面入口只有 `src/BadmintonDraw.Desktop`（Avalonia）。使用支持该 SDK 的编辑器或 IDE。
-- macOS 打包另外需要 Bash、Python 3 标准库、Git、系统 `hdiutil` 和 `codesign`；系统 `sips` / `iconutil` 可用且图标存在时会生成应用图标。安全测试需要 Python 3.9 或更高版本。
-- 普通用户运行自包含应用不需要安装 Python、.NET SDK 或 Office。若要填写、重算 Excel 记录表，需要另备办公软件；应用自身的导出不依赖后台启动 Office。
-- Windows 与 macOS 是本次交付目标；Linux 未纳入最终运行验收，不能仅凭跨平台框架推断已经支持所有桌面环境。
+`latestPatch` 允许使用同一 SDK 功能带中的较新补丁；运行前检查 `dotnet --version` 与 `dotnet --info`。SDK 的实际选择以仓库根目录的解析结果为准。可用 Visual Studio、Rider、VS Code 或终端打开 `BadmintonDraw.sln` 开发，启动项目选 Desktop。
 
-项目依赖由 NuGet 和各工程的 `packages.lock.json` 管理。不要用关闭漏洞审计、忽略还原失败或跳过测试来让流水线变绿。
+主要依赖包括 Avalonia（桌面 UI）、ClosedXML（工作簿）、SkiaSharp（图片/PDF）、Microsoft.Data.Sqlite 与 SQLitePCLRaw（赛事存档），测试使用 xUnit 和 Avalonia Headless。依赖版本以各工程及锁文件为准；详细模块关系见[系统架构](architecture.md)。
 
-## 本地构建与测试
+macOS 打包需要 Bash、Python 3、Git、.NET SDK、系统 `hdiutil` 与 `codesign`；`sips`、`iconutil` 和图标源文件齐备时生成应用图标。打包安全测试要求 Python 3.9 或更高。Windows 的依赖审计命令需要 Bash，例如 Git for Windows 提供的 Bash；CI 已显式选择该 shell。
 
-从仓库根目录执行：
+自包含发布包携带 .NET 运行时，普通用户运行应用无需另装 SDK 或 Python；应用生成工作簿、PDF 和图片也无需后台启动 Office。填写与重算 Excel 记录表需要相应办公软件。当前 CI 和打包目标覆盖 Windows 与 macOS；Linux 的原生运行和分发需另行验证。
+
+## 锁定还原、构建与运行
 
 ```sh
+dotnet --version
 dotnet restore BadmintonDraw.sln --locked-mode -p:Configuration=Release
 bash scripts/check-vulnerable-packages.sh BadmintonDraw.sln
 dotnet build BadmintonDraw.sln -c Release --no-restore
-dotnet test BadmintonDraw.sln -c Release --no-build
-dotnet run --project src/BadmintonDraw.Desktop -c Release --no-build
+dotnet test BadmintonDraw.sln -c Release --no-build --verbosity normal
+dotnet run --project src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj -c Release --no-build
 ```
 
-若只想开发调试，可省略 Release 链条直接运行 `dotnet run --project src/BadmintonDraw.Desktop`；但不能用这种运行代替发布候选验证。发布判断必须保留完整命令、提交、工作区是否干净和实际输出。
+`--locked-mode` 要求依赖图与锁文件一致。桌面项目已声明三个发布 RID，锁定还原为这些发布目标准备依赖。依赖调整时显式刷新并评审锁文件，再执行完整验证链；发布使用锁定还原和 `--no-restore`。
 
-先构建再使用 `--no-build`；修改代码后不要用旧输出验证新源码。桌面工程声明并锁定 `win-x64`、`osx-arm64` 和 `osx-x64` 三个发布 RID；依赖变化后应显式刷新并评审锁文件，正式发布只允许锁定还原和 `--no-restore` 发布。
+依赖审计脚本执行：
 
-共享测试覆盖类型化比赛图、统一硬约束、真实 SQLite、记录表读写、备份和故障；桌面测试覆盖实际 Avalonia 控件、导航、确认失效与迟到回调。Headless 通过不等于真实窗口、文件选择器、打印或另一个操作系统通过。
+```sh
+dotnet list BadmintonDraw.sln package --vulnerable --include-transitive --format json --output-version 1
+```
 
-依赖审计包含直接和传递包。还原锁文件与漏洞查询服务不可用属于门禁异常，应保留错误，不标记为“没有漏洞”。审计结果只反映执行当时的数据。
+脚本保留 JSON 输出，命令失败或报告中出现 `advisoryurl` 时退出失败。应核对完整输出及退出码；查询错误、服务不可用和缺失审计证据需作为异常处理。漏洞结论只反映执行当时的查询结果，关闭审计或忽略还原错误会使发布证据不完整。
+
+日常调试可使用：
+
+```sh
+dotnet run --project src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj
+```
+
+该命令使用默认 Debug 配置并可触发还原、构建。使用 `--no-build` 前需完成相同配置的构建；修改源码后应重新构建，再运行验证。
+
+## 测试入口与覆盖范围
+
+需要单独验证某一层时，在上述 Release 构建后执行：
+
+```sh
+dotnet test tests/BadmintonDraw.Tests/BadmintonDraw.Tests.csproj -c Release --no-build --verbosity normal
+dotnet test tests/BadmintonDraw.Desktop.Tests/BadmintonDraw.Desktop.Tests.csproj -c Release --no-build --verbosity normal
+```
+
+| 测试范围 | 主要检查内容 |
+| --- | --- |
+| 抽签与身份 | 单打、双打、团体名单；种子与轮空；淘汰赛和循环赛；可复现抽签；类型化前后依赖 |
+| 全赛事排程 | 日期、场地、裁判容量、不可用时段、依赖、兼项、休息和每日上限；有界搜索、取消、容量证据与质量结果 |
+| 存储与工作流 | schema、真实 SQLite 重开、修订冲突、候选保存、备份、恢复、只读检查和故障后的真实提交状态 |
+| 现场材料 | 抽签及运营材料、记录表字面身份与公式、跨表依赖、整批导入、更正、重复文件、部分导出与覆盖冲突 |
+| 桌面 | 实际 Avalonia 控件与绑定、导航、窗口生命周期、保存状态、确认失效和迟到回调 |
+
+Headless 通过可说明相应控件与逻辑测试成功；原生窗口、文件选择器、另一个操作系统和打印机仍需各自的运行证据。测试总数随覆盖变化，以目标源码的一次实际输出为准。
+
+GUI 手工练习可从[样例名单](../samples/v5/README.md)选择场景，对照[使用说明](usage.md)执行。样例是虚拟数据，运行练习应使用新建赛事文件。
 
 ## 有界端到端验收
 
-正式验收工具位于 `tools/BadmintonDraw.Acceptance`，5.0 版本的入口为：
+验收入口位于 `tools/BadmintonDraw.Acceptance`。完成 Release 构建后可运行：
 
 ```sh
-dotnet run --project tools/BadmintonDraw.Acceptance -c Release -- --output artifacts/acceptance/v5.0.0/local-review-01
+dotnet run --project tools/BadmintonDraw.Acceptance/BadmintonDraw.Acceptance.csproj -c Release --no-build --
 ```
 
-使用全新的、专门用于本次验收的输出目录；再次运行换一个目录，不删除上次证据。工具使用真实工作流创建赛事、导入虚拟名单、显式抽签确认、生成全局赛程、导出实际材料、填写副本、导入结果、重开和恢复，并运行独立的大规模成功/安全拒绝场景。
+省略参数时，工具自动创建：
 
-每个必需场景在有界子进程执行，保留步骤、耗时、标准输出/错误、退出状态、存档和产物清单；缺失或失败场景不能算通过。故障注入只作用于隔离副本。原始导出与填写副本分别保留哈希，不在正常验收运行中改写仓库样例。
+```text
+artifacts/acceptance/v5.0.0/run-<UTC时间>-<GUID>/
+```
 
-具体场景、实际规模和本次报告路径以验收报告为准。工具里的 managed 文件读回与静态公式检查不能替代 LibreOffice/Microsoft Excel 真正重算；实际视觉检查、原生桌面、Windows 和物理打印未做时应标记未执行。
+如需明确指定目录：
+
+```sh
+dotnet run --project tools/BadmintonDraw.Acceptance/BadmintonDraw.Acceptance.csproj -c Release --no-build -- --output artifacts/acceptance/v5.0.0/local-review-01
+```
+
+目标必须是全新或空目录，再次运行使用不同目录。工具拒绝仓库根目录、受保护的源码/样例目录和不允许的符号链接路径，保留已产生的证据。
+
+入口先记录 Git 提交、工作区状态、运行时和平台，再执行直接与传递依赖审计。七个必需场景分别在有超时上限的子进程内执行：
+
+| 场景目录 | 范围 | 子进程超时 |
+| --- | --- | --- |
+| `01-public-draw` | 仅公开抽签流程 | 10 分钟 |
+| `02-single` | 单项目赛事生命周期 | 10 分钟 |
+| `03-multiple` | 多项目统一赛事生命周期 | 10 分钟 |
+| `04-team` | 团体赛事生命周期 | 10 分钟 |
+| `05-faults` | 隔离副本上的故障与恢复 | 10 分钟 |
+| `06-large-292` | 292 场规模场景 | 4 分钟 |
+| `07-rejection-345` | 345 场安全拒绝场景 | 3 分钟 |
+
+工具通过真实工作流新建赛事、导入虚拟名单、明确抽签与确认、生成赛程、导出材料、填写材料副本、导入赛果、重开及恢复。各场景必须达到自己的完成条件；缺失结果、子进程异常、超时和未达到要求均算失败。
+
+证据目录包含 `source-environment.json`、依赖审计输出、各场景 `*-process.json`、逐步记录、`acceptance-results.json`、`artifact-inventory.json` 和 `evidence-sha256.txt`，以及对应存档、原始材料与填写副本。完整通过需同时核对主进程退出码、总报告 `Success`、七个场景结果及证据清单。工具不要求工作区必须干净，因此正式候选还需单独核对来源状态。
+
+托管材料读回和静态公式检查验证文件结构、来源身份与公式绑定。报告中的 `Office`、`PdfVisual`、`Windows`、`Native`、`PhysicalPrinting` 默认记录为 `NotRun`；这些项目需要另附实际运行证据。原始导出与填写副本分别保留哈希，办公软件重算也在副本上进行。
+
+## 指定存档的排程审计
+
+验收工具还提供本地排程诊断入口：
+
+```sh
+dotnet run --project tools/BadmintonDraw.Acceptance/BadmintonDraw.Acceptance.csproj -c Release --no-build -- --scheduling-audit /absolute/path/tournament.szbd --output artifacts/scheduling-audit/local-review-01
+```
+
+输入赛事的每个项目都需要已有比赛图，输出必须为全新或空目录。工具先复制输入并校验 SHA-256，在副本上读取比赛图；运行结束再次核对原文件哈希。原始输入副本与诊断数据仅写入所选输出目录，分享证据前应检查其中的参赛者信息。
+
+该入口使用源码内定义的资源场景：2026-10-03 至 10-06、每日 14:00–18:00、首日 24 场地/其余 16 场地、30 分钟时长，并分别考察休息 30 分钟且每日上限 4 场、48 场地、休息 0 分钟且每日上限 8 场等条件；另验证随工具提供的 292 场完整候选和两种策略。它读取输入的比赛图，资源和策略取自这些审计场景。
+
+每个场景写出请求、结果、诊断与摘要；生成成功时另在隔离进程中运行完整校验器。总结果为 `audit-results.json`。审计运行成功表示场景执行与结果检查达到工具要求，各场景实际属于生成成功、容量拒绝或搜索未完成，应继续查看其 `Status` 和独立校验结果。
 
 ## macOS 本地打包
-
-打包脚本的版本默认来自实际 MSBuild `VersionPrefix`，不是文件名猜测或另一个硬编码常量。
 
 ```sh
 python3 scripts/test_packaging_preflight.py
 bash scripts/publish-macos.sh osx-arm64
 ```
 
-第一条是使用隔离假发布工具的安全回归，不是真实 DMG 验证。第二条才执行真实自包含发布、组装 `.app`、生成和校验 DMG。支持 `osx-arm64` 与 `osx-x64`；发布出另一种架构不表示已经在该架构上启动测试。
+第一条使用隔离的模拟工具检查参数、路径、版本、签名失败等安全边界；真实 DMG 由第二条生成和验证。支持 `osx-arm64`、`osx-x64`，省略参数默认 `osx-arm64`。脚本内部执行桌面项目的锁定还原和自包含发布，完整测试及依赖审计仍按前文单独执行。
 
-实际输出路径由脚本打印，结构为：
+版本通过 `packaging_metadata.py` 调用 MSBuild 读取实际 `VersionPrefix`。可直接核对：
+
+```sh
+python3 scripts/packaging_metadata.py version src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj Release
+```
+
+可设置的环境变量如下：
+
+| 变量 | 默认值与规则 |
+| --- | --- |
+| `VERSION` | 读取项目版本；显式值须为三段数字，无前后缀与空白，每段 0–65534 |
+| `CONFIGURATION` | `Release`，支持 `Release` 或 `Debug` |
+| `APP_NAME` | `SZU Badminton Draw`，须通过文件名校验 |
+| `BUNDLE_ID` | `com.szuba.badmintondraw`，须通过点分标识校验 |
+| `CODESIGN_IDENTITY` | `-`，表示 ad-hoc 签名；其他非空值作为签名身份 |
+
+输出结构为：
 
 ```text
-artifacts/macos/<RID>/<version>/run-<unique>/
+artifacts/macos/<RID>/<version>/run-<GUID>/
   publish/
-  dmg-root/<APP_NAME>.app/
+  dmg-root/
+    <APP_NAME>.app/
+      Contents/Info.plist
+      Contents/MacOS/
+      Contents/Resources/build-metadata.json
+    Applications -> /Applications
   SZU-Badminton-Draw_<version>_<RID>.dmg
 ```
 
-每次运行创建新目录，保留旧产物；不再递归清理输出根目录。固定输出父目录有符号链接或不是实际目录时拒绝。不要通过自建软链接把发布目录指向其他资料。
+每次原子创建独立运行目录，保留既有产物和失败现场；固定输出父目录必须为真实目录。版本值同时传给程序集发布和 Info.plist；后者声明最低系统版本 12.0，实际系统可用性仍需启动测试确认。
 
-可显式设置 `VERSION=x.y.z`，但必须是无前缀、无后缀的三段数字；同一值传给程序集发布和 Info.plist。`CONFIGURATION` 支持 Release/Debug；应用名称与 bundle ID 也会预检，非法值在输出创建前拒绝。
+`build-metadata.json` 保存版本来源、完整源提交、dirty 标记、RID、配置与预检时间，描述打包预检时的工作树状态。正式候选应冻结输入，核对元数据、程序集版本、可执行架构和最终哈希；构建期间继续编辑源码会破坏这种对应关系。
 
-应用内 `Contents/Resources/build-metadata.json` 保存版本来源、完整 Git 提交、dirty 标记、RID、配置和预检时间。它描述开始打包时的工作树，不是数字签名，也不能证明构建期间无人修改源码。正式验收应先冻结源码，并确认元数据、程序集版本、实际可执行架构和最终文件哈希相互对应。
-
-脚本失败会保留本次目录；即使已有 DMG 文件，也必须确认真实 `hdiutil verify` 和应用包严格验签成功。默认 `CODESIGN_IDENTITY=-` 对完整应用包执行 ad-hoc 签名；可传入非空身份启用 hardened runtime 与时间戳签名，但脚本不执行 notarization 或 stapling，单凭签名成功不能宣称 Gatekeeper 公共分发验收通过。
+脚本对完整应用包签名后执行 `codesign --verify --deep --strict`，再创建 DMG 并执行 `hdiutil verify`。失败即使留下 DMG，也需按失败产物处理。指定非空签名身份时附加 hardened runtime 与时间戳；脚本的分发流程止于签名和 DMG 校验，公证与 stapling 需另外完成。公开分发还应检查实际 Gatekeeper 体验。
 
 ## Windows 本地发布
 
-在 Windows PowerShell、仓库根目录执行；Python 仅用于构建时读取并校验版本：
+先在 Windows 完成前文的 Release 锁定还原、审计、构建与测试，再在仓库根目录的 PowerShell 执行：
 
 ```powershell
 $packageVersion = python scripts/packaging_metadata.py version src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj Release
@@ -87,31 +181,37 @@ $packageRun = [guid]::NewGuid().ToString("N")
 $packageDirectory = "artifacts/windows/win-x64/$packageVersion/run-$packageRun"
 dotnet publish src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true "-p:Version=$packageVersion" "-p:VersionPrefix=$packageVersion" -o $packageDirectory
 if ($LASTEXITCODE -ne 0) { throw "Windows 发布失败，保留本次输出检查" }
+Get-ChildItem $packageDirectory
+Get-FileHash "$packageDirectory/BadmintonDraw.Desktop.exe" -Algorithm SHA256
 ```
 
-检查输出中的真实 PE 架构、程序集/文件版本、源提交信息和 SHA-256，并在实际 Windows 环境启动、打开存档、使用文件选择器与完成现场操作。macOS 上交叉发布成功仅证明可以生成 Windows 资产，不能代替这些运行检查。
+输出位于 `artifacts/windows/win-x64/<version>/run-<GUID>/`。核对真实 PE 架构、程序集/文件版本、源提交记录与 SHA-256，并在 Windows 启动，完成存档打开、文件选择和现场操作。Windows 命令没有生成 macOS 包中的 `build-metadata.json`，源提交与工作树状态需另外留存。
 
-不要只上传某个旧目录里碰巧存在的 `.exe`；必须绑定本次构建输入与实际输出。若发布目录包含必要的附属文件，应按实际验证结果交付，不能只凭“单文件”参数假定任何文件都可删除。
+单文件发布参数会嵌入并配置自解压的原生依赖；实际输出仍应逐项检查。存在必要附属文件时，按验证结果一起交付。其他平台上交叉发布生成 Windows 资产后，仍需 Windows 原生运行验收。
 
-## CI 与正式交付门禁
+## CI 与交付证据
 
-`.github/workflows/ci.yml` 现有 Windows、macOS 两个任务，均执行锁定还原、依赖审计、构建、测试及实际发布。两者分别读取一次实际版本，用于发布参数和带版本的 artifact 名称；缺少输出即失败。macOS 另运行独立的脚本安全测试，并实际生成、校验 DMG。
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 在 `main` 推送和 Pull Request 时触发，两个任务均执行锁定还原、直接/传递依赖审计、Release 构建、测试和实际发布：
 
-CI 上传 artifact 不等于发布 Release。5.0 最终交付前应有：
+| CI 任务 | 执行环境 | 发布与上传 |
+| --- | --- | --- |
+| Windows | `windows-latest` | 自包含 `win-x64`；上传 `artifacts/windows/win-x64/<version>/`，artifact 名称为 `SZU-Badminton-Draw_<version>_win-x64` |
+| macOS | `macos-14` | 安全脚本测试及真实 `osx-arm64` DMG 打包、验证；上传本次版本下运行目录中的 DMG，artifact 名称为 `SZU-Badminton-Draw_<version>_osx-arm64` |
 
-1. 冻结的源提交与干净状态，完整测试、锁文件和漏洞审计记录。
-2. 五条真实生命周期/故障流程及两个规模场景的验收结果，保留失败与修复复测证据。
-3. 原始材料与填写/办公软件副本的哈希、公式重算、逐页视觉检查范围和明确限制。
-4. Windows、macOS 的真实构建与运行结果；未执行平台不得写成通过。
-5. 真实安装包、版本和来源核对、SHA-256 清单及清楚的签名/公证状态说明。
-6. 用户审阅验收报告后，再按授权进行推送、远端 CI、合并、标签和正式发布。
+CI 使用 `actions/setup-dotnet` 安装 `10.0.x`，实际 SDK 仍受 `global.json` 约束。每个任务读取一次实际版本并传给发布命令；上传路径无文件时任务失败。当前 CI 没有调用完整七场景验收入口，也没有自动执行 Office 重算、原生 GUI 流程、物理打印、公证或 GitHub Release 发布；这些检查按交付需要另行记录。
 
-任何耗时数字都应注明输入规模、资源、平台、源版本与失败/成功状态；测试数变化应说明新增或等价替换的覆盖，而不是只追求总数。
+一份可复核的交付记录应包含：
 
-## 文档和证据更新规则
+1. 源提交、工作树状态、SDK、操作系统、架构、配置，以及完整命令和退出码。
+2. 锁文件、漏洞审计、测试及七个必需验收场景的实际输出，包含失败记录和修复后的复测。
+3. 原始导出与填写/办公软件副本的哈希、公式重算、逐页视觉检查范围和未执行项。
+4. 实际交付平台的启动、文件选择、赛事操作和材料打印检查。
+5. 安装包路径、程序集/包版本、来源核对、SHA-256 和签名/公证状态。
 
-- 普通操作变化同步更新 `README.md`、`docs/usage.md` 和 `docs/troubleshooting.md`。
-- 领域模型、存储或模块边界变化同步更新 `docs/architecture.md` 与 `docs/algorithm.md`。
-- 排程约束或策略变化同步更新 `docs/scheduling.md`、`docs/fairness.md` 和 `docs/rules-compliance.md`。
-- 测试数量、耗时、哈希、安装包路径和平台结论只能来自一次明确记录的重新运行；不要为“看起来最新”手工滚动历史验收数字。
-- 已批准但未实现的设计留在 `docs/superpowers/specs/`，并明确标注状态；用户文档只描述已进入代码并通过相应验证的行为。
+CI artifact、本地打包目录和正式发布资产应分别标明来源。上传或发布时选用本次验证对应的文件，并逐项校对哈希。耗时必须同时注明输入规模、资源、平台、源版本和结果；已有报告中的数字保留其原始运行含义。
+
+## 文档维护
+
+用户操作变化同步更新 `README.md`、`docs/usage.md` 和 `docs/troubleshooting.md`；领域模型、存储和模块边界变化更新 `docs/architecture.md` 与 `docs/algorithm.md`；排程约束和策略变化更新 `docs/scheduling.md`、`docs/fairness.md` 和 `docs/rules-compliance.md`。
+
+测试数量、耗时、哈希、产物路径和平台结论应来自明确记录的执行。设计稿与冻结验收证据在[归档](archive/index.md)中保留状态和上下文，当前使用与工程文档按已实现的行为维护。

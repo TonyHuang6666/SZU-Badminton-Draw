@@ -50,12 +50,12 @@ public sealed partial class AppShellViewModel
     public void RemoveRecentWorkspace(string path)
     {
         if (IsBusy || disposed) return;
-        var remaining = recentPaths.Where(p => p != path).ToArray();
+        var remaining = recentWorkspaces.Where(entry => entry.Path != path).ToArray();
         try
         {
             recentStore.Save(remaining);
-            recentPaths.Clear(); recentPaths.AddRange(remaining);
-            StartPage.UpdateRecentWorkspaces(recentPaths);
+            recentWorkspaces.Clear(); recentWorkspaces.AddRange(remaining);
+            StartPage.UpdateRecentWorkspaces(recentWorkspaces);
         }
         catch (Exception exception) { ReportError(exception); }
     }

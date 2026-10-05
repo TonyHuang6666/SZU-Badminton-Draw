@@ -14,7 +14,7 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
     private readonly Action<Action> post;
     private readonly Func<IReadOnlyList<string>, Task<bool>> confirmExportOverwrite;
     private readonly Dictionary<WorkspaceRoute, Func<WorkspaceSession, WorkspacePageViewModel>> factories = [];
-    private readonly List<string> recentPaths = [];
+    private readonly List<RecentWorkspaceEntry> recentWorkspaces = [];
     private int busy;
     private bool disposed;
     private string status = "准备好了吗？创建一场新比赛，或继续之前的筹备。";
@@ -67,10 +67,10 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         {
             var path = await this.openPicker();
             return path is null ? null : await OpenPathAsync(path);
-        }, "已打开工作区。", remember: true, ensureWorkspacePage: true, requirePageLeave: true), () => !IsBusy, ReportError);
+        }, "已打开工作区。", remember: true, markOpened: true, ensureWorkspacePage: true, requirePageLeave: true), () => !IsBusy, ReportError);
         // Reload refreshes the current editor and detects conflicts without discarding its draft.
         ReloadCommand = new(async () => { if (CurrentSession is { } session) await RunCommandAsync(
-            async () => await OpenPathAsync(session.WorkspacePath), "已打开工作区。", remember: true, ensureWorkspacePage: true); },
+            async () => await OpenPathAsync(session.WorkspacePath), "已打开工作区。", remember: true, markOpened: true, ensureWorkspacePage: true); },
             () => !IsBusy && HasWorkspace, ReportError);
         StartPage = new(this); currentPage = StartPage;
         factories[WorkspaceRoute.Overview] = session => new WorkspaceOverviewPageViewModel(this, session);
@@ -91,9 +91,9 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
             new WorkspaceNavigationItemViewModel(this, WorkspaceRoute.Operations, "比赛现场", 5),
             new WorkspaceNavigationItemViewModel(this, WorkspaceRoute.Archive, "完成与归档", 6)
         };
-        try { recentPaths.AddRange(recentStore.Read()); }
+        try { recentWorkspaces.AddRange(recentStore.ReadEntries().OrderByDescending(entry => entry.LastActivityAt)); }
         catch (Exception exception) { Status = "最近工作区列表无法读取，可继续新建或打开：" + exception.Message; }
-        StartPage.UpdateRecentWorkspaces(recentPaths);
+        StartPage.UpdateRecentWorkspaces(recentWorkspaces);
         workflow.SessionChanged += OnSessionChanged;
         if (workflow.CurrentSession is { } session) ApplySession(session);
     }
@@ -134,7 +134,7 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
     public Task<bool> CreateWorkspaceAsync(CreateWorkspaceRequest request) => RunCommandAsync(
         async () => await Task.Run(() => workflow.CreateWorkspace(request)), "已创建赛事工作区，下一步准备各项目名单。", remember: true, forceOverview: true, requirePageLeave: true);
     public Task<bool> OpenWorkspaceAsync(string path) => RunCommandAsync(
-        async () => await OpenPathAsync(path), "已打开工作区。", remember: true, ensureWorkspacePage: true, requirePageLeave: true);
+        async () => await OpenPathAsync(path), "已打开工作区。", remember: true, markOpened: true, ensureWorkspacePage: true, requirePageLeave: true);
     private bool TryLeaveCurrentPage() => CurrentPage is not WorkspacePageViewModel page || page.TryLeave();
 
     internal void RequestBoardWindow(ScheduleBoardPageViewModel board)
@@ -238,7 +238,7 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
     }
 
     private async Task<bool> RunCommandAsync(Func<Task<WorkspaceCommandResult?>> command, string successMessage,
-        bool remember = false, bool forceOverview = false, bool ensureWorkspacePage = false, bool requirePageLeave = false,
+        bool remember = false, bool markOpened = false, bool forceOverview = false, bool ensureWorkspacePage = false, bool requirePageLeave = false,
         WorkspaceSession? expectedSession = null)
     {
         if (disposed || IsBusy || (requirePageLeave && !TryLeaveCurrentPage()) || Interlocked.CompareExchange(ref busy, 1, 0) != 0) return false;
@@ -262,12 +262,11 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
             LastCommandResult = result;
             Status = successMessage;
             if (result.BackupPath is { } backup) Status += " 备份：" + backup;
-            if (remember)
+            var recentChanged = UpdateRecentWorkspace(result, remember, markOpened);
+            if (recentChanged)
             {
-                recentPaths.Remove(result.WorkspacePath); recentPaths.Insert(0, result.WorkspacePath);
-                if (recentPaths.Count > 10) recentPaths.RemoveRange(10, recentPaths.Count - 10);
-                StartPage.UpdateRecentWorkspaces(recentPaths);
-                try { await Task.Run(() => recentStore.Save(recentPaths.ToArray())); }
+                StartPage.UpdateRecentWorkspaces(recentWorkspaces);
+                try { await Task.Run(() => recentStore.Save(recentWorkspaces.ToArray())); }
                 catch (Exception exception) { Status += " 最近工作区列表未能保存，可直接打开此文件：" + exception.Message; }
             }
             succeeded = true;
@@ -303,6 +302,23 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
             if (!disposed) RefreshAvailability();
         }
     }
+    private bool UpdateRecentWorkspace(WorkspaceCommandResult result, bool remember, bool markOpened)
+    {
+        var index = recentWorkspaces.FindIndex(entry => string.Equals(entry.Path, result.WorkspacePath, StringComparison.Ordinal));
+        if (!remember && index < 0) return false;
+        var previous = index < 0 ? new RecentWorkspaceEntry(result.WorkspacePath) : recentWorkspaces[index];
+        if (index >= 0) recentWorkspaces.RemoveAt(index);
+        var updated = previous with
+        {
+            LastOpenedAt = markOpened ? DateTimeOffset.UtcNow : previous.LastOpenedAt,
+            LastSavedAt = Later(previous.LastSavedAt, result.Workspace.UpdatedAt)
+        };
+        recentWorkspaces.Add(updated);
+        recentWorkspaces.Sort((left, right) => Nullable.Compare(right.LastActivityAt, left.LastActivityAt));
+        if (recentWorkspaces.Count > 10) recentWorkspaces.RemoveRange(10, recentWorkspaces.Count - 10);
+        return updated != previous || index != recentWorkspaces.IndexOf(updated);
+    }
+    private static DateTimeOffset Later(DateTimeOffset? left, DateTimeOffset right) => left is null || right > left ? right : left.Value;
     private static WorkspaceSession? CommittedPublication(Exception exception)
     {
         // Export/backup commands preserve their precise published session inside
