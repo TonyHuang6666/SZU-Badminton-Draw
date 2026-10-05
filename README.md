@@ -2,7 +2,7 @@
 
 面向 Windows 和 macOS 的校园羽毛球赛事工作台，覆盖名单核对、公开抽签、全赛事统一排程、现场材料、赛果导入和备份恢复。
 
-> 当前分支是 **5.0.0 开发候选**，尚未正式发布。赛事助手式 GUI 已完成本地构建、1,105 项全量回归测试及 macOS 代表页面原生检查，详见[本轮 GUI 验证报告](docs/acceptance/v5-gui-2026-10-03.md)。本轮未推送、未运行远端 CI，也未完成 Windows 真机验收或正式 Release。[核心候选历史证据](docs/acceptance/v5.0.0.md)仍绑定原提交；完整状态见[文档中心](docs/index.md)。
+> 当前稳定版本为 **5.0.0**。发布提交已通过 Windows 与 macOS 的锁定还原、依赖审计、Release 构建、1,740 项自动化测试和平台打包检查。Windows 真机人工界面验收尚未完成；macOS 安装包使用 ad-hoc 签名，未做 Developer ID 公证。历史候选证据仍绑定各自注明的提交；当前状态见[文档中心](docs/index.md)。
 
 ## 5.0 解决什么问题
 
@@ -100,7 +100,7 @@ dotnet run --project src/BadmintonDraw.Desktop -c Release --no-build
 - [竞赛规则对应关系](docs/rules-compliance.md)：程序遵循与未覆盖的规则边界。
 - [算法与工作区模型](docs/algorithm.md)：抽签、比赛图、条件路径和存储语义。
 - [构建说明](docs/build.md)：本地验证、CI 和发布门禁。
-- [v5.0.0 发布说明草案](docs/releases/v5.0.0.md)与[候选验收报告](docs/acceptance/v5.0.0.md)。
+- [v5.0.0 发布说明](docs/releases/v5.0.0.md)与[候选验收报告](docs/acceptance/v5.0.0.md)。
 
 ## 历史与授权
 
