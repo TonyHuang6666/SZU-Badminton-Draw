@@ -107,7 +107,8 @@ public sealed partial class DrawResultVisualWriter
         bool stretchToPrintableArea = false,
         float horizontalSafetyInset = 10f,
         float? leftPageInset = null,
-        float? rightPageInset = null)
+        float? rightPageInset = null,
+        bool portrait = false)
     {
         if (sheetNames.Count == 0)
         {
@@ -126,7 +127,8 @@ public sealed partial class DrawResultVisualWriter
             horizontalSafetyInset,
             stretchToPrintableArea,
             leftPageInset,
-            rightPageInset);
+            rightPageInset,
+            portrait: portrait);
     }
 
     private static WorksheetLayout BuildLayout(IXLWorksheet sheet)
@@ -831,12 +833,15 @@ public sealed partial class DrawResultVisualWriter
         bool stretchToPrintableArea = false,
         float? leftPageInset = null,
         float? rightPageInset = null,
-        DrawExportContext? context = null)
+        DrawExportContext? context = null,
+        bool portrait = false)
     {
         using var stream = File.Create(outputPath);
         using var document = SKDocument.CreatePdf(stream);
 
-        var pageSize = new PageSize(A4LandscapeWidth, A4LandscapeHeight);
+        var pageSize = portrait
+            ? new PageSize(A4PortraitWidth, A4PortraitHeight)
+            : new PageSize(A4LandscapeWidth, A4LandscapeHeight);
         var leftInset = leftPageInset ?? A4Margin + horizontalSafetyInset;
         var rightInset = rightPageInset ?? A4Margin + horizontalSafetyInset;
         var printableWidth = pageSize.Width - leftInset - rightInset;

@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" xmlns:help="using:BadmintonDraw.Desktop.Help"
+        xmlns:controls="using:BadmintonDraw.Desktop.Controls"
+        x:Class="BadmintonDraw.Desktop.Views.HelpWindow" x:DataType="vm:HelpViewModel"
+        Title="帮助与文档" Width="1120" Height="800" MinWidth="820" MinHeight="540"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource AppBackgroundBrush}">
+  <Grid Margin="20" RowDefinitions="Auto,*,Auto" RowSpacing="14">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+      <StackPanel Spacing="4">
+        <TextBlock Text="帮助与文档" FontSize="22" FontWeight="SemiBold" />
+        <TextBlock Text="随程序内置 · 离线可读" Classes="muted" />
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <Button x:Name="HelpFindNext" Content="下一处" Click="FindNext" IsVisible="{Binding HasSearchText}" AutomationProperties.Name="在当前文档查找下一处" />
+        <Button x:Name="HelpDecreaseFont" Content="A−" Click="DecreaseFont" AutomationProperties.Name="减小正文字号" />
+        <TextBlock Text="{Binding ReadingFontSize, StringFormat='{}{0:0} px'}" VerticalAlignment="Center" />
+        <Button x:Name="HelpIncreaseFont" Content="A+" Click="IncreaseFont" AutomationProperties.Name="增大正文字号" />
+        <Button x:Name="HelpCopyText" Content="复制全文" Click="CopyText" />
+        <Button x:Name="HelpTheme" Content="明暗切换" Click="ToggleTheme" />
+      </StackPanel>
+    </Grid>
+    <Grid Grid.Row="1" ColumnDefinitions="230,12,*">
+      <Border Classes="card" Padding="12">
+        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+          <TextBox x:Name="HelpSearch" Text="{Binding SearchText}" PlaceholderText="搜索标题或正文" AutomationProperties.Name="搜索帮助文档" />
+          <TextBlock Grid.Row="1" Text="没有匹配的文档，请调整搜索。" TextWrapping="Wrap" IsVisible="{Binding HasNoSearchResults}" />
+          <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="10">
+              <TextBlock Text="使用帮助" FontWeight="SemiBold" />
+              <ListBox x:Name="HelpUserDocuments" ItemsSource="{Binding UserDocuments}" SelectionChanged="SelectDocument" AutomationProperties.Name="使用帮助目录">
+                <ListBox.ItemTemplate><DataTemplate x:DataType="help:HelpDocument"><TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="2,6" /></DataTemplate></ListBox.ItemTemplate>
+              </ListBox>
+              <TextBlock Text="技术参考" FontWeight="SemiBold" Margin="0,8,0,0" />
+              <ListBox x:Name="HelpTechnicalDocuments" ItemsSource="{Binding TechnicalDocuments}" SelectionChanged="SelectDocument" AutomationProperties.Name="技术参考目录">
+                <ListBox.ItemTemplate><DataTemplate x:DataType="help:HelpDocument"><TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="2,6" /></DataTemplate></ListBox.ItemTemplate>
+              </ListBox>
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+      <Border Grid.Column="2" Classes="card" Padding="0">
+        <controls:HelpMarkdownView x:Name="HelpDocument" AutomationProperties.Name="帮助文档正文" />
+      </Border>
+    </Grid>
+    <TextBlock Grid.Row="2" Text="{Binding StatusText}" Classes="muted" TextWrapping="Wrap" />
+  </Grid>
+</Window>

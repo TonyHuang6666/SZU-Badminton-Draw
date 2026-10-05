@@ -35,6 +35,7 @@ public partial class AppShellWindow : Window
             resultFilesPicker ?? PickResultFilesAsync, operationalOutputPicker ?? PickOperationalOutputAsync));
         DataContext = shell;
         ConfigureScheduleBoardWindow(shell);
+        ConfigureUtilityWindows();
         Closed += (_, _) => shell.Dispose();
         try
         {

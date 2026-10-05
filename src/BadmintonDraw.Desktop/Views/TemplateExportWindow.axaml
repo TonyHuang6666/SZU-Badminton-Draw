@@ -1,0 +1,54 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BadmintonDraw.Desktop.ViewModels"
+        x:Class="BadmintonDraw.Desktop.Views.TemplateExportWindow" x:DataType="vm:TemplateExportViewModel"
+        Title="模板导出" Width="800" Height="660" MinWidth="720" MinHeight="580"
+        CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource AppTextBrush}">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="28" RowSpacing="18">
+    <StackPanel Spacing="6">
+      <TextBlock Text="模板导出" Classes="page-title" />
+      <TextBlock Text="选择一项或多项空白模板，无需创建比赛即可使用。" Classes="page-subtitle" />
+    </StackPanel>
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="14">
+        <Border Classes="card" Padding="20" IsEnabled="{Binding IsIdle}">
+          <StackPanel Spacing="14">
+            <StackPanel Spacing="4">
+              <CheckBox Content="参赛名单" IsChecked="{Binding IncludeRoster}" FontWeight="SemiBold" />
+              <TextBlock Text="通用 Excel 名单模板，适用于单打、双打及团体项目。" Classes="muted" Margin="28,0,0,0" />
+            </StackPanel>
+            <Border Height="1" Background="{DynamicResource AppSoftBorderBrush}" />
+            <StackPanel Spacing="4">
+              <CheckBox Content="空白单场比赛计分表" IsChecked="{Binding IncludeIndividualScoreSheet}" FontWeight="SemiBold" />
+              <TextBlock Text="单场比赛的现场计分与签字记录。" Classes="muted" Margin="28,0,0,0" />
+            </StackPanel>
+            <Border Height="1" Background="{DynamicResource AppSoftBorderBrush}" />
+            <StackPanel Spacing="4">
+              <CheckBox Content="空白团体比赛计分表" IsChecked="{Binding IncludeTeamScoreSheet}" FontWeight="SemiBold" />
+              <TextBlock Text="团体对阵、各单项比分及最终赛果记录。" Classes="muted" Margin="28,0,0,0" />
+            </StackPanel>
+            <Border Background="{DynamicResource AppSurfaceMutedBrush}" CornerRadius="10" Padding="14,10" Margin="0,4,0,0">
+              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="24" IsEnabled="{Binding HasScoreSheets}">
+                <TextBlock Text="计分表格式（可多选）" VerticalAlignment="Center" />
+                <CheckBox Grid.Column="1" Content="Excel" IsChecked="{Binding IncludeExcel}" />
+                <CheckBox Grid.Column="2" Content="PDF" IsChecked="{Binding IncludePdf}" />
+              </Grid>
+            </Border>
+          </StackPanel>
+        </Border>
+        <StackPanel Spacing="6">
+          <TextBlock Text="{Binding StateMessage}" IsVisible="{Binding !HasError}" Classes="muted" />
+          <TextBlock Text="{Binding StateMessage}" IsVisible="{Binding HasError}" TextWrapping="Wrap" Foreground="{DynamicResource AppErrorTextBrush}" />
+          <SelectableTextBlock Text="{Binding OutputSummary}" IsVisible="{Binding HasOutputs}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AppMutedTextBrush}" />
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="18">
+      <StackPanel VerticalAlignment="Center" Spacing="4">
+        <TextBlock Text="{Binding SelectionSummary}" TextWrapping="Wrap" FontSize="13" />
+        <TextBlock Text="点击导出后选择保存文件夹" Classes="muted" FontSize="12" />
+      </StackPanel>
+      <Button x:Name="ExportButton" Grid.Column="1" Content="导出所选模板" Classes="primary" Command="{Binding ExportCommand}" VerticalAlignment="Center" />
+    </Grid>
+  </Grid>
+</Window>

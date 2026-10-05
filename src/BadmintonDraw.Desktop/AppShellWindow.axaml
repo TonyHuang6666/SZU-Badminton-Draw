@@ -31,12 +31,14 @@
         </Border>
         <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
           <TextBlock Text="{Binding Title}" FontSize="19" FontWeight="SemiBold" Foreground="{DynamicResource AppTitleBrush}" TextTrimming="CharacterEllipsis" />
-          <TextBlock Text="{Binding StageText}" Classes="muted" FontSize="12" />
+          <TextBlock Text="{Binding StageText}" Classes="muted" FontSize="12" TextTrimming="CharacterEllipsis" />
         </StackPanel>
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-          <Button Content="明暗切换" Classes="quiet" Command="{Binding ToggleThemeCommand}" AutomationProperties.Name="切换浅色或深色外观" />
+          <Button x:Name="HeaderHelpButton" Content="帮助" Classes="quiet" Click="HelpClicked" />
+          <Button x:Name="HeaderTemplatesButton" Content="模板导出" Classes="quiet" Click="TemplatesClicked" />
+          <Button x:Name="HeaderThemeButton" Content="明暗切换" Classes="quiet" Command="{Binding ToggleThemeCommand}" AutomationProperties.Name="切换浅色或深色外观" />
           <Button x:Name="HeaderRecoveryButton" Content="备份与恢复" Classes="quiet" Command="{Binding OpenRecoveryCommand}" />
-          <Button Content="更多 ···" Classes="secondary" AutomationProperties.Name="更多赛事操作">
+          <Button x:Name="HeaderMoreButton" Content="更多 ···" Classes="secondary" AutomationProperties.Name="更多赛事操作">
             <Button.Flyout>
               <MenuFlyout>
                 <MenuItem Header="返回首页" Command="{Binding HomeCommand}" />
