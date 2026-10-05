@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -17,6 +18,38 @@ namespace BadmintonDraw.Desktop.Tests;
 public sealed class VenueCourtSelectionDialogTests : IDisposable
 {
     private readonly HeadlessUnitTestSession ui = HeadlessUnitTestSession.StartNew(typeof(App));
+
+    [Theory]
+    [InlineData("VenueCourtSelectionDialog", false)]
+    [InlineData("VenueCourtSelectionDialog", true)]
+    [InlineData("UnavailableCourtSelectionDialog", false)]
+    [InlineData("UnavailableCourtSelectionDialog", true)]
+    public Task CourtChoicesUseBrandSelectionRatherThanSuccessColors(string dialogName, bool dark) => ui.Dispatch(() =>
+    {
+        var dialog = CreateDialog(dialogName);
+        dialog.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
+        try
+        {
+            dialog.Show();
+            if (dialogName == "VenueCourtSelectionDialog") dialog.FindControl<ComboBox>("VenueSelector")!.SelectedIndex = 0;
+            else dialog.FindControl<CheckBox>("AllCourtsToggle")!.IsChecked = false;
+            Dispatcher.UIThread.RunJobs(); dialog.UpdateLayout();
+            var choice = dialog.GetVisualDescendants().OfType<CheckBox>().First(checkBox => checkBox.Classes.Contains("court-choice"));
+            choice.IsChecked = true;
+            Dispatcher.UIThread.RunJobs(); dialog.UpdateLayout();
+
+            string? Brush(string key) => Assert.IsAssignableFrom<IBrush>(dialog.FindResource(dialog.ActualThemeVariant, key)).ToString();
+            Assert.NotEqual(Brush("AppSuccessCardBackgroundBrush"), choice.Background?.ToString());
+            Assert.Equal(Brush("AppBrandSelectedBackgroundBrush"), choice.Background?.ToString());
+            Assert.Equal(Brush("AppBrandSelectedBorderBrush"), choice.BorderBrush?.ToString());
+
+            choice.IsChecked = false;
+            Dispatcher.UIThread.RunJobs(); dialog.UpdateLayout();
+            Assert.Equal(Brush("AppSurfaceBrush"), choice.Background?.ToString());
+            Assert.Equal(Brush("AppBorderBrush"), choice.BorderBrush?.ToString());
+        }
+        finally { dialog.Close(); }
+    }, CancellationToken.None);
 
     [Theory]
     [InlineData("VenueCourtSelectionDialog", false)]

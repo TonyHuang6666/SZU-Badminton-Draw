@@ -51,8 +51,9 @@ public sealed class NewWorkspaceWizardChoiceCardTests : IDisposable
         void AssertSelectionColors()
         {
             string? Brush(string key) => Assert.IsAssignableFrom<IBrush>(fixture.Window.FindResource(fixture.Window.ActualThemeVariant, key)).ToString();
-            Assert.Equal(Brush("AppSuccessCardBackgroundBrush"), surface.Background?.ToString());
-            Assert.Equal(Brush("AppAccentBrush"), surface.BorderBrush?.ToString());
+            Assert.NotEqual(Brush("AppSuccessCardBackgroundBrush"), surface.Background?.ToString());
+            Assert.Equal(Brush("AppBrandSelectedBackgroundBrush"), surface.Background?.ToString());
+            Assert.Equal(Brush("AppBrandSelectedBorderBrush"), surface.BorderBrush?.ToString());
         }
         AssertSelectionColors();
         var point = card.TranslatePoint(new Point(10, 10), fixture.Window)!.Value;
@@ -63,6 +64,20 @@ public sealed class NewWorkspaceWizardChoiceCardTests : IDisposable
         Layout(fixture.Window);
         AssertSelectionColors();
         fixture.Window.MouseUp(point, MouseButton.Left);
+    }, CancellationToken.None);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task ActiveWizardStepUsesSelectionRatherThanSuccessColors(bool dark) => ui.Dispatch(() =>
+    {
+        using var fixture = new WizardFixture(dark);
+        var step = Assert.Single(fixture.Window.GetVisualDescendants().OfType<Border>(),
+            border => border.Classes.Contains("wizard-step") && border.Classes.Contains("active"));
+        string? Brush(string key) => Assert.IsAssignableFrom<IBrush>(fixture.Window.FindResource(fixture.Window.ActualThemeVariant, key)).ToString();
+        Assert.NotEqual(Brush("AppSuccessCardBackgroundBrush"), step.Background?.ToString());
+        Assert.Equal(Brush("AppBrandSelectedBackgroundBrush"), step.Background?.ToString());
+        Assert.Equal(Brush("AppBrandSelectedBorderBrush"), step.BorderBrush?.ToString());
     }, CancellationToken.None);
 
     [Fact]

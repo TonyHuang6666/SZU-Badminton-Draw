@@ -2,7 +2,7 @@
              xmlns:vm="using:BadmintonDraw.Desktop.ViewModels" x:Class="BadmintonDraw.Desktop.Views.NewWorkspaceWizardPage" x:DataType="vm:NewWorkspaceWizardViewModel">
   <UserControl.Styles>
     <Style Selector="Border.wizard-step"><Setter Property="Padding" Value="16,14" /><Setter Property="CornerRadius" Value="12" /><Setter Property="Background" Value="{DynamicResource AppSurfaceMutedBrush}" /></Style>
-    <Style Selector="Border.wizard-step.active"><Setter Property="Background" Value="{DynamicResource AppSuccessCardBackgroundBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" /><Setter Property="BorderThickness" Value="1" /></Style>
+    <Style Selector="Border.wizard-step.active"><Setter Property="Background" Value="{DynamicResource AppBrandSelectedBackgroundBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppBrandSelectedBorderBrush}" /><Setter Property="BorderThickness" Value="1" /></Style>
     <Style Selector="RadioButton.choice">
       <Setter Property="Padding" Value="18" />
       <Setter Property="MinHeight" Value="94" />
@@ -25,7 +25,7 @@
         </ControlTemplate>
       </Setter>
     </Style>
-    <Style Selector="RadioButton.choice:checked"><Setter Property="Background" Value="{DynamicResource AppSuccessCardBackgroundBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" /></Style>
+    <Style Selector="RadioButton.choice:checked"><Setter Property="Background" Value="{DynamicResource AppBrandSelectedBackgroundBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AppBrandSelectedBorderBrush}" /></Style>
   </UserControl.Styles>
   <Grid RowDefinitions="*,Auto">
     <ScrollViewer>

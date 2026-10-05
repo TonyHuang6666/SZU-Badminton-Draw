@@ -16,8 +16,8 @@
       <Setter Property="CornerRadius" Value="8" />
     </Style>
     <Style Selector="CheckBox.court-choice:checked">
-      <Setter Property="Background" Value="{DynamicResource AppSuccessCardBackgroundBrush}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}" />
+      <Setter Property="Background" Value="{DynamicResource AppBrandSelectedBackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AppBrandSelectedBorderBrush}" />
     </Style>
   </Window.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Margin="20" RowSpacing="12">
