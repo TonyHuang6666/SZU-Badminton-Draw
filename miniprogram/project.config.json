@@ -1,0 +1,18 @@
+{
+  "description": "深大羽协·赛事助手微信小程序",
+  "compileType": "miniprogram",
+  "projectname": "szu-badminton-draw-miniprogram",
+  "appid": "wx5b0b9396b20e002e",
+  "miniprogramRoot": "./",
+  "packOptions": {
+    "ignore": []
+  },
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": false,
+    "compileHotReLoad": true,
+    "urlCheck": true
+  }
+}

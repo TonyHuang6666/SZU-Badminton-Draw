@@ -1,0 +1,6 @@
+{
+  "description": "本机开发者工具私有配置示例，不包含密钥或个人路径。",
+  "setting": {
+    "compileHotReLoad": true
+  }
+}

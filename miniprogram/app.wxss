@@ -1,0 +1,17 @@
+page {
+  --brand-primary: #8F0C46;
+  --brand-deep: #241B2B;
+  --brand-soft: #F3E8EF;
+  --surface: #FFFFFF;
+  --page-background: #FAF7FA;
+  color: var(--brand-deep);
+  background: var(--page-background);
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+view,
+text,
+image {
+  box-sizing: border-box;
+}

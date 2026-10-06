@@ -42,3 +42,4 @@ obj/
 TestResults/
 artifacts/
 .worktrees/
+miniprogram/project.private.config.json
