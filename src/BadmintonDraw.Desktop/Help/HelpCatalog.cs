@@ -34,6 +34,7 @@ public sealed class HelpCatalog
             ("algorithm.md", "docs/algorithm.md", "算法说明", "技术参考"),
             ("architecture.md", "docs/architecture.md", "系统架构", "技术参考"),
             ("build.md", "docs/build.md", "构建、验收与打包", "技术参考"),
+            ("releases/v5.0.1.md", "docs/releases/v5.0.1.md", "5.0.1 发布说明", "技术参考"),
             ("releases/v5.0.0.md", "docs/releases/v5.0.0.md", "5.0.0 发布说明", "技术参考")
         ];
         return entries.Select(entry =>

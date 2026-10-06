@@ -82,7 +82,7 @@ internal static class V5AcceptanceProgram
     }
     private static string ParseOutput(string[] args, string repository)
     {
-        if (args.Length == 0) return Path.Combine(repository, "artifacts", "acceptance", "v5.0.0", $"run-{DateTime.UtcNow:yyyyMMdd-HHmmssfff}-{Guid.NewGuid():N}");
+        if (args.Length == 0) return Path.Combine(repository, "artifacts", "acceptance", "v5.0.1", $"run-{DateTime.UtcNow:yyyyMMdd-HHmmssfff}-{Guid.NewGuid():N}");
         if (args.Length != 2 || args[0] != "--output" || string.IsNullOrWhiteSpace(args[1]) || args[1].StartsWith("--", StringComparison.Ordinal))
             throw new ArgumentException("Usage: BadmintonDraw.Acceptance [--output <new-or-empty-directory>]. Unknown, duplicate and missing arguments are rejected.");
         return Path.GetFullPath(args[1], repository);

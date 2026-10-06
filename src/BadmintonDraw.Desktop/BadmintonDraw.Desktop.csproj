@@ -35,5 +35,6 @@
       <LogicalName>Help/%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="../../docs/releases/v5.0.0.md" LogicalName="Help/releases/v5.0.0.md" />
+    <EmbeddedResource Include="../../docs/releases/v5.0.1.md" LogicalName="Help/releases/v5.0.1.md" />
   </ItemGroup>
 </Project>
