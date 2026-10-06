@@ -57,3 +57,26 @@ test('首页包含品牌化 Hello World 和本地高清 logo', () => {
   assert.equal(fs.statSync(logo).isFile(), true);
   assert.ok(fs.statSync(logo).size > 0);
 });
+
+test('小程序开发指南包含导入、预览和后端边界说明', () => {
+  const guidePath = path.join(root, 'docs', 'wechat-miniprogram.md');
+  assert.equal(fs.existsSync(guidePath), true);
+  const guide = fs.readFileSync(guidePath, 'utf8');
+  for (const required of [
+    'miniprogram/',
+    'wx5b0b9396b20e002e',
+    'https://developers.weixin.qq.com/miniprogram/dev/devtools/download.html',
+    '模拟器',
+    '真机预览',
+    '没有后端'
+  ]) {
+    assert.match(guide, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assert.doesNotMatch(guide, /-----BEGIN [A-Z ]+-----/);
+  assert.doesNotMatch(guide, /AppSecret\s*[:：]\s*[^`\s]+/);
+
+  const index = fs.readFileSync(path.join(root, 'docs', 'index.md'), 'utf8');
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  assert.match(index, /wechat-miniprogram\.md/);
+  assert.match(readme, /docs\/wechat-miniprogram\.md/);
+});

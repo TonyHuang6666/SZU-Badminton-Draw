@@ -19,6 +19,7 @@
 | 了解抽签、比赛关系图及排程算法 | [算法说明](algorithm.md) |
 | 了解代码模块、赛事文件及保存流程 | [系统架构](architecture.md) |
 | 本地运行、测试和打包 | [构建与验证](build.md) |
+| 开发微信小程序 Hello World | [微信小程序开发](wechat-miniprogram.md) |
 
 ## 办赛流程
 

@@ -71,6 +71,8 @@ dotnet run --project src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj -c R
 
 测试、依赖审计、端到端验收和平台打包见[构建说明](docs/build.md)。
 
+微信小程序基础工程位于 [`miniprogram/`](miniprogram/)，导入、模拟器运行和真机预览见[微信小程序开发说明](docs/wechat-miniprogram.md)。当前阶段只提供独立 Hello World 页面，没有接入赛事后端。
+
 ## 代码与文档
 
 | 模块 | 职责 |
