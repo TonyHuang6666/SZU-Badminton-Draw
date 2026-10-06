@@ -1,0 +1,17 @@
+<view class="page-shell">
+  <view class="hero-card">
+    <image
+      class="brand-logo"
+      src="/assets/logo/szu-badminton-association.png"
+      mode="aspectFit"
+      aria-label="深大羽协 logo"
+    />
+    <text class="brand-title">{{title}}</text>
+    <text class="brand-subtitle">{{subtitle}}</text>
+
+    <view class="greeting-card">
+      <text class="greeting">{{greeting}}</text>
+      <text class="phase">{{phase}}</text>
+    </view>
+  </view>
+</view>

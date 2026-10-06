@@ -1,0 +1,69 @@
+.page-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48rpx;
+  background: linear-gradient(180deg, #FAF7FA 0%, #F3E8EF 100%);
+}
+
+.hero-card {
+  width: 100%;
+  max-width: 680rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 72rpx 48rpx 56rpx;
+  border: 2rpx solid rgba(143, 12, 70, 0.14);
+  border-radius: 36rpx;
+  background: #FFFFFF;
+  box-shadow: 0 24rpx 72rpx rgba(36, 27, 43, 0.12);
+}
+
+.brand-logo {
+  width: 184rpx;
+  height: 184rpx;
+  margin-bottom: 32rpx;
+}
+
+.brand-title {
+  color: #8F0C46;
+  font-size: 42rpx;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.brand-subtitle {
+  margin-top: 16rpx;
+  color: #7A6475;
+  font-size: 22rpx;
+  letter-spacing: 4rpx;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.greeting-card {
+  width: 100%;
+  margin-top: 56rpx;
+  padding: 36rpx 32rpx;
+  border-radius: 24rpx;
+  background: #F3E8EF;
+  text-align: center;
+}
+
+.greeting {
+  display: block;
+  color: #241B2B;
+  font-size: 34rpx;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.phase {
+  display: block;
+  margin-top: 12rpx;
+  color: #7A6475;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
