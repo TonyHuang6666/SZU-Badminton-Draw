@@ -17,7 +17,7 @@
 
 生产代码的 SQLite 包引用集中在 Persistence；Excel 使用 ClosedXML 处理工作簿、SkiaSharp 渲染材料，并内嵌 Noto Sans SC 字体与个人赛记分表模板。Desktop 通过 `TournamentWorkspaceWorkflow` 执行赛事命令，文件选择器、窗口和线程切换由桌面层管理。
 
-顶部帮助窗口在构建时嵌入当前使用文档、技术文档和发布说明，运行时通过 Markdig 解析 Markdown，并用 Avalonia 原生控件显示。文档跳转限定在内置目录内，外部网页仅响应用户点击；阅读功能可离线使用。模板导出窗口独立于赛事会话，直接复用 Excel 层的空白名单和计分表布局，经系统文件夹选择与同名文件确认后输出，不创建赛事数据或导出审计记录。
+顶部帮助窗口在构建时直接嵌入根目录 README、当前使用文档、技术文档和发布说明，按“程序介绍”“使用帮助”“技术参考”展示。运行时通过 Markdig 解析 Markdown，并用 Avalonia 原生控件显示。相对链接按文档在仓库中的来源路径解析，文档跳转限定在内置目录内，外部网页仅响应用户点击；阅读功能可离线使用。模板导出窗口独立于赛事会话，直接复用 Excel 层的空白名单和计分表布局，经系统文件夹选择与同名文件确认后输出，不创建赛事数据或导出审计记录。
 
 源码入口：[`src/`](../src/)、[`TournamentWorkspaceWorkflow`](../src/BadmintonDraw.Workflows/Tournaments/TournamentWorkspaceWorkflow.cs)、[`V5ArchitectureBoundaryTests`](../tests/BadmintonDraw.Tests/V5ArchitectureBoundaryTests.cs)。
 

@@ -23,7 +23,12 @@ public partial class HelpWindow : Window
         model.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName is nameof(HelpViewModel.SelectedDocument) or nameof(HelpViewModel.ReadingFontSize)) Render();
-            if (args.PropertyName == nameof(HelpViewModel.SearchText)) Dispatcher.UIThread.Post(() => Find(false), DispatcherPriority.Loaded);
+            if (args.PropertyName == nameof(HelpViewModel.SearchText)) Dispatcher.UIThread.Post(() =>
+            {
+                // Filtering replaces the lists; restore the current row after their bindings update.
+                SynchronizeSelection();
+                Find(false);
+            }, DispatcherPriority.Loaded);
         };
         Render();
     }
@@ -31,11 +36,17 @@ public partial class HelpWindow : Window
     private void Render()
     {
         HelpDocument.SetDocument(model.SelectedDocument.Markdown, model.ReadingFontSize);
+        SynchronizeSelection();
+        if (model.HasSearchText) Dispatcher.UIThread.Post(() => Find(false), DispatcherPriority.Loaded);
+    }
+
+    private void SynchronizeSelection()
+    {
         selecting = true;
+        HelpIntroDocuments.SelectedItem = model.IntroDocuments.Contains(model.SelectedDocument) ? model.SelectedDocument : null;
         HelpUserDocuments.SelectedItem = model.UserDocuments.Contains(model.SelectedDocument) ? model.SelectedDocument : null;
         HelpTechnicalDocuments.SelectedItem = model.TechnicalDocuments.Contains(model.SelectedDocument) ? model.SelectedDocument : null;
         selecting = false;
-        if (model.HasSearchText) Dispatcher.UIThread.Post(() => Find(false), DispatcherPriority.Loaded);
     }
 
     private void SelectDocument(object? sender, SelectionChangedEventArgs e)

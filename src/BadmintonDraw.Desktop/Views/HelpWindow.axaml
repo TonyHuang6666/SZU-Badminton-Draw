@@ -26,7 +26,11 @@
           <TextBlock Grid.Row="1" Text="没有匹配的文档，请调整搜索。" TextWrapping="Wrap" IsVisible="{Binding HasNoSearchResults}" />
           <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
             <StackPanel Spacing="10">
-              <TextBlock Text="使用帮助" FontWeight="SemiBold" />
+              <TextBlock Text="程序介绍" FontWeight="SemiBold" />
+              <ListBox x:Name="HelpIntroDocuments" ItemsSource="{Binding IntroDocuments}" SelectionChanged="SelectDocument" AutomationProperties.Name="程序介绍目录">
+                <ListBox.ItemTemplate><DataTemplate x:DataType="help:HelpDocument"><TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="2,6" /></DataTemplate></ListBox.ItemTemplate>
+              </ListBox>
+              <TextBlock Text="使用帮助" FontWeight="SemiBold" Margin="0,8,0,0" />
               <ListBox x:Name="HelpUserDocuments" ItemsSource="{Binding UserDocuments}" SelectionChanged="SelectDocument" AutomationProperties.Name="使用帮助目录">
                 <ListBox.ItemTemplate><DataTemplate x:DataType="help:HelpDocument"><TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="2,6" /></DataTemplate></ListBox.ItemTemplate>
               </ListBox>

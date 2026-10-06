@@ -2,7 +2,7 @@ using Markdig;
 
 namespace BadmintonDraw.Desktop.Help;
 
-public sealed record HelpDocument(string Path, string Title, string Category, string Markdown)
+public sealed record HelpDocument(string Path, string SourcePath, string Title, string Category, string Markdown)
 {
     public string PlainText => Markdig.Markdown.ToPlainText(Markdown, HelpCatalog.Pipeline);
 }
@@ -22,25 +22,26 @@ public sealed class HelpCatalog
 
     private static IReadOnlyList<HelpDocument> LoadDocuments()
     {
-        (string Path, string Title, string Category)[] entries =
+        (string Path, string SourcePath, string Title, string Category)[] entries =
         [
-            ("index.md", "文档中心", "使用帮助"),
-            ("usage.md", "使用说明", "使用帮助"),
-            ("scheduling.md", "赛程编排", "使用帮助"),
-            ("troubleshooting.md", "故障处理", "使用帮助"),
-            ("fairness.md", "公平性与公开审计", "使用帮助"),
-            ("rules-compliance.md", "竞赛规则对应关系", "使用帮助"),
-            ("algorithm.md", "算法说明", "技术参考"),
-            ("architecture.md", "系统架构", "技术参考"),
-            ("build.md", "构建、验收与打包", "技术参考"),
-            ("releases/v5.0.0.md", "5.0.0 发布说明", "技术参考")
+            ("README.md", "README.md", "深大羽协 · 赛事助手", "程序介绍"),
+            ("index.md", "docs/index.md", "文档中心", "使用帮助"),
+            ("usage.md", "docs/usage.md", "使用说明", "使用帮助"),
+            ("scheduling.md", "docs/scheduling.md", "赛程编排", "使用帮助"),
+            ("troubleshooting.md", "docs/troubleshooting.md", "故障处理", "使用帮助"),
+            ("fairness.md", "docs/fairness.md", "公平性与公开审计", "使用帮助"),
+            ("rules-compliance.md", "docs/rules-compliance.md", "竞赛规则对应关系", "使用帮助"),
+            ("algorithm.md", "docs/algorithm.md", "算法说明", "技术参考"),
+            ("architecture.md", "docs/architecture.md", "系统架构", "技术参考"),
+            ("build.md", "docs/build.md", "构建、验收与打包", "技术参考"),
+            ("releases/v5.0.0.md", "docs/releases/v5.0.0.md", "5.0.0 发布说明", "技术参考")
         ];
         return entries.Select(entry =>
         {
             using var stream = typeof(HelpCatalog).Assembly.GetManifestResourceStream("Help/" + entry.Path)
                 ?? throw new InvalidOperationException($"未能读取内置帮助：{entry.Path}");
             using var reader = new StreamReader(stream);
-            return new HelpDocument(entry.Path, entry.Title, entry.Category, reader.ReadToEnd());
+            return new HelpDocument(entry.Path, entry.SourcePath, entry.Title, entry.Category, reader.ReadToEnd());
         }).ToArray();
     }
 
@@ -59,10 +60,13 @@ public sealed class HelpCatalog
 
         var parts = value.Split('#', 2);
         var anchor = parts.Length > 1 ? parts[1] : "";
-        var path = currentPath;
+        var current = Documents.SingleOrDefault(d => d.Path == currentPath);
+        if (current is null) return new(HelpLinkKind.Unavailable);
+        // Relative Markdown links use the repository layout, not the resource IDs.
+        var path = current.SourcePath;
         if (parts[0].Length > 0)
         {
-            var segments = currentPath.Split('/').SkipLast(1).ToList();
+            var segments = current.SourcePath.Split('/').SkipLast(1).ToList();
             foreach (var segment in parts[0].Split('/'))
             {
                 if (segment is "" or ".") continue;
@@ -75,7 +79,8 @@ public sealed class HelpCatalog
             }
             path = string.Join('/', segments);
         }
-        return Documents.Any(d => d.Path == path)
-            ? new(HelpLinkKind.Internal, path, anchor) : new(HelpLinkKind.Unavailable);
+        var document = Documents.SingleOrDefault(d => d.SourcePath == path);
+        return document is not null
+            ? new(HelpLinkKind.Internal, document.Path, anchor) : new(HelpLinkKind.Unavailable);
     }
 }

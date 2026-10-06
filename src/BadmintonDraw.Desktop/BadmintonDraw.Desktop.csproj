@@ -30,6 +30,7 @@
   <ItemGroup>
     <AvaloniaResource Include="Assets/**" />
     <Content Include="ThirdPartyNotices/Markdig.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="../../README.md" LogicalName="Help/README.md" />
     <EmbeddedResource Include="../../docs/index.md;../../docs/usage.md;../../docs/scheduling.md;../../docs/troubleshooting.md;../../docs/fairness.md;../../docs/rules-compliance.md;../../docs/algorithm.md;../../docs/architecture.md;../../docs/build.md">
       <LogicalName>Help/%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>

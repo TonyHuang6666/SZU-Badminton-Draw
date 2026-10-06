@@ -10,10 +10,11 @@ public sealed class HelpViewModel : ViewModelBase
     private double readingFontSize = 15;
     private string statusText = "内置文档可离线阅读。正文可选择并复制。";
 
-    public HelpViewModel() => selectedDocument = catalog.Documents[0];
+    public HelpViewModel() => selectedDocument = catalog.Documents.Single(d => d.Path == "README.md");
+    public IReadOnlyList<HelpDocument> IntroDocuments => Search("程序介绍");
     public IReadOnlyList<HelpDocument> UserDocuments => Search("使用帮助");
     public IReadOnlyList<HelpDocument> TechnicalDocuments => Search("技术参考");
-    public bool HasNoSearchResults => UserDocuments.Count + TechnicalDocuments.Count == 0;
+    public bool HasNoSearchResults => IntroDocuments.Count + UserDocuments.Count + TechnicalDocuments.Count == 0;
     public bool HasSearchText => !string.IsNullOrWhiteSpace(SearchText);
     public string SearchText
     {
@@ -21,6 +22,7 @@ public sealed class HelpViewModel : ViewModelBase
         set
         {
             if (!SetProperty(ref searchText, value ?? "")) return;
+            OnPropertyChanged(nameof(IntroDocuments));
             OnPropertyChanged(nameof(UserDocuments)); OnPropertyChanged(nameof(TechnicalDocuments));
             OnPropertyChanged(nameof(HasNoSearchResults));
             OnPropertyChanged(nameof(HasSearchText));

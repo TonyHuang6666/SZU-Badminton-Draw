@@ -25,7 +25,8 @@ public sealed class OfflineHelpTests : IDisposable
     {
         var catalog = new HelpCatalog();
         var pages = catalog.Documents.ToArray();
-        Assert.Equal(10, pages.Length);
+        Assert.Equal(11, pages.Length);
+        Assert.Contains(pages, p => p.Path == "README.md" && p.Category == "程序介绍");
         Assert.Contains(pages, p => p.Path == "releases/v5.0.0.md");
         Assert.All(pages, p => Assert.StartsWith("# ", p.Markdown));
         Assert.DoesNotContain(typeof(App).Assembly.GetManifestResourceNames(), p => p.Contains("archive", StringComparison.OrdinalIgnoreCase));
@@ -33,7 +34,8 @@ public sealed class OfflineHelpTests : IDisposable
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "BadmintonDraw.sln"))) root = root.Parent;
         Assert.NotNull(root);
         // This catches a stale copied document or a wrong MSBuild resource mapping.
-        Assert.All(pages, page => Assert.Equal(File.ReadAllText(Path.Combine(root.FullName, "docs", page.Path)), page.Markdown));
+        Assert.All(pages, page => Assert.Equal(File.ReadAllText(Path.Combine(root.FullName,
+            page.Path == "README.md" ? "README.md" : Path.Combine("docs", page.Path))), page.Markdown));
     }
 
     [Fact]
@@ -50,10 +52,28 @@ public sealed class OfflineHelpTests : IDisposable
         Assert.Contains(model.TechnicalDocuments, p => p.Path == "build.md");
     }
 
+    [Fact]
+    public void SearchIncludesIntroductionEvenWhenNoUsageOrTechnicalDocumentMatches()
+    {
+        var model = new HelpViewModel { SearchText = "BFSZU.cpp" };
+        Assert.False(model.HasNoSearchResults);
+        Assert.Empty(model.UserDocuments);
+        Assert.Empty(model.TechnicalDocuments);
+    }
+
     [Theory]
     [InlineData("usage.md", "scheduling.md#选手兼项与负荷核对", "Internal", "scheduling.md", "选手兼项与负荷核对")]
     [InlineData("releases/v5.0.0.md", "../usage.md#设置种子", "Internal", "usage.md", "设置种子")]
     [InlineData("usage.md", "#设置种子", "Internal", "usage.md", "设置种子")]
+    [InlineData("README.md", "docs/usage.md#设置种子", "Internal", "usage.md", "设置种子")]
+    [InlineData("README.md", "docs/releases/v5.0.0.md", "Internal", "releases/v5.0.0.md", "")]
+    [InlineData("README.md", "#项目起源与自主研发", "Internal", "README.md", "项目起源与自主研发")]
+    [InlineData("index.md", "../README.md", "Internal", "README.md", "")]
+    [InlineData("releases/v5.0.0.md", "../../README.md", "Internal", "README.md", "")]
+    [InlineData("README.md", "LICENSE", "Unavailable", null, "")]
+    [InlineData("README.md", "samples/v5/README.md", "Unavailable", null, "")]
+    [InlineData("README.md", "docs/archive/index.md", "Unavailable", null, "")]
+    [InlineData("README.md", "../README.md", "Unavailable", null, "")]
     [InlineData("usage.md", "https://example.com/docs", "External", null, "")]
     [InlineData("usage.md", "../src/example.cs", "Unavailable", null, "")]
     [InlineData("usage.md", "archive/index.md", "Unavailable", null, "")]
@@ -82,7 +102,7 @@ public sealed class OfflineHelpTests : IDisposable
         {
             window.Show(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var model = Assert.IsType<HelpViewModel>(window.DataContext);
-            model.Navigate("usage.md#设置种子");
+            model.Navigate("docs/usage.md#设置种子");
             Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             Assert.Equal("usage.md", model.SelectedDocument.Path);
             Assert.Contains(window.GetVisualDescendants().OfType<Grid>(), c => c.Classes.Contains("help-table"));
@@ -111,7 +131,7 @@ public sealed class OfflineHelpTests : IDisposable
         {
             window.Show(); window.UpdateLayout();
             var model = Assert.IsType<HelpViewModel>(window.DataContext);
-            model.Navigate("usage.md#设置种子");
+            model.Navigate("docs/usage.md#设置种子");
             Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var reader = window.FindControl<HelpMarkdownView>("HelpDocument")!;
             var scroll = Assert.IsType<ScrollViewer>(reader.Content);
@@ -138,8 +158,9 @@ public sealed class OfflineHelpTests : IDisposable
             window.FindControl<Button>("HelpCopyText")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Dispatcher.UIThread.RunJobs();
             var copied = await window.Clipboard!.TryGetTextAsync();
-            Assert.Contains("文档中心", copied);
-            Assert.DoesNotContain("[使用说明](usage.md)", copied);
+            Assert.StartsWith("深大羽协 · 赛事助手", copied);
+            Assert.Contains("项目起源与自主研发", copied);
+            Assert.DoesNotContain("[使用说明](docs/usage.md)", copied);
             Assert.Contains("已复制", model.StatusText);
             return 0;
         }
@@ -176,7 +197,7 @@ public sealed class OfflineHelpTests : IDisposable
         {
             window.Show();
             var model = Assert.IsType<HelpViewModel>(window.DataContext);
-            model.Navigate("architecture.md");
+            model.Navigate("docs/architecture.md");
             window.FindControl<TextBox>("HelpSearch")!.Text = "SQLite";
             Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             Assert.Contains(window.GetVisualDescendants().OfType<SelectableTextBlock>(), t => t.SelectedText == "SQLite");
@@ -196,13 +217,75 @@ public sealed class OfflineHelpTests : IDisposable
         {
             window.Show();
             var model = Assert.IsType<HelpViewModel>(window.DataContext);
-            model.Navigate("algorithm.md");
+            model.Navigate("docs/algorithm.md");
             window.FindControl<TextBox>("HelpSearch")!.Text = "DrawService";
             Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             Assert.Contains(window.GetVisualDescendants().OfType<SelectableTextBlock>(), t => t.SelectedText == "DrawService");
             Assert.Contains("第 1 /", model.StatusText);
             var reader = window.FindControl<HelpMarkdownView>("HelpDocument")!;
             Assert.True(Assert.IsType<ScrollViewer>(reader.Content).Offset.Y > 0);
+        }
+        finally { window.Close(); }
+    }, CancellationToken.None);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task IntroductionOpensByDefaultAndAllThreeCategoriesNavigateAndSearch(bool dark) => ui.Dispatch(() =>
+    {
+        var window = new HelpWindow { RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light };
+        try
+        {
+            window.Show(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            var model = Assert.IsType<HelpViewModel>(window.DataContext);
+            Assert.Equal("README.md", model.SelectedDocument.Path);
+            var intro = window.FindControl<ListBox>("HelpIntroDocuments");
+            var usage = window.FindControl<ListBox>("HelpUserDocuments")!;
+            var technical = window.FindControl<ListBox>("HelpTechnicalDocuments")!;
+            Assert.NotNull(intro);
+            Assert.Same(model.SelectedDocument, intro.SelectedItem);
+            Assert.True(intro.TranslatePoint(default, window)!.Value.Y < usage.TranslatePoint(default, window)!.Value.Y);
+
+            var linkParagraph = window.GetVisualDescendants().OfType<SelectableTextBlock>()
+                .First(t => ReadableText(t).Contains("使用说明", StringComparison.Ordinal));
+            ClickText(window, linkParagraph, "使用说明");
+            Assert.Equal("usage.md", model.SelectedDocument.Path);
+            Assert.Null(intro.SelectedItem);
+            Assert.Null(technical.SelectedItem);
+            Assert.Same(model.SelectedDocument, usage.SelectedItem);
+
+            technical.SelectedItem = technical.Items.OfType<HelpDocument>().Single(d => d.Path == "architecture.md");
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.Equal("architecture.md", model.SelectedDocument.Path);
+            Assert.Null(intro.SelectedItem);
+            Assert.Null(usage.SelectedItem);
+
+            window.FindControl<TextBox>("HelpSearch")!.Text = "BFSZU.cpp";
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.False(model.HasNoSearchResults);
+            Assert.Empty(usage.Items);
+            Assert.Empty(technical.Items);
+            intro.SelectedItem = Assert.Single(intro.Items.OfType<HelpDocument>());
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.Equal("README.md", model.SelectedDocument.Path);
+            Assert.Contains(window.GetVisualDescendants().OfType<SelectableTextBlock>(), t => t.SelectedText == "BFSZU.cpp");
+            Assert.Null(usage.SelectedItem);
+            Assert.Null(technical.SelectedItem);
+
+            var reader = window.FindControl<HelpMarkdownView>("HelpDocument")!;
+            var scroll = Assert.IsType<ScrollViewer>(reader.Content);
+            var documentBody = scroll.Content;
+            var offset = scroll.Offset;
+            window.FindControl<TextBox>("HelpSearch")!.Text = "没有任何匹配的帮助词组abcdef";
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.True(model.HasNoSearchResults);
+            Assert.Null(intro.SelectedItem);
+            window.FindControl<TextBox>("HelpSearch")!.Text = "";
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.False(model.HasNoSearchResults);
+            Assert.Same(model.SelectedDocument, intro.SelectedItem);
+            Assert.Same(documentBody, scroll.Content);
+            Assert.Equal(offset, scroll.Offset);
         }
         finally { window.Close(); }
     }, CancellationToken.None);
