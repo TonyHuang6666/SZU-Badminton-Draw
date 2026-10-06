@@ -18,7 +18,8 @@ namespace BadmintonDraw.Desktop.Tests;
 [Collection("Avalonia UI dispatcher")]
 public sealed class OfflineHelpTests : IDisposable
 {
-    private readonly HeadlessUnitTestSession ui = HeadlessUnitTestSession.StartNew(typeof(App));
+    private HeadlessUnitTestSession? ui;
+    private HeadlessUnitTestSession Ui => ui ??= HeadlessUnitTestSession.StartNew(typeof(App));
 
     [Fact]
     public void PackagedCatalogLoadsEveryCurrentDocumentWithoutShippingArchives()
@@ -96,7 +97,7 @@ public sealed class OfflineHelpTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public Task RenderedHelpSupportsTablesCodeLinksAndFontSize(bool dark) => ui.Dispatch(() =>
+    public Task RenderedHelpSupportsTablesCodeLinksAndFontSize(bool dark) => Ui.Dispatch(() =>
     {
         var window = new HelpWindow();
         window.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
@@ -126,7 +127,7 @@ public sealed class OfflineHelpTests : IDisposable
     }, CancellationToken.None);
 
     [Fact]
-    public Task InternalChapterLinksScrollToTheHeadingAndUnavailableLinksExplainWhy() => ui.Dispatch(() =>
+    public Task InternalChapterLinksScrollToTheHeadingAndUnavailableLinksExplainWhy() => Ui.Dispatch(() =>
     {
         var window = new HelpWindow();
         try
@@ -150,7 +151,7 @@ public sealed class OfflineHelpTests : IDisposable
     }, CancellationToken.None);
 
     [Fact]
-    public Task CopyButtonWritesTheCurrentReadableDocumentToTheClipboard() => ui.Dispatch(async () =>
+    public Task CopyButtonWritesTheCurrentReadableDocumentToTheClipboard() => Ui.Dispatch(async () =>
     {
         var window = new HelpWindow();
         try
@@ -172,7 +173,7 @@ public sealed class OfflineHelpTests : IDisposable
     [Theory]
     [InlineData(15)]
     [InlineData(24)]
-    public Task InlineLinksAndParagraphGlyphsFitTheMeasuredLineHeight(double fontSize) => ui.Dispatch(() =>
+    public Task InlineLinksAndParagraphGlyphsFitTheMeasuredLineHeight(double fontSize) => Ui.Dispatch(() =>
     {
         var reader = new HelpMarkdownView();
         reader.SetDocument("本目录的使用说明与技术文档按当前程序编写。功能范围见[发布说明](releases/v5.0.0.md)。", fontSize);
@@ -192,7 +193,7 @@ public sealed class OfflineHelpTests : IDisposable
     }, CancellationToken.None);
 
     [Fact]
-    public Task SearchLocatesAndSelectsTheMatchingTextInTheOpenDocument() => ui.Dispatch(() =>
+    public Task SearchLocatesAndSelectsTheMatchingTextInTheOpenDocument() => Ui.Dispatch(() =>
     {
         var window = new HelpWindow();
         try
@@ -212,7 +213,7 @@ public sealed class OfflineHelpTests : IDisposable
     }, CancellationToken.None);
 
     [Fact]
-    public Task SearchFindsVisibleLinkLabelsInTechnicalDocuments() => ui.Dispatch(() =>
+    public Task SearchFindsVisibleLinkLabelsInTechnicalDocuments() => Ui.Dispatch(() =>
     {
         var window = new HelpWindow();
         try
@@ -233,7 +234,7 @@ public sealed class OfflineHelpTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public Task IntroductionOpensByDefaultAndAllThreeCategoriesNavigateAndSearch(bool dark) => ui.Dispatch(() =>
+    public Task IntroductionOpensByDefaultAndAllThreeCategoriesNavigateAndSearch(bool dark) => Ui.Dispatch(() =>
     {
         var window = new HelpWindow { RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light };
         try
@@ -295,7 +296,7 @@ public sealed class OfflineHelpTests : IDisposable
     [Theory]
     [InlineData("正文 **强调** `code` [跳转目标](usage.md) 尾文")]
     [InlineData("正文 **强调**  \n[跳转目标](usage.md) 尾文")]
-    public Task StyledLinksKeepTheirExactClickableRangeAfterFormattedText(string markdown) => ui.Dispatch(async () =>
+    public Task StyledLinksKeepTheirExactClickableRangeAfterFormattedText(string markdown) => Ui.Dispatch(async () =>
     {
         var reader = new HelpMarkdownView();
         reader.SetDocument(markdown, 15);
@@ -338,5 +339,5 @@ public sealed class OfflineHelpTests : IDisposable
         Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
     }
 
-    public void Dispose() => ui.Dispose();
+    public void Dispose() => ui?.Dispose();
 }
