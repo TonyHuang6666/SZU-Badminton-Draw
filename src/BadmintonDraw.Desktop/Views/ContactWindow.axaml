@@ -1,0 +1,38 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="BadmintonDraw.Desktop.Views.ContactWindow"
+        Title="联系方式" Width="800" Height="570" MinWidth="700" MinHeight="520"
+        CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource AppTextBrush}">
+  <Grid RowDefinitions="Auto,*" Margin="26" RowSpacing="20">
+    <StackPanel Spacing="6">
+      <TextBlock Text="联系方式" Classes="page-title" />
+      <TextBlock Text="使用微信扫一扫，选择需要联系的对象。" Classes="page-subtitle" />
+    </StackPanel>
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+      <Grid ColumnDefinitions="*,*" ColumnSpacing="18">
+        <Border Classes="card" Padding="20">
+          <StackPanel Spacing="14" HorizontalAlignment="Center">
+            <TextBlock Text="深大羽协官方微信" FontSize="17" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            <Border Background="White" CornerRadius="10" Padding="8">
+              <Image x:Name="ContactAssociationQr" Source="/Assets/contact-szuba-wechat.jpg"
+                     Width="264" Height="264" Stretch="Uniform"
+                     RenderOptions.BitmapInterpolationMode="HighQuality"
+                     AutomationProperties.Name="深大羽协官方微信二维码" />
+            </Border>
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="1" Classes="card" Padding="20">
+          <StackPanel Spacing="14" HorizontalAlignment="Center">
+            <TextBlock Text="程序作者 Tony Huang 的微信" FontSize="17" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            <Border Background="White" CornerRadius="10" Padding="8">
+              <Image x:Name="ContactAuthorQr" Source="/Assets/contact-tony-wechat.jpg"
+                     Width="264" Height="264" Stretch="Uniform"
+                     RenderOptions.BitmapInterpolationMode="HighQuality"
+                     AutomationProperties.Name="程序作者 Tony Huang 微信二维码" />
+            </Border>
+          </StackPanel>
+        </Border>
+      </Grid>
+    </ScrollViewer>
+  </Grid>
+</Window>

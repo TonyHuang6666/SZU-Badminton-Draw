@@ -2,8 +2,11 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Interactivity;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using BadmintonDraw.Desktop.ViewModels;
 using BadmintonDraw.Workflows.Tournaments;
 using Xunit;
@@ -28,7 +31,7 @@ public sealed class HeaderUtilityWindowTests : IDisposable
         {
             window.Show(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var previousRight = window.FindControl<Image>("HeaderLogo")!.TranslatePoint(default, window)!.Value.X + 48;
-            foreach (var name in new[] { "HeaderHelpButton", "HeaderTemplatesButton", "HeaderThemeButton", "HeaderRecoveryButton", "HeaderMoreButton" })
+            foreach (var name in new[] { "HeaderHelpButton", "HeaderTemplatesButton", "HeaderContactButton", "HeaderThemeButton", "HeaderRecoveryButton", "HeaderMoreButton" })
             {
                 var button = window.FindControl<Button>(name);
                 Assert.NotNull(button);
@@ -46,6 +49,7 @@ public sealed class HeaderUtilityWindowTests : IDisposable
     [Theory]
     [InlineData("HeaderHelpButton", "HelpWindow")]
     [InlineData("HeaderTemplatesButton", "TemplateExportWindow")]
+    [InlineData("HeaderContactButton", "ContactWindow")]
     public Task UtilitiesOpenWithoutATournamentAndReuseTheirWindow(string buttonName, string windowType) => ui.Dispatch(() =>
     {
         var directory = Directory.CreateTempSubdirectory("header-utilities-");
@@ -80,7 +84,7 @@ public sealed class HeaderUtilityWindowTests : IDisposable
     }, CancellationToken.None);
 
     [Fact]
-    public Task OpeningBothUtilitiesLeavesTheCurrentTournamentAndPageUntouched() => ui.Dispatch(() =>
+    public Task OpeningAllUtilitiesLeavesTheCurrentTournamentAndPageUntouched() => ui.Dispatch(() =>
     {
         using var fixture = new ScheduleUiFixture();
         var window = new AppShellWindow(fixture.Workflow,
@@ -92,18 +96,59 @@ public sealed class HeaderUtilityWindowTests : IDisposable
             var page = shell.CurrentPage;
             var session = shell.CurrentSession;
             var savedBytes = File.ReadAllBytes(session!.WorkspacePath);
-            foreach (var name in new[] { "HeaderHelpButton", "HeaderTemplatesButton" })
+            foreach (var name in new[] { "HeaderHelpButton", "HeaderTemplatesButton", "HeaderContactButton" })
             {
                 var button = window.FindControl<Button>(name);
                 Assert.NotNull(button);
                 button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             }
-            Assert.Equal(2, window.OwnedWindows.Count);
+            Assert.Equal(3, window.OwnedWindows.Count);
             Assert.Same(page, shell.CurrentPage);
             Assert.Same(session, shell.CurrentSession);
             Assert.Equal(savedBytes, File.ReadAllBytes(session.WorkspacePath));
         }
         finally { window.Close(); }
+    }, CancellationToken.None);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task ContactWindowShowsBothLabeledQrCodesAtReadableSize(bool dark) => ui.Dispatch(() =>
+    {
+        var directory = Directory.CreateTempSubdirectory("contact-window-");
+        var window = new AppShellWindow(new TournamentWorkspaceWorkflow(),
+            new RecentWorkspaceStore(Path.Combine(directory.FullName, "recent.json")))
+        { RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light };
+        try
+        {
+            window.Show();
+            window.FindControl<Button>("HeaderContactButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            var contact = Assert.Single(window.OwnedWindows);
+            contact.Width = 700;
+            contact.Height = 520;
+            contact.UpdateLayout();
+            Assert.Contains(contact.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "深大羽协官方微信");
+            Assert.Contains(contact.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "程序作者 Tony Huang 的微信");
+            var association = contact.FindControl<Image>("ContactAssociationQr")!;
+            var author = contact.FindControl<Image>("ContactAuthorQr")!;
+            Assert.NotNull(association);
+            Assert.NotNull(author);
+            Assert.True(association.IsEffectivelyVisible && author.IsEffectivelyVisible);
+            Assert.True(association.Bounds.Width >= 240 && author.Bounds.Width >= 240);
+            var associationLeft = association.TranslatePoint(default, contact)!.Value.X;
+            var authorLeft = author.TranslatePoint(default, contact)!.Value.X;
+            Assert.True(associationLeft >= 0 && associationLeft + association.Bounds.Width < authorLeft);
+            Assert.True(authorLeft + author.Bounds.Width <= contact.Bounds.Width);
+            using var associationStream = AssetLoader.Open(new Uri("avares://BadmintonDraw.Desktop/Assets/contact-szuba-wechat.jpg"));
+            using var authorStream = AssetLoader.Open(new Uri("avares://BadmintonDraw.Desktop/Assets/contact-tony-wechat.jpg"));
+            Assert.True(associationStream.Length > 60_000);
+            Assert.True(authorStream.Length > 100_000);
+            Assert.IsAssignableFrom<Bitmap>(association.Source);
+            Assert.IsAssignableFrom<Bitmap>(author.Source);
+            Assert.NotSame(association.Source, author.Source);
+        }
+        finally { window.Close(); directory.Delete(true); }
     }, CancellationToken.None);
 
     public void Dispose() => ui.Dispose();

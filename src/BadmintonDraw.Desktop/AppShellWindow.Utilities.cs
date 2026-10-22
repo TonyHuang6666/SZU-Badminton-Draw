@@ -8,6 +8,7 @@ public partial class AppShellWindow
 {
     private HelpWindow? helpWindow;
     private TemplateExportWindow? templateWindow;
+    private ContactWindow? contactWindow;
 
     private void ConfigureUtilityWindows()
     {
@@ -15,6 +16,7 @@ public partial class AppShellWindow
         {
             helpWindow?.Close();
             templateWindow?.Close();
+            contactWindow?.Close();
         };
     }
 
@@ -33,6 +35,15 @@ public partial class AppShellWindow
         var window = new TemplateExportWindow { Icon = Icon };
         templateWindow = window;
         window.Closed += (_, _) => { if (ReferenceEquals(templateWindow, window)) templateWindow = null; };
+        window.Show(this);
+    }
+
+    private void ContactClicked(object? sender, RoutedEventArgs args)
+    {
+        if (contactWindow is { } current) { ActivateUtility(current); return; }
+        var window = new ContactWindow { Icon = Icon };
+        contactWindow = window;
+        window.Closed += (_, _) => { if (ReferenceEquals(contactWindow, window)) contactWindow = null; };
         window.Show(this);
     }
 

@@ -36,6 +36,7 @@
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
           <Button x:Name="HeaderHelpButton" Content="帮助" Classes="quiet" Click="HelpClicked" />
           <Button x:Name="HeaderTemplatesButton" Content="模板导出" Classes="quiet" Click="TemplatesClicked" />
+          <Button x:Name="HeaderContactButton" Content="联系方式" Classes="quiet" Click="ContactClicked" />
           <Button x:Name="HeaderThemeButton" Content="明暗切换" Classes="quiet" Command="{Binding ToggleThemeCommand}" AutomationProperties.Name="切换浅色或深色外观" />
           <Button x:Name="HeaderRecoveryButton" Content="备份与恢复" Classes="quiet" Command="{Binding OpenRecoveryCommand}" />
           <Button x:Name="HeaderMoreButton" Content="更多 ···" Classes="secondary" AutomationProperties.Name="更多赛事操作">
