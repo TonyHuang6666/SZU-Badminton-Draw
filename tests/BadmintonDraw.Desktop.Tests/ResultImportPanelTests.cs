@@ -27,6 +27,7 @@ public sealed class ResultImportPanelTests : IDisposable
     {
         var original = string.Join(newline, new[] { "首行", "", new string('名', 90) + " / SHA-256: abc", "", "末行", "" });
         var evidence = new ResultImportEvidenceText { Text = original };
+        Assert.Null(ToolTip.GetTip(evidence));
         Assert.All(evidence.Items.OfType<string>(), line => Assert.DoesNotContain('\r', line));
         var window = new Window { Width = 500, Height = 650, Content = new ScrollViewer { Content = evidence, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled } };
         try

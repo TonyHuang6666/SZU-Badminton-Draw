@@ -32,7 +32,6 @@ public sealed class ResultImportEvidenceText : ItemsControl
                 await clipboard.SetTextAsync(original);
         }, () => Text is not null && TopLevel.GetTopLevel(this)?.Clipboard is not null);
         ContextMenu = CreateCopyMenu();
-        ToolTip.SetTip(this, "可选择单行文本；右键选择“复制完整文本”可复制全部原文。");
         AttachedToVisualTree += (_, _) => CopyAllCommand.NotifyCanExecuteChanged();
     }
 
