@@ -26,8 +26,9 @@ public sealed class OfflineHelpTests : IDisposable
     {
         var catalog = new HelpCatalog();
         var pages = catalog.Documents.ToArray();
-        Assert.Equal(13, pages.Length);
+        Assert.Equal(14, pages.Length);
         Assert.Contains(pages, p => p.Path == "README.md" && p.Category == "程序介绍");
+        Assert.Contains(pages, p => p.Path == "releases/v5.0.3.md" && p.Category == "技术参考");
         Assert.Contains(pages, p => p.Path == "releases/v5.0.2.md" && p.Category == "技术参考");
         Assert.Contains(pages, p => p.Path == "releases/v5.0.1.md" && p.Category == "技术参考");
         Assert.Contains(pages, p => p.Path == "releases/v5.0.0.md");
@@ -69,6 +70,7 @@ public sealed class OfflineHelpTests : IDisposable
     [InlineData("releases/v5.0.0.md", "../usage.md#设置种子", "Internal", "usage.md", "设置种子")]
     [InlineData("usage.md", "#设置种子", "Internal", "usage.md", "设置种子")]
     [InlineData("README.md", "docs/usage.md#设置种子", "Internal", "usage.md", "设置种子")]
+    [InlineData("README.md", "docs/releases/v5.0.3.md", "Internal", "releases/v5.0.3.md", "")]
     [InlineData("README.md", "docs/releases/v5.0.2.md", "Internal", "releases/v5.0.2.md", "")]
     [InlineData("README.md", "docs/releases/v5.0.1.md", "Internal", "releases/v5.0.1.md", "")]
     [InlineData("README.md", "docs/releases/v5.0.0.md", "Internal", "releases/v5.0.0.md", "")]

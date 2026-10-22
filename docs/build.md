@@ -8,7 +8,7 @@
 | --- | --- |
 | SDK | `global.json` 指定 `10.0.301`，`rollForward=latestPatch`，禁用预览版 |
 | 目标框架 | `net10.0` |
-| 产品版本 | `Directory.Build.props` 的 `VersionPrefix=5.0.2` |
+| 产品版本 | `Directory.Build.props` 的 `VersionPrefix=5.0.3` |
 | 桌面入口 | `src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj`，Avalonia |
 | 发布 RID | `win-x64`、`osx-arm64`、`osx-x64` |
 | 依赖锁定 | `RestorePackagesWithLockFile=true`，各工程提交 `packages.lock.json` |
@@ -84,13 +84,13 @@ dotnet run --project tools/BadmintonDraw.Acceptance/BadmintonDraw.Acceptance.csp
 省略参数时，工具自动创建：
 
 ```text
-artifacts/acceptance/v5.0.2/run-<UTC时间>-<GUID>/
+artifacts/acceptance/v5.0.3/run-<UTC时间>-<GUID>/
 ```
 
 如需明确指定目录：
 
 ```sh
-dotnet run --project tools/BadmintonDraw.Acceptance/BadmintonDraw.Acceptance.csproj -c Release --no-build -- --output artifacts/acceptance/v5.0.2/local-review-01
+dotnet run --project tools/BadmintonDraw.Acceptance/BadmintonDraw.Acceptance.csproj -c Release --no-build -- --output artifacts/acceptance/v5.0.3/local-review-01
 ```
 
 目标必须是全新或空目录，再次运行使用不同目录。工具拒绝仓库根目录、受保护的源码/样例目录和不允许的符号链接路径，保留已产生的证据。
