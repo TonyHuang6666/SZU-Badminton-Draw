@@ -49,7 +49,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: SZU-Badminton-Draw_${{ env.BUILD_VERSION }}_win-x64
-          path: artifacts/windows/win-x64/${{ env.BUILD_VERSION }}/
+          path: artifacts/windows/win-x64/${{ env.BUILD_VERSION }}/BadmintonDraw.Desktop.exe
           if-no-files-found: error
 
   macos-build-test-publish:

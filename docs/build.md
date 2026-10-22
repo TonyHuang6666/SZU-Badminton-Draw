@@ -191,7 +191,7 @@ Get-FileHash "$packageDirectory/BadmintonDraw.Desktop.exe" -Algorithm SHA256
 
 输出位于 `artifacts/windows/win-x64/<version>/run-<GUID>/`。核对真实 PE 架构、程序集/文件版本、源提交记录与 SHA-256，并在 Windows 启动，完成存档打开、文件选择和现场操作。Windows 命令没有生成 macOS 包中的 `build-metadata.json`，源提交与工作树状态需另外留存。
 
-单文件发布参数会嵌入并配置自解压的原生依赖；实际输出仍应逐项检查。存在必要附属文件时，按验证结果一起交付。其他平台上交叉发布生成 Windows 资产后，仍需 Windows 原生运行验收。
+单文件发布参数会嵌入并配置自解压的原生依赖；实际输出仍应逐项检查。Windows Release 只上传 `BadmintonDraw.Desktop.exe`，不压缩整个发布目录，也不交付调试符号 `.pdb`。其他平台上交叉发布生成 Windows 资产后，仍需 Windows 原生运行验收。
 
 ## CI 与交付证据
 
@@ -199,7 +199,7 @@ Get-FileHash "$packageDirectory/BadmintonDraw.Desktop.exe" -Algorithm SHA256
 
 | CI 任务 | 执行环境 | 发布与上传 |
 | --- | --- | --- |
-| Windows | `windows-latest` | 自包含 `win-x64`；上传 `artifacts/windows/win-x64/<version>/`，artifact 名称为 `SZU-Badminton-Draw_<version>_win-x64` |
+| Windows | `windows-latest` | 自包含 `win-x64`；只上传 `artifacts/windows/win-x64/<version>/BadmintonDraw.Desktop.exe`，artifact 名称为 `SZU-Badminton-Draw_<version>_win-x64` |
 | macOS | `macos-14` | 安全脚本测试及真实 `osx-arm64` DMG 打包、验证；上传本次版本下运行目录中的 DMG，artifact 名称为 `SZU-Badminton-Draw_<version>_osx-arm64` |
 
 CI 使用 `actions/setup-dotnet` 安装 `10.0.x`，实际 SDK 仍受 `global.json` 约束。每个任务读取一次实际版本并传给发布命令；上传路径无文件时任务失败。当前 CI 没有调用完整七场景验收入口，也没有自动执行 Office 重算、原生 GUI 流程、物理打印、公证或 GitHub Release 发布；这些检查按交付需要另行记录。
