@@ -35,7 +35,7 @@ public partial class HelpWindow : Window
 
     private void Render()
     {
-        HelpDocument.SetDocument(model.SelectedDocument.Markdown, model.ReadingFontSize);
+        HelpDocument.SetDocument(model.SelectedDocument.Blocks, model.ReadingFontSize);
         SynchronizeSelection();
         if (model.HasSearchText) Dispatcher.UIThread.Post(() => Find(false), DispatcherPriority.Loaded);
     }

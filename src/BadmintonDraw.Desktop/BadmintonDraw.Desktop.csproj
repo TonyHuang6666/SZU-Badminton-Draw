@@ -15,7 +15,6 @@
     <PackageReference Include="Avalonia.Desktop" Version="12.0.4" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4" />
-    <PackageReference Include="Markdig" Version="1.4.0" />
     <PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.1">
       <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
@@ -25,17 +24,47 @@
   <ItemGroup>
     <ProjectReference Include="../BadmintonDraw.Core/BadmintonDraw.Core.csproj" />
     <ProjectReference Include="../BadmintonDraw.Workflows/BadmintonDraw.Workflows.csproj" />
+    <ProjectReference Include="../../tools/BadmintonDraw.HelpCompiler/BadmintonDraw.HelpCompiler.csproj"
+                      ReferenceOutputAssembly="false" Private="false" PrivateAssets="all"
+                      OutputItemType="_HelpCompiler"
+                      GlobalPropertiesToRemove="RuntimeIdentifier;RuntimeIdentifiers;SelfContained;PublishSingleFile;PublishReadyToRun;PublishTrimmed;IncludeNativeLibrariesForSelfExtract;EnableCompressionInSingleFile" />
   </ItemGroup>
 
   <ItemGroup>
     <AvaloniaResource Include="Assets/**" />
-    <Content Include="ThirdPartyNotices/Markdig.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <EmbeddedResource Include="../../README.md" LogicalName="Help/README.md" />
-    <EmbeddedResource Include="../../docs/index.md;../../docs/usage.md;../../docs/scheduling.md;../../docs/troubleshooting.md;../../docs/fairness.md;../../docs/rules-compliance.md;../../docs/algorithm.md;../../docs/architecture.md;../../docs/build.md">
-      <LogicalName>Help/%(Filename)%(Extension)</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="../../docs/releases/v5.0.0.md" LogicalName="Help/releases/v5.0.0.md" />
-    <EmbeddedResource Include="../../docs/releases/v5.0.1.md" LogicalName="Help/releases/v5.0.1.md" />
-    <EmbeddedResource Include="../../docs/releases/v5.0.2.md" LogicalName="Help/releases/v5.0.2.md" />
   </ItemGroup>
+
+  <Target Name="CompileHelpDocuments" BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="ResolveProjectReferences" Condition="'$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_HelpPayload>$(IntermediateOutputPath)Help/library.json</_HelpPayload>
+      <_HelpDotNetHost Condition="'$(DotNetHostPath)' != ''">$(DotNetHostPath)</_HelpDotNetHost>
+      <_HelpDotNetHost Condition="'$(_HelpDotNetHost)' == ''">dotnet</_HelpDotNetHost>
+    </PropertyGroup>
+    <Error Condition="'@(_HelpCompiler)' == ''" Text="The build-only help compiler could not be resolved." />
+    <Exec Command="&quot;$(_HelpDotNetHost)&quot; &quot;@(_HelpCompiler->'%(FullPath)')&quot; &quot;$(MSBuildProjectDirectory)/../..&quot; &quot;$(MSBuildProjectDirectory)/Help/manifest.json&quot; &quot;$(_HelpPayload)&quot;" />
+    <ItemGroup>
+      <EmbeddedResource Include="$(_HelpPayload)" LogicalName="Help/library.json" />
+      <FileWrites Include="$(_HelpPayload)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CheckHelpPublishDependencies" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <_ForbiddenHelpPublish Include="@(ResolvedFileToPublish)"
+        Condition="'%(ResolvedFileToPublish.Filename)' == 'Markdig' Or $([System.String]::Copy('%(ResolvedFileToPublish.Filename)').StartsWith('BadmintonDraw.HelpCompiler'))" />
+    </ItemGroup>
+    <Error Condition="'@(_ForbiddenHelpPublish)' != ''"
+           Text="Build-only help dependencies must not be published: @(_ForbiddenHelpPublish)" />
+  </Target>
+
+  <Target Name="CheckHelpPublishedDirectory" AfterTargets="Publish" Condition="'$(PublishDir)' != ''">
+    <ItemGroup>
+      <_HelpPublishedFile Include="$([MSBuild]::EnsureTrailingSlash('$(PublishDir)'))**/*" />
+      <_StaleHelpPublishedFile Include="@(_HelpPublishedFile)"
+        Condition="$([System.String]::Copy('%(_HelpPublishedFile.Filename)').ToLowerInvariant().StartsWith('markdig')) Or $([System.String]::Copy('%(_HelpPublishedFile.Filename)').ToLowerInvariant().StartsWith('badmintondraw.helpcompiler'))" />
+    </ItemGroup>
+    <Error Condition="'@(_StaleHelpPublishedFile)' != ''"
+           Text="Build-only help files remain in publish output; use a new output directory: @(_StaleHelpPublishedFile)" />
+  </Target>
 </Project>

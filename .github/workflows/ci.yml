@@ -42,6 +42,9 @@ jobs:
       - name: Publish smoke test
         run: dotnet publish src\BadmintonDraw.Desktop\BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true "-p:Version=$env:BUILD_VERSION" "-p:VersionPrefix=$env:BUILD_VERSION" -o "artifacts\windows\win-x64\$env:BUILD_VERSION"
 
+      - name: Verify help runtime is self-contained
+        run: python scripts/check_help_publish.py "artifacts/windows/win-x64/$env:BUILD_VERSION"
+
       - name: Upload Windows publish output
         uses: actions/upload-artifact@v7
         with:
@@ -62,7 +65,9 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Packaging safety tests (isolated mock tools, not a DMG verification)
-        run: python3 scripts/test_packaging_preflight.py
+        run: |
+          python3 scripts/test_packaging_preflight.py
+          python3 scripts/test_help_publish.py
 
       - name: Restore
         run: dotnet restore BadmintonDraw.sln --locked-mode -p:Configuration=Release

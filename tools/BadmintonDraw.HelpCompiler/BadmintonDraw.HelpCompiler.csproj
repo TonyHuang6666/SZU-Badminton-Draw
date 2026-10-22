@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseAppHost>false</UseAppHost>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Markdig" Version="1.4.0" PrivateAssets="all" />
+    <Compile Include="../../src/BadmintonDraw.Desktop/Help/HelpDocumentModel.cs" Link="HelpDocumentModel.cs" />
+    <Content Include="ThirdPartyNotices/Markdig.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

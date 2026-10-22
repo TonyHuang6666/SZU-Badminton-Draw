@@ -32,6 +32,7 @@ elif tool == "dotnet":
         target = pathlib.Path(args[args.index("-o") + 1])
         target.mkdir(parents=True, exist_ok=True)
         (target / "BadmintonDraw.Desktop").write_text("MOCK EXECUTABLE ONLY\n")
+        (target / "BadmintonDraw.Desktop.deps.json").write_text(json.dumps({"libraries": {"BadmintonDraw.Desktop/5.7.9": {}}}))
         (target / "libe_sqlite3.dylib").write_bytes(b"MOCK NATIVE ASSET\n")
         if os.environ.get("PACKAGING_TEST_FAIL_STAGE") == "publish":
             sys.exit(84)
@@ -64,7 +65,7 @@ class Fixture:
         self.log = self.base / "tool-calls.jsonl"
         (self.repo / "scripts").mkdir(parents=True)
         self.bin.mkdir()
-        for name in ("publish-macos.sh", "packaging_metadata.py"):
+        for name in ("publish-macos.sh", "packaging_metadata.py", "check_help_publish.py"):
             if (SCRIPTS / name).is_file():
                 shutil.copy2(SCRIPTS / name, self.repo / "scripts" / name)
         project = self.repo / "src/BadmintonDraw.Desktop"

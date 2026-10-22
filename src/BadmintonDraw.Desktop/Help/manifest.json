@@ -1,0 +1,15 @@
+[
+  { "Path": "README.md", "SourcePath": "README.md", "Title": "深大羽协 · 赛事助手", "Category": "程序介绍" },
+  { "Path": "index.md", "SourcePath": "docs/index.md", "Title": "文档中心", "Category": "使用帮助" },
+  { "Path": "usage.md", "SourcePath": "docs/usage.md", "Title": "使用说明", "Category": "使用帮助" },
+  { "Path": "scheduling.md", "SourcePath": "docs/scheduling.md", "Title": "赛程编排", "Category": "使用帮助" },
+  { "Path": "troubleshooting.md", "SourcePath": "docs/troubleshooting.md", "Title": "故障处理", "Category": "使用帮助" },
+  { "Path": "fairness.md", "SourcePath": "docs/fairness.md", "Title": "公平性与公开审计", "Category": "使用帮助" },
+  { "Path": "rules-compliance.md", "SourcePath": "docs/rules-compliance.md", "Title": "竞赛规则对应关系", "Category": "使用帮助" },
+  { "Path": "algorithm.md", "SourcePath": "docs/algorithm.md", "Title": "算法说明", "Category": "技术参考" },
+  { "Path": "architecture.md", "SourcePath": "docs/architecture.md", "Title": "系统架构", "Category": "技术参考" },
+  { "Path": "build.md", "SourcePath": "docs/build.md", "Title": "构建、验收与打包", "Category": "技术参考" },
+  { "Path": "releases/v5.0.2.md", "SourcePath": "docs/releases/v5.0.2.md", "Title": "5.0.2 发布说明", "Category": "技术参考" },
+  { "Path": "releases/v5.0.1.md", "SourcePath": "docs/releases/v5.0.1.md", "Title": "5.0.1 发布说明", "Category": "技术参考" },
+  { "Path": "releases/v5.0.0.md", "SourcePath": "docs/releases/v5.0.0.md", "Title": "5.0.0 发布说明", "Category": "技术参考" }
+]

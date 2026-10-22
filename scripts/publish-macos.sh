@@ -70,6 +70,8 @@ dotnet publish "$PROJECT_PATH" \
   "-p:VersionPrefix=$VERSION" \
   -o "$PUBLISH_DIR"
 
+python3 "$ROOT_DIR/scripts/check_help_publish.py" "$PUBLISH_DIR"
+
 cp -R "$PUBLISH_DIR"/. "$MACOS_DIR"/
 chmod +x "$EXECUTABLE_PATH"
 

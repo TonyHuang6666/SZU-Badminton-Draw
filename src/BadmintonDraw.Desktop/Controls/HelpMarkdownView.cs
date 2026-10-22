@@ -5,15 +5,10 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
 using BadmintonDraw.Desktop.Help;
-using Markdig;
-using Markdig.Extensions.Tables;
-using Markdig.Renderers.Html;
-using Markdig.Syntax;
-using Markdig.Syntax.Inlines;
 
 namespace BadmintonDraw.Desktop.Controls;
 
-/// <summary>Renders the trusted, packaged Markdown as selectable native controls, without a browser or HTML.</summary>
+/// <summary>Renders compiled help documents as selectable native controls.</summary>
 public sealed partial class HelpMarkdownView : UserControl
 {
     private readonly ScrollViewer scroll = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
@@ -30,7 +25,7 @@ public sealed partial class HelpMarkdownView : UserControl
         InitializeSelection();
     }
 
-    public void SetDocument(string markdown, double fontSize)
+    public void SetDocument(IReadOnlyList<HelpBlock> blocks, double fontSize)
     {
         ResetDocumentSelection();
         readingFontSize = fontSize;
@@ -39,7 +34,7 @@ public sealed partial class HelpMarkdownView : UserControl
         searchIndex = -1;
         var body = BlockPanel();
         body.Margin = new Thickness(24, 16, 24, 28);
-        foreach (var block in Markdown.Parse(markdown, HelpCatalog.Pipeline)) body.Children.Add(RenderBlock(block));
+        foreach (var block in blocks) body.Children.Add(RenderBlock(block));
         scroll.Content = body;
         BuildSelectionDocument();
         scroll.Offset = default;
@@ -96,31 +91,31 @@ public sealed partial class HelpMarkdownView : UserControl
         return block;
     }
 
-    private Control RenderBlock(Block block)
+    private Control RenderBlock(HelpBlock block)
     {
-        switch (block)
+        switch (block.Kind)
         {
-            case HeadingBlock heading:
+            case HelpBlockKind.Heading:
             {
-                var text = Text(InlineText(heading.Inline));
-                text.FontSize = readingFontSize * (heading.Level == 1 ? 1.8 : heading.Level == 2 ? 1.4 : 1.15);
+                var text = Text(InlineText(block.Inlines));
+                text.FontSize = readingFontSize * (block.Level == 1 ? 1.8 : block.Level == 2 ? 1.4 : 1.15);
                 text.LineHeight = double.NaN;
                 text.FontWeight = FontWeight.SemiBold;
-                text.Margin = new Thickness(0, heading.Level == 1 ? 0 : 12, 0, 2);
-                if (heading.GetAttributes().Id is { } id) headings[id] = text;
+                text.Margin = new Thickness(0, block.Level == 1 ? 0 : 12, 0, 2);
+                if (block.Anchor is { } id) headings[id] = text;
                 return text;
             }
-            case ParagraphBlock paragraph:
+            case HelpBlockKind.Paragraph:
             {
-                if (HasHardLineBreak(paragraph.Inline)) return RenderParagraphLines(paragraph.Inline!);
+                if (HasHardLineBreak(block.Inlines)) return RenderParagraphLines(block.Inlines!);
                 var text = Text();
                 var position = 0;
-                AppendInlines(text.Inlines!, paragraph.Inline, text, ref position);
+                AppendInlines(text.Inlines!, block.Inlines, text, ref position);
                 return text;
             }
-            case CodeBlock code:
+            case HelpBlockKind.Code:
             {
-                var text = Text(code.Lines.ToString());
+                var text = Text(block.Text);
                 text.Classes.Add("help-code");
                 text.FontFamily = FontFamily.Parse("Cascadia Mono,Menlo,Consolas,monospace");
                 text.TextWrapping = TextWrapping.NoWrap;
@@ -129,17 +124,17 @@ public sealed partial class HelpMarkdownView : UserControl
                 return new ScrollViewer { Content = border, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
             }
-            case Table table:
-                return RenderTable(table);
-            case ListBlock list:
+            case HelpBlockKind.Table:
+                return RenderTable(block);
+            case HelpBlockKind.List:
             {
                 var panel = BlockPanel();
-                var ordinal = int.TryParse(list.OrderedStart, out var start) ? start : 1;
+                var ordinal = block.OrderedStart;
                 var firstItem = true;
-                foreach (var item in list.OfType<ListItemBlock>())
+                foreach (var item in block.Children ?? [])
                 {
                     var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 8 };
-                    var marker = Text(list.IsOrdered ? $"{ordinal++}." : "•");
+                    var marker = Text(block.IsOrdered ? $"{ordinal++}." : "•");
                     separators[marker] = firstItem ? "\n\n" : "\n";
                     firstItem = false;
                     row.Children.Add(marker);
@@ -150,35 +145,34 @@ public sealed partial class HelpMarkdownView : UserControl
                 }
                 return panel;
             }
-            case QuoteBlock quote:
+            case HelpBlockKind.Quote:
             {
-                var border = new Border { Child = RenderContainer(quote), BorderThickness = new Thickness(3, 0, 0, 0), Padding = new Thickness(14, 4) };
+                var border = new Border { Child = RenderContainer(block), BorderThickness = new Thickness(3, 0, 0, 0), Padding = new Thickness(14, 4) };
                 border.Bind(Border.BorderBrushProperty, this.GetResourceObservable("AppAccentBrush"));
                 return border;
             }
-            case ThematicBreakBlock:
+            case HelpBlockKind.Rule:
             {
                 var border = new Border { Height = 1, Margin = new Thickness(0, 8) };
                 border.Bind(Border.BackgroundProperty, this.GetResourceObservable("AppBorderBrush"));
                 return border;
             }
-            case ContainerBlock container: return RenderContainer(container);
-            case LeafBlock leaf: return Text(leaf.Lines.ToString());
-            default: return new Border();
+            case HelpBlockKind.Container: return RenderContainer(block);
+            default: throw new InvalidDataException($"不支持的帮助文档块：{block.Kind}");
         }
     }
 
-    private StackPanel RenderContainer(ContainerBlock container)
+    private StackPanel RenderContainer(HelpBlock container)
     {
         var panel = BlockPanel();
-        foreach (var block in container) panel.Children.Add(RenderBlock(block));
+        foreach (var block in container.Children ?? []) panel.Children.Add(RenderBlock(block));
         return panel;
     }
 
-    private static bool HasHardLineBreak(ContainerInline? inlines) => inlines is not null && inlines.Any(inline =>
-        inline is LineBreakInline { IsHard: true } || inline is ContainerInline nested && HasHardLineBreak(nested));
+    private static bool HasHardLineBreak(IReadOnlyList<HelpInline>? inlines) => inlines is not null && inlines.Any(inline =>
+        inline is { Kind: HelpInlineKind.Break, IsHard: true } || HasHardLineBreak(inline.Children));
 
-    private StackPanel RenderParagraphLines(ContainerInline inlines)
+    private StackPanel RenderParagraphLines(IReadOnlyList<HelpInline> inlines)
     {
         // Avalonia 12 can loop in its wrapped formatter when formatted runs contain an explicit newline.
         // Adjacent native blocks preserve the hard break; the document selection model joins their text.
@@ -215,46 +209,45 @@ public sealed partial class HelpMarkdownView : UserControl
             position += content.Length;
         }
 
-        void Append(ContainerInline container, bool bold, bool italic, string? href)
+        void Append(IReadOnlyList<HelpInline> container, bool bold, bool italic, string? href)
         {
             foreach (var inline in container)
             {
-                switch (inline)
+                switch (inline.Kind)
                 {
-                    case LiteralInline literal: AddText(literal.Content.ToString(), bold, italic, false, href); break;
-                    case CodeInline code: AddText(code.Content, bold, italic, true, href); break;
-                    case LineBreakInline { IsHard: true }:
+                    case HelpInlineKind.Text: AddText(inline.Text ?? "", bold, italic, false, href); break;
+                    case HelpInlineKind.Code: AddText(inline.Text ?? "", bold, italic, true, href); break;
+                    case HelpInlineKind.Break when inline.IsHard:
                         line = Text();
                         line.MinHeight = readingFontSize * 1.65;
                         separators[line] = Environment.NewLine;
                         panel.Children.Add(line);
                         position = 0;
                         break;
-                    case LineBreakInline: AddText(" ", bold, italic, false, href); break;
-                    case LinkInline { IsImage: true } image: AddText(InlineText(image), bold, italic, false, href); break;
-                    case LinkInline link: Append(link, bold, italic, link.Url ?? ""); break;
-                    case EmphasisInline emphasis:
-                        Append(emphasis, bold || emphasis.DelimiterCount >= 2, italic || emphasis.DelimiterCount == 1, href);
+                    case HelpInlineKind.Break: AddText(" ", bold, italic, false, href); break;
+                    case HelpInlineKind.Image: AddText(InlineText(inline.Children), bold, italic, false, href); break;
+                    case HelpInlineKind.Link: Append(inline.Children ?? [], bold, italic, inline.Href ?? ""); break;
+                    case HelpInlineKind.Emphasis:
+                        Append(inline.Children ?? [], bold || inline.DelimiterCount >= 2, italic || inline.DelimiterCount == 1, href);
                         break;
-                    case AutolinkInline link: AddText(link.Url, bold, italic, false, link.Url); break;
-                    case ContainerInline nested: Append(nested, bold, italic, href); break;
+                    default: throw new InvalidDataException($"不支持的帮助行内内容：{inline.Kind}");
                 }
             }
         }
     }
 
-    private Control RenderTable(Table table)
+    private Control RenderTable(HelpBlock table)
     {
         var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
         grid.Classes.Add("help-table");
-        var columnCount = table.OfType<TableRow>().Select(r => r.Count).DefaultIfEmpty(1).Max();
+        var columnCount = (table.Children ?? []).Select(r => r.Children?.Count ?? 0).DefaultIfEmpty(1).Max();
         for (var c = 0; c < columnCount; c++) grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star) { MinWidth = 120 });
         var rowIndex = 0;
-        foreach (var row in table.OfType<TableRow>())
+        foreach (var row in table.Children ?? [])
         {
             grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
             var col = 0;
-            foreach (var cell in row.OfType<TableCell>())
+            foreach (var cell in row.Children ?? [])
             {
                 var firstContent = textBlocks.Count;
                 var contents = RenderContainer(cell);
@@ -274,55 +267,44 @@ public sealed partial class HelpMarkdownView : UserControl
         return viewport;
     }
 
-    private void AppendInlines(InlineCollection target, ContainerInline? container, SelectableTextBlock owner, ref int position)
+    private void AppendInlines(InlineCollection target, IReadOnlyList<HelpInline>? container, SelectableTextBlock owner, ref int position)
     {
         if (container is null) return;
         foreach (var inline in container)
         {
-            switch (inline)
+            switch (inline.Kind)
             {
-                case LiteralInline literal:
-                    target.Add(new Run(literal.Content.ToString())); position += literal.Content.Length; break;
-                case CodeInline code:
-                    target.Add(new Run(code.Content) { FontFamily = FontFamily.Parse("Cascadia Mono,Menlo,Consolas,monospace"), FontWeight = FontWeight.Medium });
-                    position += code.Content.Length;
+                case HelpInlineKind.Text:
+                    target.Add(new Run(inline.Text ?? "")); position += inline.Text?.Length ?? 0; break;
+                case HelpInlineKind.Code:
+                    target.Add(new Run(inline.Text ?? "") { FontFamily = FontFamily.Parse("Cascadia Mono,Menlo,Consolas,monospace"), FontWeight = FontWeight.Medium });
+                    position += inline.Text?.Length ?? 0;
                     break;
-                case LineBreakInline line:
-                    target.Add(new Run(line.IsHard ? Environment.NewLine : " "));
-                    position += line.IsHard ? Environment.NewLine.Length : 1;
+                case HelpInlineKind.Break:
+                    target.Add(new Run(inline.IsHard ? Environment.NewLine : " "));
+                    position += inline.IsHard ? Environment.NewLine.Length : 1;
                     break;
-                case LinkInline link:
+                case HelpInlineKind.Image:
+                    var label = InlineText(inline.Children);
+                    target.Add(new Run(label)); position += label.Length; break;
+                case HelpInlineKind.Link:
                 {
-                    if (link.IsImage)
-                    {
-                        var label = InlineText(link);
-                        target.Add(new Run(label)); position += label.Length; break;
-                    }
-                    var href = link.Url ?? "";
+                    var href = inline.Href ?? "";
                     var span = CreateLinkSpan();
                     var start = position;
-                    AppendInlines(span.Inlines, link, owner, ref position);
+                    AppendInlines(span.Inlines, inline.Children, owner, ref position);
                     target.Add(span);
                     links.Add(new LinkRange(owner, start, position - start, href));
                     break;
                 }
-                case EmphasisInline emphasis:
+                case HelpInlineKind.Emphasis:
                 {
                     var span = new Span();
-                    if (emphasis.DelimiterCount >= 2) span.FontWeight = FontWeight.Bold;
+                    if (inline.DelimiterCount >= 2) span.FontWeight = FontWeight.Bold;
                     else span.FontStyle = FontStyle.Italic;
-                    AppendInlines(span.Inlines, emphasis, owner, ref position); target.Add(span); break;
+                    AppendInlines(span.Inlines, inline.Children, owner, ref position); target.Add(span); break;
                 }
-                case ContainerInline nested: AppendInlines(target, nested, owner, ref position); break;
-                case AutolinkInline link:
-                {
-                    var span = CreateLinkSpan();
-                    span.Inlines.Add(new Run(link.Url));
-                    target.Add(span);
-                    links.Add(new LinkRange(owner, position, link.Url.Length, link.Url));
-                    position += link.Url.Length;
-                    break;
-                }
+                default: throw new InvalidDataException($"不支持的帮助行内内容：{inline.Kind}");
             }
         }
     }
@@ -338,13 +320,13 @@ public sealed partial class HelpMarkdownView : UserControl
         return span;
     }
 
-    private static string InlineText(ContainerInline? inline)
+    private static string InlineText(IReadOnlyList<HelpInline>? inline)
     {
         if (inline is null) return "";
-        return string.Concat(inline.Select(child => child switch
+        return string.Concat(inline.Select(child => child.Kind switch
         {
-            LiteralInline literal => literal.Content.ToString(), CodeInline code => code.Content,
-            LineBreakInline => " ", ContainerInline nested => InlineText(nested), AutolinkInline link => link.Url, _ => ""
+            HelpInlineKind.Text or HelpInlineKind.Code => child.Text,
+            HelpInlineKind.Break => " ", _ => InlineText(child.Children)
         }));
     }
 }

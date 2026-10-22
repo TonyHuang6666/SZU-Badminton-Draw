@@ -14,10 +14,11 @@
 | `BadmintonDraw.Tests` | 领域、存储、工作流、材料格式和故障回归测试 | 相关生产类库 |
 | `BadmintonDraw.Desktop.Tests` | Avalonia Headless 控件、绑定、页面生命周期和异步回调测试 | Desktop |
 | `BadmintonDraw.Acceptance` | 真实工作流生命周期验收、规模场景、排程审计及证据目录 | 相关生产类库 |
+| `BadmintonDraw.HelpCompiler` | 构建时把帮助 Markdown 转换为内置文档数据 | 自有文档模型源码、Markdig（构建依赖） |
 
 生产代码的 SQLite 包引用集中在 Persistence；Excel 使用 ClosedXML 处理工作簿、SkiaSharp 渲染材料，并内嵌 Noto Sans SC 字体与个人赛记分表模板。Desktop 通过 `TournamentWorkspaceWorkflow` 执行赛事命令，文件选择器、窗口和线程切换由桌面层管理。
 
-顶部帮助窗口在构建时直接嵌入根目录 README、当前使用文档、技术文档和发布说明，按“程序介绍”“使用帮助”“技术参考”展示。运行时通过 Markdig 解析 Markdown，并用 Avalonia 原生控件显示。相对链接按文档在仓库中的来源路径解析，文档跳转限定在内置目录内，外部网页仅响应用户点击；阅读功能可离线使用。模板导出窗口独立于赛事会话，直接复用 Excel 层的空白名单和计分表布局，经系统文件夹选择与同名文件确认后输出，不创建赛事数据或导出审计记录。
+顶部帮助窗口按“程序介绍”“使用帮助”“技术参考”展示根目录 README、当前使用文档、技术文档和发布说明。`Help/manifest.json` 定义内置目录，构建工具用 Markdig 解析 Markdown，生成包含正文、章节锚点、表格和链接的文档数据并嵌入桌面程序集；源文件缺失或转换失败会中止构建。运行时由 Avalonia 原生控件直接显示这些数据，支持搜索、字号调整和跨段落复制。Markdig 及其许可文件随构建工具保存，桌面发布包只包含自有文档数据和显示代码。相对链接按文档在仓库中的来源路径解析，文档跳转限定在内置目录内，外部网页仅响应用户点击；阅读功能可离线使用。模板导出窗口独立于赛事会话，直接复用 Excel 层的空白名单和计分表布局，经系统文件夹选择与同名文件确认后输出，不创建赛事数据或导出审计记录。
 
 源码入口：[`src/`](../src/)、[`TournamentWorkspaceWorkflow`](../src/BadmintonDraw.Workflows/Tournaments/TournamentWorkspaceWorkflow.cs)、[`V5ArchitectureBoundaryTests`](../tests/BadmintonDraw.Tests/V5ArchitectureBoundaryTests.cs)。
 

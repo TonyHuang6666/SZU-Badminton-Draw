@@ -34,6 +34,8 @@ dotnet run --project src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj -c R
 
 `--locked-mode` 要求依赖图与锁文件一致。桌面项目已声明三个发布 RID，锁定还原为这些发布目标准备依赖。依赖调整时显式刷新并评审锁文件，再执行完整验证链；发布使用锁定还原和 `--no-restore`。
 
+内置帮助在桌面构建时自动生成。`src/BadmintonDraw.Desktop/Help/manifest.json` 管理文档目录，`tools/BadmintonDraw.HelpCompiler` 将 Markdown 转成自有文档模型，输出到桌面项目的 `obj` 目录并嵌入程序集。修改目录中的 Markdown 后重新构建即可更新帮助；缺失文件会使构建失败。转换工具在构建主机运行，桌面发布包无需携带该工具或 Markdig。发布流程会检查依赖清单和实际输出，Windows 单文件程序也检查内嵌文件名；复用的输出目录若残留构建工具文件或许可文件，检查会失败，应改用新的输出目录。
+
 依赖审计脚本执行：
 
 ```sh
@@ -181,6 +183,8 @@ $packageRun = [guid]::NewGuid().ToString("N")
 $packageDirectory = "artifacts/windows/win-x64/$packageVersion/run-$packageRun"
 dotnet publish src/BadmintonDraw.Desktop/BadmintonDraw.Desktop.csproj -c Release -r win-x64 --self-contained true --no-restore /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true "-p:Version=$packageVersion" "-p:VersionPrefix=$packageVersion" -o $packageDirectory
 if ($LASTEXITCODE -ne 0) { throw "Windows 发布失败，保留本次输出检查" }
+python scripts/check_help_publish.py $packageDirectory
+if ($LASTEXITCODE -ne 0) { throw "Windows 发布内容检查失败，保留本次输出检查" }
 Get-ChildItem $packageDirectory
 Get-FileHash "$packageDirectory/BadmintonDraw.Desktop.exe" -Algorithm SHA256
 ```
