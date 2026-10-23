@@ -1,0 +1,64 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BadmintonDraw.Desktop.ViewModels"
+        x:Class="BadmintonDraw.Desktop.Views.OnsiteDayConfirmationWindow" x:DataType="vm:OnsiteDayConfirmationViewModel"
+        Title="确认当天比赛结果" Width="900" Height="700" MinWidth="750" MinHeight="500"
+        WindowStartupLocation="CenterOwner" CanResize="True"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource AppTextBrush}">
+  <Grid Margin="20" RowDefinitions="Auto,*,Auto" RowSpacing="16">
+    <StackPanel Spacing="6">
+      <TextBlock Text="{Binding Day, StringFormat='确认 {0} 比赛结果'}" FontSize="20" FontWeight="SemiBold" />
+      <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+      <TextBlock Text="未完成场次需逐场填写延期同意及原因；预览后确认当天结果。"
+                 Classes="muted" FontSize="13" TextWrapping="Wrap" />
+    </StackPanel>
+    <ScrollViewer x:Name="DayConfirmationScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="16">
+        <ItemsControl x:Name="DayPendingMatches" ItemsSource="{Binding PendingMatches}" IsEnabled="{Binding !IsWorking}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:OnsitePostponementRowViewModel">
+              <Border Padding="14" Margin="0,0,0,10" CornerRadius="8" BorderThickness="1"
+                      BorderBrush="{DynamicResource AppBorderBrush}" Background="{DynamicResource AppSurfaceBrush}">
+                <StackPanel Spacing="8">
+                  <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                  <CheckBox Content="经裁判长同意延期至下一比赛日" IsChecked="{Binding IsPostponed}" />
+                  <TextBox Text="{Binding Reason}" PlaceholderText="填写延期原因" TextWrapping="Wrap"
+                           AutomationProperties.Name="延期原因" />
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <StackPanel IsVisible="{Binding HasPreview}" Spacing="10">
+          <TextBlock Text="确认与赛程调整预览" FontSize="16" FontWeight="SemiBold" />
+          <SelectableTextBlock Text="{Binding PreviewSummary}" TextWrapping="Wrap" />
+          <ItemsControl x:Name="DayChanges" ItemsSource="{Binding Changes}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:OnsiteDayChangeViewModel">
+                <Border Padding="12" Margin="0,0,0,8" CornerRadius="6"
+                        Background="{DynamicResource AppSurfaceBrush}" BorderThickness="1"
+                        BorderBrush="{DynamicResource AppBorderBrush}">
+                  <StackPanel Spacing="6">
+                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <SelectableTextBlock Text="{Binding Before, StringFormat='调整前：{0}'}" TextWrapping="Wrap" />
+                    <SelectableTextBlock Text="{Binding After, StringFormat='调整后：{0}'}" TextWrapping="Wrap" />
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+    <StackPanel Grid.Row="2" Spacing="10">
+      <TextBlock Text="{Binding StateMessage}" TextWrapping="Wrap" />
+      <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsWorking}" Height="3" />
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+        <Button Content="取消" Classes="quiet" IsEnabled="{Binding !IsWorking}" Click="OnCancel" />
+        <Button x:Name="DayPreview" Content="预览确认与延期" Classes="secondary"
+                IsEnabled="{Binding CanPreview}" Click="OnPreview" />
+        <Button x:Name="DayConfirm" Content="确认当天比赛结果" Classes="primary"
+                IsEnabled="{Binding CanConfirm}" Click="OnConfirm" />
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+</Window>

@@ -79,6 +79,13 @@ public sealed partial class ResultImportWorkflow
             DateOnly? actualDay = null; var hasWinner = !ResultImportValueParser.Blank(raw.Winner);
             if (!ResultImportValueParser.Blank(raw.ActualPlayedDay)) { if (Day("ActualPlayedDay", raw.ActualPlayedDay, out var actual)) actualDay = actual; }
             else if (hasWinner) { Error("result.actual-day-required", "已填写胜方的赛果必须明确实际比赛日期（弃权也需决定日期）。", source with { Field = "ActualPlayedDay" }); valid = false; }
+            if (hasWinner && actualDay is { } playedDay && workspace.DayConfirmations.Any(c =>
+                playedDay <= c.Day && c.Postponements.Any(p => p.MatchKey == new WorkspaceMatchKey(projectId, matchId))))
+            {
+                Error("result.postponed-day", "此比赛已有明确延期确认，实际比赛日期必须晚于每次延期确认日；请核对原始记录后填写延期后的比赛日期。",
+                    source with { Field = "ActualPlayedDay" });
+                valid = false;
+            }
             var kind = raw.ResultKind.Text.Trim() switch { "" or "正常" => TournamentResultKind.Played, "弃权" => TournamentResultKind.Walkover, _ => (TournamentResultKind)(-1) };
             if (!Enum.IsDefined(kind)) { Error("result.kind-invalid", "结果类型只能选择“正常”或“弃权”；空白表示正常，不会自动推定弃权。", source with { Field = "ResultKind" }); valid = false; }
             if (!hasWinner && (!ResultImportValueParser.Blank(raw.Score) || !ResultImportValueParser.Blank(raw.Duration) || actualDay is not null || kind == TournamentResultKind.Walkover))

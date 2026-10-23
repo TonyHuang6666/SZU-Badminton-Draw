@@ -116,6 +116,13 @@ public sealed partial class TournamentWorkspaceWorkflow
         }
         var validation = validator.ValidateSchedule(proposed);
         if (!validation.IsValid) return new(request, workspace.Revision, cascade, [], validation.Violations, null);
+        var confirmedLabels = workspace.Resources!.Days.Where(d => WorkspaceDayConfirmationRules.IsConfirmed(workspace, d.Date))
+            .Select(d => d.DayLabel).ToHashSet();
+        var confirmedDayViolations = workspace.Projects.SelectMany(p => p.MatchGraph!.Matches).Where(n => n.IsPlayable &&
+                !workspace.Results.ContainsKey(new(n.ProjectId, n.Id)) && confirmedLabels.Contains(proposed[n.Id].DayLabel))
+            .Select(n => new SchedulingViolation(SchedulingConstraintCode.DayBounds, n.ProjectId, n.Id, null,
+                "已确认比赛日不能排入未完成比赛。")).ToArray();
+        if (confirmedDayViolations.Length > 0) return new(request, workspace.Revision, cascade, [], confirmedDayViolations, null);
         var projectNames = workspace.Projects.ToDictionary(p => p.Id, p => p.DisplayName);
         var nodes = workspace.Projects.SelectMany(p => p.MatchGraph!.Matches).ToDictionary(n => n.Id);
         var changes = proposed.Values.Where(p => p != schedule.Placements[p.MatchId]).Select(p =>
@@ -193,7 +200,7 @@ public sealed partial class TournamentWorkspaceWorkflow
     private static string EditingScheduleIdentity(TournamentWorkspace w) => Fingerprint(new
     { Context = EditingContextIdentity(w), w.Schedule!.Revision, Placements = w.Schedule.Placements.OrderBy(p => p.Key) });
     private static string EditingSourceIdentity(TournamentWorkspace w) => Fingerprint(new
-    { Schedule = EditingScheduleIdentity(w), Results = w.Results.OrderBy(p => p.Key.ProjectId).ThenBy(p => p.Key.MatchId) });
+    { Schedule = EditingScheduleIdentity(w), Results = w.Results.OrderBy(p => p.Key.ProjectId).ThenBy(p => p.Key.MatchId), w.DayConfirmations });
 
     // Future Restore/Recover commands call this after successful publication and before SessionChanged,
     // including a same-ID, same-placement restoration. Ordinary audit/result publications do not rotate it.

@@ -92,7 +92,20 @@
           </Border>
         </Grid>
       </TabItem>
-      <TabItem Header="2  记录比赛结果"><views:ResultImportPanel x:Name="OperationsResultImport" DataContext="{Binding ResultImport}" /></TabItem>
+      <TabItem Header="2  记录比赛结果">
+        <Grid RowDefinitions="Auto,*">
+          <Border Classes="inset" Margin="0,14,0,0" Padding="16,12">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+              <StackPanel Spacing="4" VerticalAlignment="Center">
+                <TextBlock Text="直接在现场记录表中填写" FontWeight="SemiBold" />
+                <TextBlock Classes="muted" Text="每场填写完成后自动保存，并更新后续对阵。" TextWrapping="Wrap" />
+              </StackPanel>
+              <Button x:Name="OpenOnsiteRecords" Grid.Column="1" Content="打开现场记录表" Classes="primary" Command="{Binding OpenOnsiteRecordsCommand}" />
+            </Grid>
+          </Border>
+          <views:ResultImportPanel Grid.Row="1" x:Name="OperationsResultImport" DataContext="{Binding ResultImport}" />
+        </Grid>
+      </TabItem>
       <TabItem Header="3  查看比赛进展">
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="20" Margin="0,16,4,20">

@@ -1,0 +1,152 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BadmintonDraw.Desktop.ViewModels"
+        x:Class="BadmintonDraw.Desktop.Views.OnsiteRecordWindow" x:DataType="vm:OnsiteRecordViewModel"
+        Title="现场记录表" Width="1480" Height="820" MinWidth="1000" MinHeight="560"
+        CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource AppTextBrush}">
+  <Window.Styles>
+    <Style Selector="ListBox.onsite-table ListBoxItem">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+    </Style>
+    <Style Selector="ListBox.onsite-table ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AppSurfaceAltBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+    </Style>
+    <Style Selector="TextBox.onsite-cell">
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="Padding" Value="8,6" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="ComboBox.onsite-cell">
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="Padding" Value="8,5" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+  </Window.Styles>
+  <Grid Margin="18" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" RowSpacing="12">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="20">
+      <TextBlock Text="现场记录表" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center" />
+      <TextBlock Grid.Column="1" Text="{Binding Summary}" Classes="muted" VerticalAlignment="Center" />
+    </Grid>
+    <WrapPanel Grid.Row="1" Orientation="Horizontal">
+      <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,18,0">
+        <TextBlock Text="比赛日期" VerticalAlignment="Center" />
+        <ComboBox x:Name="OnsiteDay" ItemsSource="{Binding DayOptions}" SelectedItem="{Binding SelectedDay}"
+                  Width="170" AutomationProperties.Name="现场记录比赛日期" />
+      </StackPanel>
+      <ComboBox x:Name="OnsiteProject" ItemsSource="{Binding ProjectOptions}" SelectedItem="{Binding SelectedProject}"
+                IsVisible="{Binding ShowProjectFilter}" Width="200" Margin="0,0,18,0"
+                AutomationProperties.Name="现场记录项目范围">
+        <ComboBox.ItemTemplate>
+          <DataTemplate><TextBlock Text="{ReflectionBinding Name}" /></DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+      <TextBox x:Name="OnsiteSearch" Text="{Binding SearchText}" Width="300"
+               PlaceholderText="搜索选手、场次或场地" AutomationProperties.Name="搜索现场记录" />
+    </WrapPanel>
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+      <StackPanel Spacing="4" VerticalAlignment="Center">
+        <TextBlock Text="{Binding DaySummary}" TextWrapping="Wrap" />
+        <TextBlock Classes="muted" FontSize="13" TextWrapping="Wrap"
+                   Text="选择胜方和比赛结果后立即保存；比分、时长可稍后补充。" />
+      </StackPanel>
+      <Button x:Name="OnsiteConfirmDay" Grid.Column="1" Content="确认当天比赛结果" Classes="primary"
+              IsEnabled="{Binding CanConfirmDay}" Click="OnConfirmDay" VerticalAlignment="Center" />
+    </Grid>
+    <Border Grid.Row="3" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" ClipToBounds="True">
+      <ScrollViewer x:Name="OnsiteHorizontalScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+        <Grid RowDefinitions="Auto,*" MinWidth="1360">
+          <Border Background="{DynamicResource AppTableHeaderBackgroundBrush}" Padding="12,10">
+            <Grid ColumnDefinitions="58,122,150,230,190,180,130,*" ColumnSpacing="10">
+              <TextBlock Text="场次" Foreground="{DynamicResource AppTableHeaderTextBrush}" />
+              <TextBlock Grid.Column="1" Text="时间 / 场地" Foreground="{DynamicResource AppTableHeaderTextBrush}" />
+              <TextBlock Grid.Column="2" Text="项目 / 轮次" Foreground="{DynamicResource AppTableHeaderTextBrush}" />
+              <TextBlock Grid.Column="3" Text="对阵双方" Foreground="{DynamicResource AppTableHeaderTextBrush}" />
+              <TextBlock Grid.Column="4" Text="胜方 / 结果" Foreground="{DynamicResource AppTableHeaderTextBrush}" />
+              <TextBlock Grid.Column="5" Text="比分 / 时长" Foreground="{DynamicResource AppTableHeaderTextBrush}" />
+              <TextBlock Grid.Column="6" Text="实赛日期" Foreground="{DynamicResource AppTableHeaderTextBrush}" />
+              <TextBlock Grid.Column="7" Text="保存状态" Foreground="{DynamicResource AppTableHeaderTextBrush}" />
+            </Grid>
+          </Border>
+          <ListBox x:Name="OnsiteRows" Grid.Row="1" Classes="onsite-table" ItemsSource="{Binding VisibleRows}"
+                   BorderThickness="0" Background="{DynamicResource AppSurfaceBrush}"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="现场比赛记录表">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:OnsiteRecordRowViewModel">
+                <Border BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,0,0,1" Padding="12,12">
+                  <Grid ColumnDefinitions="58,122,150,230,190,180,130,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                    <TextBlock Text="{Binding OrderText}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <StackPanel Grid.Column="1" Spacing="5">
+                      <TextBlock Text="{Binding Day}" FontSize="12" Classes="muted" />
+                      <TextBlock Text="{Binding Time}" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding Court}" Classes="muted" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Spacing="5">
+                      <TextBlock Text="{Binding ProjectName}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding Phase}" FontSize="12" Classes="muted" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding GroupName}" FontSize="12" Classes="muted" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding Note}" FontSize="12" Classes="muted" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="3" Spacing="10">
+                      <TextBlock Text="{Binding SideA, StringFormat='A  {0}'}" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding SideB, StringFormat='B  {0}'}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="4" Spacing="7">
+                      <ComboBox x:Name="OnsiteWinner" Classes="onsite-cell" ItemsSource="{Binding WinnerOptions}"
+                                SelectedIndex="{Binding WinnerIndex}" IsEnabled="{Binding CanEdit}"
+                                AutomationProperties.Name="胜方" />
+                      <ComboBox x:Name="OnsiteKind" Classes="onsite-cell" ItemsSource="{Binding KindOptions}"
+                                SelectedIndex="{Binding KindIndex}" IsEnabled="{Binding CanEdit}"
+                                PlaceholderText="请选择结果" AutomationProperties.Name="比赛结果类型" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="5" Spacing="7">
+                      <TextBox x:Name="OnsiteScore" Classes="onsite-cell" Text="{Binding Score}" IsEnabled="{Binding CanEdit}"
+                               PlaceholderText="比分（选填）" AutomationProperties.Name="比赛比分" />
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="7">
+                        <TextBox x:Name="OnsiteDuration" Classes="onsite-cell" Text="{Binding Duration}" IsEnabled="{Binding CanEdit}"
+                                 PlaceholderText="时长（选填）" AutomationProperties.Name="比赛时长分钟" />
+                        <TextBlock Grid.Column="1" Text="分钟" Classes="muted" VerticalAlignment="Center" FontSize="12" />
+                      </Grid>
+                    </StackPanel>
+                    <TextBox x:Name="OnsiteActualDay" Grid.Column="6" Classes="onsite-cell" Text="{Binding ActualDay}"
+                             IsEnabled="{Binding CanEdit}" VerticalAlignment="Top" PlaceholderText="yyyy-MM-dd"
+                             AutomationProperties.Name="实际比赛日期" />
+                    <StackPanel Grid.Column="7" Spacing="7">
+                      <TextBlock Text="{Binding Status}" TextWrapping="Wrap" FontSize="12" />
+                      <Button x:Name="OnsiteDiscardRow" Content="放弃本行修改" Classes="quiet" FontSize="12" Padding="4,4" MinHeight="28"
+                              IsVisible="{Binding HasDraft}" Click="OnDiscardRow" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="3" Grid.ColumnSpan="5" IsVisible="{Binding HasDraft}">
+                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" IsVisible="{Binding NeedsCorrectionConsent}">
+                        <CheckBox x:Name="OnsiteAllowCorrection" Content="更正已保存的赛果" IsChecked="{Binding AllowCorrections}"
+                                  VerticalAlignment="Center" />
+                        <TextBox x:Name="OnsiteCorrectionReason" Grid.Column="1" Classes="onsite-cell" Text="{Binding CorrectionReason}"
+                                 PlaceholderText="填写更正原因" AutomationProperties.Name="赛果更正原因" />
+                      </Grid>
+                    </StackPanel>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Grid>
+      </ScrollViewer>
+    </Border>
+    <TextBlock x:Name="OnsiteCloseWarning" Grid.Row="4" IsVisible="False" Foreground="{DynamicResource AppErrorTextBrush}"
+               Text="仍有未保存的记录。请完成或修正对应行；如需舍弃这些填写，请点击“放弃未保存的修改”。" TextWrapping="Wrap" />
+    <Grid Grid.Row="5" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+      <StackPanel VerticalAlignment="Center" Spacing="5">
+        <TextBlock Text="{Binding StateMessage}" TextWrapping="Wrap" />
+        <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsWorking}" Height="3" />
+      </StackPanel>
+      <Button x:Name="OnsiteDiscardDrafts" Grid.Column="1" Content="放弃未保存的修改" Classes="quiet"
+              IsVisible="{Binding HasDrafts}" IsEnabled="{Binding !IsWorking}" Click="OnDiscardDrafts" />
+      <Button x:Name="OnsiteRetrySave" Grid.Column="2" Content="重试保存" Classes="secondary"
+              IsVisible="{Binding HasDrafts}" IsEnabled="{Binding !IsWorking}" Click="OnRetrySave" />
+    </Grid>
+  </Grid>
+</Window>

@@ -11,6 +11,28 @@ namespace BadmintonDraw.Tests;
 
 public sealed class WorkspaceResultImportFacadeTests
 {
+    [Fact]
+    public void WinnerOnlyImportPersistsNullMetadataAndSupplementationWithoutConsent()
+    {
+        using var f = new WorkspaceResultImportFacadeFixture(1, 2);
+        var path = f.Export();
+        Edit(path, sheet => { sheet.Cell(6, 9).Clear(); sheet.Cell(6, 10).Clear(); });
+        var preview = f.Workflow.PreviewResultImport([path]);
+        f.Workflow.ImportResults(preview, new(false, null), f.Revision);
+        var saved = new TournamentWorkspaceStore().Read(f.Session.WorkspacePath);
+        Assert.Equal("", saved.Results.Single().Value.Score);
+        Assert.Null(saved.Results.Single().Value.DurationMinutes);
+        Edit(path, sheet => { sheet.Cell(6, 9).Value = "21-10"; sheet.Cell(6, 10).Value = 20; });
+        preview = f.Workflow.PreviewResultImport([path]);
+        Assert.Equal(ResultImportEvaluationStatus.Ready, preview.Evaluation.Status);
+        f.Workflow.ImportResults(preview, new(false, null), f.Revision);
+        saved = new TournamentWorkspaceStore().Read(f.Session.WorkspacePath);
+        Assert.Equal("21-10", saved.Results.Single().Value.Score);
+        Assert.Equal(20, saved.Results.Single().Value.DurationMinutes);
+        Assert.Null(Assert.Single(saved.ResultHistory).Before.DurationMinutes);
+        Assert.False(string.IsNullOrWhiteSpace(saved.ResultHistory.Single().Reason));
+    }
+
     [Theory]
     [InlineData(1, 2)]
     [InlineData(2, 4)]

@@ -143,7 +143,7 @@ public sealed partial class TournamentWorkspaceWorkflow
         workspace.Id, workspace.Name, workspace.Kind, workspace.Purpose, workspace.Stage, workspace.Projects,
         workspace.Resources, workspace.Schedule,
         Results = workspace.Results.OrderBy(p => p.Key.ProjectId).ThenBy(p => p.Key.MatchId),
-        workspace.ProcessedDays, workspace.ImportLogs, workspace.ResultHistory, workspace.AuditEvents,
+        workspace.ProcessedDays, workspace.ImportLogs, workspace.ResultHistory, workspace.AuditEvents, workspace.DayConfirmations,
         workspace.CreatedAt, workspace.UpdatedAt, workspace.Revision
     });
 }

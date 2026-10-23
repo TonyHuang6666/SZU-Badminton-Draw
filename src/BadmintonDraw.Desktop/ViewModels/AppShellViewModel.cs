@@ -123,7 +123,7 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
     }
     public void StartNewWorkspace()
     {
-        if (IsBusy || !TryLeaveCurrentPage()) return;
+        if (IsBusy || !TryLeaveCurrentPage() || !TryLeaveOnsiteRecords()) return;
         LastError = null;
         Navigator.Navigate(WorkspaceRoute.NewWorkspace);
         DisposeCurrentPage();
@@ -241,7 +241,7 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         bool remember = false, bool markOpened = false, bool forceOverview = false, bool ensureWorkspacePage = false, bool requirePageLeave = false,
         WorkspaceSession? expectedSession = null)
     {
-        if (disposed || IsBusy || (requirePageLeave && !TryLeaveCurrentPage()) || Interlocked.CompareExchange(ref busy, 1, 0) != 0) return false;
+        if (disposed || IsBusy || (requirePageLeave && (!TryLeaveCurrentPage() || !TryLeaveOnsiteRecords())) || Interlocked.CompareExchange(ref busy, 1, 0) != 0) return false;
         LastError = null; LastCommandResult = null; Status = "正在处理，请稍候…"; RefreshAvailability();
         var succeeded = false;
         try
@@ -357,6 +357,7 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         if (LastCommandResult is { } result && (!ReferenceEquals(result.Workspace, session.Workspace) || result.WorkspacePath != session.WorkspacePath))
             LastCommandResult = null;
         CurrentSession = session;
+        RefreshOnsiteRecordsSession(session, sameWorkspace);
         Recovery.RefreshContext();
         Navigator.UpdateWorkspace(session.Workspace.Stage, session.Workspace.Purpose);
         if (!sameWorkspace) InvalidatePlayerEntriesWindow();
@@ -387,6 +388,7 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         if (CurrentPage is NewWorkspaceWizardViewModel wizard) wizard.RefreshCommands();
         if (CurrentPage is WorkspacePageViewModel page) page.RefreshAvailability();
         if (scheduleBoardPage is { } board && !ReferenceEquals(board, CurrentPage)) board.RefreshAvailability();
+        onsiteRecords?.RefreshAvailability();
     }
     public static string StageName(TournamentStage stage) => stage switch
     {
@@ -400,6 +402,8 @@ public sealed partial class AppShellViewModel : ViewModelBase, IDisposable
         DisposeCurrentPage();
         InvalidateBoardWindow();
         InvalidatePlayerEntriesWindow();
+        InvalidateOnsiteRecordsWindow();
+        OnsiteRecordWindowRequested = null; OnsiteRecordWindowInvalidated = null;
         BoardWindowRequested = null; PlayerEntriesWindowRequested = null; BoardWindowInvalidated = null; PlayerEntriesWindowInvalidated = null;
     }
 }

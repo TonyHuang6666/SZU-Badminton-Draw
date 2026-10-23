@@ -12,6 +12,7 @@ public sealed class OperationsPageViewModel : WorkspacePageViewModel, IDisposabl
     public WorkspaceOperationsHistory History { get; private set; }
     public DelegateCommand OpenRecoveryCommand { get; }
     public DelegateCommand OpenScheduleCommand { get; }
+    public DelegateCommand OpenOnsiteRecordsCommand { get; }
     public int SelectedTabIndex { get => selectedTabIndex; set => SetProperty(ref selectedTabIndex, value); }
     public int CompletedMatchCount => Session.Workspace.Results.Count;
     public int TotalMatchCount => Session.Workspace.Projects.Sum(p => p.MatchGraph?.Matches.Count(n => n.IsPlayable) ?? 0);
@@ -27,6 +28,7 @@ public sealed class OperationsPageViewModel : WorkspacePageViewModel, IDisposabl
         ResultImport = new(shell, session, pickResultFiles); Materials = new(shell, session, pickOutputDirectory);
         History = new(session.Workspace); OpenRecoveryCommand = shell.OpenRecoveryCommand;
         OpenScheduleCommand = new(() => shell.Navigate(WorkspaceRoute.ScheduleBoard), () => !disposed && shell.CanNavigate(WorkspaceRoute.ScheduleBoard));
+        OpenOnsiteRecordsCommand = new(shell.OpenOnsiteRecords, () => !disposed && shell.CanOpenOnsiteRecords);
     }
     public override void RefreshSession(WorkspaceSession next)
     {
@@ -41,10 +43,11 @@ public sealed class OperationsPageViewModel : WorkspacePageViewModel, IDisposabl
         if (disposed) return;
         ResultImport?.RefreshAvailability(); Materials?.RefreshAvailability();
         OpenScheduleCommand?.NotifyCanExecuteChanged();
+        OpenOnsiteRecordsCommand?.NotifyCanExecuteChanged();
     }
     public void Dispose()
     {
         if (disposed) return;
-        disposed = true; ResultImport.Dispose(); Materials.Dispose(); OpenScheduleCommand.NotifyCanExecuteChanged();
+        disposed = true; ResultImport.Dispose(); Materials.Dispose(); OpenScheduleCommand.NotifyCanExecuteChanged(); OpenOnsiteRecordsCommand.NotifyCanExecuteChanged();
     }
 }

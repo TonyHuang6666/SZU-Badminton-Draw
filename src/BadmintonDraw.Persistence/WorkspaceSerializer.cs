@@ -12,7 +12,8 @@ internal static class WorkspaceSerializer
     // Presence/count metadata detects removed rows even when the resulting domain object could otherwise be valid.
     private sealed record Header(Guid Id, string Name, TournamentKind Kind, TournamentPurpose Purpose, TournamentStage Stage,
         DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, long Revision, int ProjectCount, int ResultCount, int AuditCount,
-        bool HasResources, bool HasSchedule, int ProcessedDayCount, int ImportLogCount, int ResultHistoryCount);
+        bool HasResources, bool HasSchedule, int ProcessedDayCount, int ImportLogCount, int ResultHistoryCount,
+        IReadOnlyList<WorkspaceDayConfirmation>? DayConfirmations = null, int? DayConfirmationCount = null);
     private sealed record ProjectHeader(Guid Id, EventDiscipline Discipline, string DisplayName, CompetitionMode CompetitionMode,
         int SortOrder, bool HasRoster, bool HasDraw, bool HasGraph);
     private sealed record ScheduleData(IReadOnlyDictionary<Guid, MatchPlacement> Placements, TournamentSchedulingPolicy Policy,
@@ -24,7 +25,7 @@ internal static class WorkspaceSerializer
         foreach (var table in WorkspaceDatabaseSchema.Tables.Reverse()) Execute(c, tx, $"DELETE FROM {table}");
         Insert(c, tx, "workspace", ["id", "json"], w.Id, Json(new Header(w.Id, w.Name, w.Kind, w.Purpose, w.Stage, w.CreatedAt, w.UpdatedAt, w.Revision,
             w.Projects.Count, w.Results.Count, w.AuditEvents.Count, w.Resources is not null, w.Schedule is not null,
-            w.ProcessedDays.Count, w.ImportLogs.Count, w.ResultHistory.Count)));
+            w.ProcessedDays.Count, w.ImportLogs.Count, w.ResultHistory.Count, w.DayConfirmations, w.DayConfirmations.Count)));
         for (var i = 0; i < w.Projects.Count; i++)
         {
             var p = w.Projects[i];
@@ -46,6 +47,8 @@ internal static class WorkspaceSerializer
     {
         var heads = Rows(c, "workspace"); Require(heads.Count == 1, "缺少或重复工作区记录。");
         var h = Parse<Header>(heads[0]); Require(heads[0]["id"] == h.Id.ToString(), "工作区身份不匹配。");
+        Require(h.DayConfirmations is null ? h.DayConfirmationCount is null : h.DayConfirmationCount == h.DayConfirmations.Count,
+            "比赛日确认记录缺失。");
         var rosters = Rows(c, "project_rosters"); var draws = Rows(c, "project_draws"); var graphs = Rows(c, "match_graphs");
         var projects = Rows(c, "projects", "ordinal").Select(row =>
         {
@@ -72,7 +75,7 @@ internal static class WorkspaceSerializer
             "处理比赛日、导入日志或更正历史记录缺失。");
         var w = new TournamentWorkspace(h.Id, h.Name, h.Kind, h.Purpose, h.Stage, projects, resources,
             sd is null ? null : new(sd.Placements, resources ?? throw new InvalidDataException("赛程缺少资源。"), sd.Policy, sd.GraphRevisions, sd.Revision), results, audit, h.CreatedAt, h.UpdatedAt, h.Revision)
-        { ProcessedDays = days, ImportLogs = logs, ResultHistory = history };
+        { ProcessedDays = days, ImportLogs = logs, ResultHistory = history, DayConfirmations = h.DayConfirmations ?? [] };
         TournamentWorkspaceRules.Validate(w); return w;
     }
     private static T? Optional<T>(List<Dictionary<string, string>> rows, string key, Guid id, bool expected) where T : class

@@ -17,7 +17,9 @@ public sealed class WorkspaceOperationsHistory
         var captions = workspace.Projects.SelectMany(p => (p.MatchGraph?.Matches ?? []).Select(n =>
             (Key: new WorkspaceMatchKey(p.Id, n.Id), Caption: p.DisplayName + " · " + n.DisplayName))).ToDictionary(x => x.Key, x => x.Caption);
         string Caption(WorkspaceMatchKey key) => $"{captions.GetValueOrDefault(key, "历史引用")}\n项目：{key.ProjectId:D}；比赛：{key.MatchId:D}";
-        string Source(WorkspaceImportLog log) => $"回执：{log.Id:D}\n文件：{log.SourceFileName}\n路径：{log.SourcePath}\nSHA-256：{log.ContentHash}";
+        string Source(WorkspaceImportLog log) => log.SourcePath.StartsWith("onsite://", StringComparison.Ordinal)
+            ? $"回执：{log.Id:D}\n来源：{log.SourceFileName}\n记录标识：{log.SourcePath}\nSHA-256：{log.ContentHash}"
+            : $"回执：{log.Id:D}\n文件：{log.SourceFileName}\n路径：{log.SourcePath}\nSHA-256：{log.ContentHash}";
         Results = List(workspace.Results.Values.Select(r => Caption(r.Key) + "\n" + Result(r)));
         Coverage = List(workspace.ProcessedDays.Select(day =>
             $"{day.Day:yyyy-MM-dd} · 有效导入记录覆盖（非当日完赛）\n更新时间：{day.UpdatedAt:O}\n" +
@@ -45,7 +47,7 @@ public sealed class WorkspaceOperationsHistory
 
     private static IReadOnlyList<string> List(IEnumerable<string> values) => Array.AsReadOnly(values.ToArray());
     private static string Result(TournamentMatchResult result) =>
-        $"种类：{result.Kind}；比分：{result.Score}；实际用时：{result.DurationMinutes} 分钟\n实际比赛日：{result.ActualPlayedDay?.ToString("yyyy-MM-dd") ?? "未知"}；记录时间：{result.RecordedAt:O}\n" +
+        $"种类：{result.Kind}；比分：{(string.IsNullOrWhiteSpace(result.Score) ? "未填写" : result.Score)}；实际用时：{(result.DurationMinutes is { } minutes ? $"{minutes} 分钟" : "未填写")}\n实际比赛日：{result.ActualPlayedDay?.ToString("yyyy-MM-dd") ?? "未知"}；记录时间：{result.RecordedAt:O}\n" +
         "胜方：" + Entrant(result.Winner) + "\n负方：" + Entrant(result.Loser);
     private static string Entrant(EntrantSource.Participant entrant) => $"{entrant.DisplayName} [{entrant.IdentityKey}]\n" +
         string.Join("\n", entrant.Players.Select(p => $"姓名：{p.Name}；学号：{p.StudentId}；团体身份：{p.IsTeam}；身份键：{p.IdentityKey}"));

@@ -27,7 +27,7 @@ public sealed partial class WorkspaceResultImportViewModel
     }));
     private static string ResultFacts(TournamentMatchResult result) =>
         $"胜方：{Entrant(result.Winner)}\n负方：{Entrant(result.Loser)}\n类型：{(result.Kind == TournamentResultKind.Played ? "正常" : "弃权")} [{result.Kind}]；" +
-        $"比分：{result.Score}；时长：{result.DurationMinutes} 分钟；实际比赛日期：{result.ActualPlayedDay?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "未知"}";
+        $"比分：{(string.IsNullOrWhiteSpace(result.Score) ? "未填写" : result.Score)}；时长：{(result.DurationMinutes is { } minutes ? $"{minutes} 分钟" : "未填写")}；实际比赛日期：{result.ActualPlayedDay?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "未知"}";
     private static string Entrant(EntrantSource.Participant participant) => $"{participant.DisplayName} / {participant.IdentityKey}\n" +
         string.Join("\n", participant.Players.Select(p => $"选手：{p.Name}；学号：{p.StudentId}；身份：{p.IdentityKey}；团体：{p.IsTeam}"));
     private static string Attribution(ResultImportSource? source) => source is null ? "全局诊断（未指定文件或行）。" :

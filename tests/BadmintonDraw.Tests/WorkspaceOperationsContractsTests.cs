@@ -51,7 +51,7 @@ public sealed class WorkspaceOperationsContractsTests
     }
 
     [Theory]
-    [InlineData(TournamentResultKind.Played, "", 20)]
+    [InlineData(TournamentResultKind.Played, "21-10", -1)]
     [InlineData(TournamentResultKind.Played, "21-10", 0)]
     [InlineData(TournamentResultKind.Walkover, "", 1)]
     [InlineData(TournamentResultKind.Walkover, "", -1)]

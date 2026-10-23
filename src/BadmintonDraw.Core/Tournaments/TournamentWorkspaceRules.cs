@@ -68,6 +68,7 @@ public static class TournamentWorkspaceRules
             Require(nodes.Where(n => n.IsPlayable).All(n => workspace.Results.ContainsKey(new(n.ProjectId, n.Id))),
                 "stage.completed", "全部需要进行的比赛均有有效赛果后才能完成赛事。");
         WorkspaceOperationsRules.Validate(workspace);
+        WorkspaceDayConfirmationRules.Validate(workspace);
     }
 
     public static TournamentWorkspace Transition(TournamentWorkspace workspace, TournamentStage target)
@@ -98,7 +99,7 @@ public static class TournamentWorkspaceRules
         Require(project?.Draw?.ConfirmedAt is not null, "draw.confirmed", "项目不存在或抽签尚未确认。");
         var audit = new WorkspaceAuditEvent(Guid.NewGuid(), "DrawReopened", DateTimeOffset.UtcNow, projectId, Detail: reason);
         var candidate = WorkspaceOperationsRules.InvalidatePendingReceipts(workspace with
-            { Stage = TournamentStage.RostersReady, Schedule = null, Resources = null,
+            { Stage = TournamentStage.RostersReady, Schedule = null, Resources = null, DayConfirmations = [],
                 Projects = workspace.Projects.Select(p => p.Id == projectId ? p with { MatchGraph = null, Draw = null } : p).ToArray() }, audit, reason);
         Validate(candidate);
         return candidate;

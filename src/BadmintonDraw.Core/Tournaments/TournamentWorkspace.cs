@@ -11,12 +11,14 @@ public sealed record TournamentWorkspace(Guid Id, string Name, TournamentKind Ki
     private IReadOnlyDictionary<WorkspaceMatchKey, TournamentMatchResult> results = WorkspaceSnapshot.Dictionary(Results);
     private IReadOnlyList<WorkspaceAuditEvent> auditEvents = WorkspaceSnapshot.List(AuditEvents);
     private IReadOnlyList<WorkspaceProcessedDay> processedDays = WorkspaceSnapshot.List(Array.Empty<WorkspaceProcessedDay>());
+    private IReadOnlyList<WorkspaceDayConfirmation> dayConfirmations = WorkspaceSnapshot.List(Array.Empty<WorkspaceDayConfirmation>());
     private IReadOnlyList<WorkspaceImportLog> importLogs = WorkspaceSnapshot.List(Array.Empty<WorkspaceImportLog>());
     private IReadOnlyList<WorkspaceResultHistory> resultHistory = WorkspaceSnapshot.List(Array.Empty<WorkspaceResultHistory>());
     public IReadOnlyList<TournamentProject> Projects { get => projects; init => projects = WorkspaceSnapshot.List(value); }
     public IReadOnlyDictionary<WorkspaceMatchKey, TournamentMatchResult> Results { get => results; init => results = WorkspaceSnapshot.Dictionary(value); }
     public IReadOnlyList<WorkspaceAuditEvent> AuditEvents { get => auditEvents; init => auditEvents = WorkspaceSnapshot.List(value); }
     public IReadOnlyList<WorkspaceProcessedDay> ProcessedDays { get => processedDays; init => processedDays = WorkspaceSnapshot.List(value); }
+    public IReadOnlyList<WorkspaceDayConfirmation> DayConfirmations { get => dayConfirmations; init => dayConfirmations = WorkspaceSnapshot.List(value); }
     public IReadOnlyList<WorkspaceImportLog> ImportLogs { get => importLogs; init => importLogs = WorkspaceSnapshot.List(value); }
     public IReadOnlyList<WorkspaceResultHistory> ResultHistory { get => resultHistory; init => resultHistory = WorkspaceSnapshot.List(value); }
     public static TournamentWorkspace Create(string name, TournamentKind kind, TournamentPurpose purpose,

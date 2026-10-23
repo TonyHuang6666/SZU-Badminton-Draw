@@ -69,6 +69,7 @@ public sealed partial class TournamentWorkspaceWorkflow
             return WorkspaceOperationsRules.InvalidatePendingReceipts(workspace with
             {
                 Schedule = success.Schedule,
+                DayConfirmations = [],
                 Resources = success.Schedule.Resources,
                 Stage = TournamentStage.ScheduleReady
             }, audit, "赛程已重新生成，原待处理记录作废；请重新导出记录表。");

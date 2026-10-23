@@ -139,6 +139,25 @@ public sealed class WorkspaceMatchRecordWriterTests : IDisposable
         Assert.Equal(WorkspaceRecordCellKind.Empty, row.ActualPlayedDay.Kind);
     }
 
+    [Theory]
+    [InlineData(TournamentResultKind.Played)]
+    [InlineData(TournamentResultKind.Walkover)]
+    public void MissingMetadataExportsAsEmptyCells(TournamentResultKind kind)
+    {
+        var workspace = WorkspaceRecordExportTestData.Create();
+        var project = workspace.Projects[0]; var node = project.MatchGraph!.Matches[0];
+        var key = new WorkspaceMatchKey(project.Id, node.Id);
+        var result = new TournamentMatchResult(key, (EntrantSource.Participant)node.SideA,
+            (EntrantSource.Participant)node.SideB, "", null, DateTimeOffset.UtcNow) { Kind = kind };
+        workspace = workspace with { Stage = TournamentStage.InProgress,
+            Results = new Dictionary<WorkspaceMatchKey, TournamentMatchResult> { [key] = result } };
+        var path = PathFor("missing-metadata");
+        new WorkspaceMatchRecordWriter().Write(path, new(workspace), [new(key, new(2026, 9, 13))]);
+        var row = Assert.Single(new WorkspaceMatchRecordReader().ReadWorkspaceRecord(File.ReadAllBytes(path)).Rows);
+        Assert.Equal(WorkspaceRecordCellKind.Empty, row.Score.Kind);
+        Assert.Equal(WorkspaceRecordCellKind.Empty, row.Duration.Kind);
+    }
+
     [Fact]
     public void CoverageDayDoesNotPresentUnscheduledCarryoverAsANewPlacement()
     {

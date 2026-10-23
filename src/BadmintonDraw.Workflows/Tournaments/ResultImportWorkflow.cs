@@ -42,7 +42,7 @@ public sealed partial class ResultImportWorkflow
             var results = workspace.Results.ToDictionary();
             EvaluateResults(results);
             if (Blocked) return Finish(ResultImportEvaluationStatus.Rejected);
-            if (corrections.Count > 0 && (!options.AllowCorrections || string.IsNullOrWhiteSpace(options.CorrectionReason)))
+            if (changes.Any(c => c.Before is not null && !c.Supplementation) && (!options.AllowCorrections || string.IsNullOrWhiteSpace(options.CorrectionReason)))
             {
                 Error("result.correction-confirmation", "赛果元数据发生变化，请明确允许更正并填写人工核对原因。");
                 return Finish(ResultImportEvaluationStatus.RequiresConfirmation);
@@ -98,7 +98,7 @@ public sealed partial class ResultImportWorkflow
                     { Error("result.correction-time", "更正时间早于已有赛果记录时间，请检查系统时间并重新检查记录表。", owner.Source); continue; }
                     corrections.Add(new(current, result, owner.Source));
                 }
-                changes.Add(new(owner, result, current)); results[key] = result;
+                changes.Add(new(owner, result, current, current is not null && ResultImportValueParser.Supplementation(current, result, project.Discipline == EventDiscipline.Team))); results[key] = result;
             }
         }
 
@@ -108,10 +108,15 @@ public sealed partial class ResultImportWorkflow
             if (string.Equals(text, "A", StringComparison.OrdinalIgnoreCase) || text == WorkspaceWinnerOptionText.Normalize(WorkspaceWinnerOptionText.Format(ScheduleMatchSide.SideA, a.DisplayName))) sideA = true;
             else if (string.Equals(text, "B", StringComparison.OrdinalIgnoreCase) || text == WorkspaceWinnerOptionText.Normalize(WorkspaceWinnerOptionText.Format(ScheduleMatchSide.SideB, b.DisplayName))) sideA = false;
             else { Error("result.winner-option", "请选择 A/B 或与当前真实参赛方一致的完整下拉选项，不能只填写姓名或修改选项标题。", row.Source with { Field = "Winner" }); return null; }
-            if (!ResultImportValueParser.Duration(raw.Duration, out var duration) || (row.Kind == TournamentResultKind.Played ? duration <= 0 : duration != 0))
-            { Error("result.duration", "正常赛果需要正整数分钟（如 18、18m、18分钟）；明确弃权需要填写 0。", row.Source with { Field = "Duration" }); return null; }
+            int? duration = null;
+            if (!ResultImportValueParser.Blank(raw.Duration))
+            {
+                if (!ResultImportValueParser.Duration(raw.Duration, out var minutes) || (row.Kind == TournamentResultKind.Played ? minutes <= 0 : minutes != 0))
+                { Error("result.duration", "用时可留空；正常赛果填写正整数分钟（如 18、18m、18分钟）；明确弃权只可填写 0。", row.Source with { Field = "Duration" }); return null; }
+                duration = minutes;
+            }
             var score = raw.Score.Text.Trim();
-            if (row.Kind == TournamentResultKind.Played)
+            if (row.Kind == TournamentResultKind.Played && score.Length > 0)
             {
                 if (!ResultImportValueParser.Score(score, team, out score, out var scoreSideA))
                 { Error("result.score-format", team ? "团体赛请填写一组非平局总比分，如 3-2；退赛等其他格式暂不支持。" : "请填写一局非平局比分如 21-19，或已结束的三局两胜比分如 21-19, 19-21, 21-18；退赛等其他格式暂不支持。", row.Source with { Field = "Score" }); return null; }
@@ -142,12 +147,12 @@ public sealed partial class ResultImportWorkflow
             {
                 var id = DerivedId($"history:{change.Result.Key.ProjectId:D}:{change.Result.Key.MatchId:D}"); Reserve(id);
                 history.Add(new(id, history.Count + 1L, change.Result.Key, change.Before!, change.Result, logIds[change.Owner.Source.ContentHash],
-                    change.Owner.Raw.Location, options.ImportedAt, options.CorrectionReason!.Trim()));
+                    change.Owner.Raw.Location, options.ImportedAt, change.Supplementation ? "元数据补齐" : options.CorrectionReason!.Trim()));
             }
             if (Blocked) return Finish(ResultImportEvaluationStatus.Rejected);
             var allLogs = workspace.ImportLogs.Concat(logs).ToArray();
             var detail = JsonSerializer.Serialize(new { Hashes = logs.Select(l => l.ContentHash).ToArray(), AddedResults = changes.Count(c => c.Before is null),
-                Corrections = corrections.Count, Reason = corrections.Count == 0 ? null : options.CorrectionReason!.Trim() });
+                Corrections = corrections.Count, Reason = corrections.Count == 0 ? null : options.CorrectionReason?.Trim() ?? "元数据补齐" });
             var candidate = workspace with { Results = results, ImportLogs = allLogs, ResultHistory = history,
                 ProcessedDays = WorkspaceOperationsRules.BuildProcessedDays(allLogs), AuditEvents = [..workspace.AuditEvents, new(options.OperationId, "ResultsImported", options.ImportedAt, Detail: detail)] };
             try
@@ -184,6 +189,6 @@ public sealed partial class ResultImportWorkflow
         private sealed class PreparedFile(WorkspaceRecordImportFile raw, ResultImportSource source, IReadOnlyList<PreparedRow> rows)
         { internal WorkspaceRecordImportFile Raw { get; } = raw; internal ResultImportSource Source { get; } = source; internal IReadOnlyList<PreparedRow> Rows { get; } = rows; internal ResultImportFileStatus Status { get; set; } = ResultImportFileStatus.New; }
         private sealed record PreparedRow(WorkspaceRecordRawRow Raw, ResultImportSource Source, WorkspaceMatchKey Key, DateOnly RecordDay, DateOnly? ActualDay, TournamentResultKind Kind, bool HasWinner);
-        private sealed record Change(PreparedRow Owner, TournamentMatchResult Result, TournamentMatchResult? Before);
+        private sealed record Change(PreparedRow Owner, TournamentMatchResult Result, TournamentMatchResult? Before, bool Supplementation);
     }
 }

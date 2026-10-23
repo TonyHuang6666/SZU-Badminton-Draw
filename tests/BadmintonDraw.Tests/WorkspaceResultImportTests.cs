@@ -41,7 +41,6 @@ public sealed class WorkspaceResultImportTests
     }
 
     [Theory]
-    [InlineData("", "20")]
     [InlineData("21-21", "20")]
     [InlineData("19-21", "20")]
     [InlineData("21-19,19-21", "20")]
@@ -72,6 +71,72 @@ public sealed class WorkspaceResultImportTests
         Assert.Equal("", Ready(Evaluate(source, [File(row with { Score = Empty })])).Results.Single().Value.Score);
         Rejected(Evaluate(source, [File(row with { Duration = Cell("1") })]));
         Rejected(Evaluate(source, [File(row with { ResultKind = Empty, Score = Empty })]));
+    }
+
+    [Theory]
+    [InlineData("", "")]
+    [InlineData("", "20")]
+    [InlineData("21-10", "")]
+    public void PlayedResultAllowsIndependentOptionalMetadata(string score, string duration)
+    {
+        var source = Fixture();
+        var result = Ready(Evaluate(source, [File(Row(source) with { Score = Cell(score), Duration = Cell(duration) })])).Results.Single().Value;
+        Assert.Equal(score, result.Score);
+        Assert.Equal(duration == "" ? (int?)null : 20, result.DurationMinutes);
+    }
+
+    [Fact]
+    public void WalkoverAllowsMissingDurationAndKeepsItMissing()
+    {
+        var source = Fixture();
+        var result = Ready(Evaluate(source, [File(Row(source) with { ResultKind = Cell("弃权"), Score = Empty, Duration = Empty })])).Results.Single().Value;
+        Assert.Null((int?)result.DurationMinutes);
+    }
+
+    [Fact]
+    public void SupplementingMissingMetadataNeedsNoCorrectionConsentButRetainsHistory()
+    {
+        var source = Fixture();
+        var initial = Ready(Evaluate(source, [File(Row(source) with { Score = Empty, Duration = Empty })]));
+        var evaluation = Evaluate(initial, [File(Row(initial), 'b')]);
+        var supplemented = Ready(evaluation);
+        Assert.Equal("21-10", supplemented.Results.Single().Value.Score);
+        Assert.Equal(20, supplemented.Results.Single().Value.DurationMinutes);
+        Assert.Single(supplemented.ResultHistory);
+        var overwrite = Evaluate(supplemented, [File(Row(supplemented) with { Duration = Cell("25") }, 'c')]);
+        Assert.Equal(ResultImportEvaluationStatus.RequiresConfirmation, overwrite.Status);
+    }
+
+    [Theory]
+    [InlineData("", "20")]
+    [InlineData("21-10", "")]
+    public void SupplementingOneMissingFieldPreservesExistingMetadata(string score, string duration)
+    {
+        var source = Fixture();
+        var initial = Ready(Evaluate(source, [File(Row(source) with { Score = Cell(score), Duration = Cell(duration) })]));
+        var supplemented = Ready(Evaluate(initial, [File(Row(initial), 'b')]));
+        Assert.Equal("21-10", supplemented.Results.Single().Value.Score);
+        Assert.Equal(20, supplemented.Results.Single().Value.DurationMinutes);
+        Assert.Single(supplemented.ResultHistory);
+    }
+
+    [Theory]
+    [InlineData("score")]
+    [InlineData("duration")]
+    [InlineData("kind")]
+    [InlineData("day")]
+    public void ClearingExistingMetadataOrChangingKindOrDayStillRequiresConsent(string field)
+    {
+        var source = Fixture(); var row = Row(source);
+        var initial = Ready(Evaluate(source, [File(row)]));
+        var changed = field switch
+        {
+            "score" => row with { Score = Empty },
+            "duration" => row with { Duration = Empty },
+            "kind" => row with { ResultKind = Cell("弃权"), Score = Empty, Duration = Empty },
+            _ => row with { ActualPlayedDay = Cell("2026-09-14") }
+        };
+        Assert.Equal(ResultImportEvaluationStatus.RequiresConfirmation, Evaluate(initial, [File(changed, 'b')]).Status);
     }
 
     [Fact]

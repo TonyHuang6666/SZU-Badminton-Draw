@@ -74,10 +74,16 @@ internal static class ResultImportValueParser
     }
 
     internal static bool Equivalent(TournamentMatchResult current, TournamentMatchResult proposed, bool team)
+        => TournamentResultRules.SameMetadata(CanonicalMetadata(current, team), proposed);
+
+    internal static bool Supplementation(TournamentMatchResult current, TournamentMatchResult proposed, bool team)
+        => TournamentResultRules.IsMetadataSupplementation(CanonicalMetadata(current, team), proposed);
+
+    private static TournamentMatchResult CanonicalMetadata(TournamentMatchResult current, bool team)
     {
         var score = current.Score;
         if (current.Kind == TournamentResultKind.Played && Score(score, team, out var canonical, out _)) score = canonical;
         else if (current.Kind == TournamentResultKind.Walkover) score = score.Trim();
-        return current.Kind == proposed.Kind && score == proposed.Score && current.DurationMinutes == proposed.DurationMinutes && current.ActualPlayedDay == proposed.ActualPlayedDay;
+        return current with { Score = score };
     }
 }

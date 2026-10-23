@@ -8,8 +8,8 @@ public static class TournamentResultRules
     public static bool IsValidValue(TournamentMatchResult result, IEnumerable<DateOnly> resourceDates) =>
         ParticipantValid(result.Winner) && ParticipantValid(result.Loser) &&
         result.Score is not null && result.RecordedAt != default && Enum.IsDefined(result.Kind) &&
-        (result.Kind == TournamentResultKind.Walkover ? result.DurationMinutes == 0 :
-            result.DurationMinutes > 0 && !string.IsNullOrWhiteSpace(result.Score)) &&
+        (result.Kind == TournamentResultKind.Walkover ? result.DurationMinutes is null or 0 :
+            result.DurationMinutes is null or > 0) &&
         (result.ActualPlayedDay is null || resourceDates.Contains(result.ActualPlayedDay.Value));
 
     public static bool SameParticipants(TournamentMatchResult a, TournamentMatchResult b) =>
@@ -17,6 +17,11 @@ public static class TournamentResultRules
 
     public static bool SameMetadata(TournamentMatchResult a, TournamentMatchResult b) =>
         a.Kind == b.Kind && a.Score == b.Score && a.DurationMinutes == b.DurationMinutes && a.ActualPlayedDay == b.ActualPlayedDay;
+
+    public static bool IsMetadataSupplementation(TournamentMatchResult before, TournamentMatchResult after) =>
+        before.Kind == after.Kind && before.ActualPlayedDay == after.ActualPlayedDay &&
+        (before.Score == after.Score || string.IsNullOrWhiteSpace(before.Score) && !string.IsNullOrWhiteSpace(after.Score)) &&
+        (before.DurationMinutes == after.DurationMinutes || before.DurationMinutes is null && after.DurationMinutes is not null);
 
     internal static bool SameVersion(TournamentMatchResult a, TournamentMatchResult b) =>
         a.Key == b.Key && SameParticipants(a, b) && SameMetadata(a, b) && a.RecordedAt == b.RecordedAt;

@@ -87,8 +87,8 @@ public sealed class WorkspaceMatchRecordWriter
         sheet.Cell(row, DrawConfirmedAt).Value = project.Draw!.ConfirmedAt!.Value.ToString("O", CultureInfo.InvariantCulture);
         if (result is not null)
         {
-            sheet.Cell(row, Score).Value = result.Score;
-            sheet.Cell(row, Duration).Value = result.DurationMinutes;
+            if (!string.IsNullOrWhiteSpace(result.Score)) sheet.Cell(row, Score).Value = result.Score;
+            if (result.DurationMinutes is { } minutes) sheet.Cell(row, Duration).Value = minutes;
             sheet.Cell(row, ResultKind).Value = result.Kind == TournamentResultKind.Walkover ? "弃权" : "正常";
             if (result.ActualPlayedDay is { } actual) sheet.Cell(row, ActualPlayedDay).Value = actual.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var a = context.ResolveParticipant(node.ProjectId, node.SideA)!;
