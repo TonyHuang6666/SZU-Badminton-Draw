@@ -9,6 +9,7 @@
   { "Path": "algorithm.md", "SourcePath": "docs/algorithm.md", "Title": "算法说明", "Category": "技术参考" },
   { "Path": "architecture.md", "SourcePath": "docs/architecture.md", "Title": "系统架构", "Category": "技术参考" },
   { "Path": "build.md", "SourcePath": "docs/build.md", "Title": "构建、验收与打包", "Category": "技术参考" },
+  { "Path": "releases/v5.0.4.md", "SourcePath": "docs/releases/v5.0.4.md", "Title": "5.0.4 发布说明", "Category": "技术参考" },
   { "Path": "releases/v5.0.3.md", "SourcePath": "docs/releases/v5.0.3.md", "Title": "5.0.3 发布说明", "Category": "技术参考" },
   { "Path": "releases/v5.0.2.md", "SourcePath": "docs/releases/v5.0.2.md", "Title": "5.0.2 发布说明", "Category": "技术参考" },
   { "Path": "releases/v5.0.1.md", "SourcePath": "docs/releases/v5.0.1.md", "Title": "5.0.1 发布说明", "Category": "技术参考" },
